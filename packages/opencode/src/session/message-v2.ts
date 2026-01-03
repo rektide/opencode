@@ -163,6 +163,7 @@ export namespace MessageV2 {
     description: z.string(),
     agent: z.string(),
     command: z.string().optional(),
+    parent_session_id: z.string().optional(),
   })
   export type SubtaskPart = z.infer<typeof SubtaskPart>
 

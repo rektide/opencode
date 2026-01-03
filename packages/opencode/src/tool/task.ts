@@ -27,10 +27,18 @@ export const TaskTool = Tool.define("task", async () => {
       subagent_type: z.string().describe("The type of specialized agent to use for this task"),
       session_id: z.string().describe("Existing Task session to continue").optional(),
       command: z.string().describe("The command that triggered this task").optional(),
+      parent_session_id: z
+        .string()
+        .describe("The parent session ID this subtask session was created from. Used to report context to the agent.")
+        .optional(),
     }),
     async execute(params, ctx) {
       const agent = await Agent.get(params.subagent_type)
       if (!agent) throw new Error(`Unknown agent type: ${params.subagent_type} is not a valid agent type`)
+      
+      // Use explicit parent_session_id if provided, otherwise use current session
+      const parentSessionID = params.parent_session_id ?? ctx.sessionID
+      
       const session = await iife(async () => {
         if (params.session_id) {
           const found = await Session.get(params.session_id).catch(() => {})
@@ -38,7 +46,7 @@ export const TaskTool = Tool.define("task", async () => {
         }
 
         return await Session.create({
-          parentID: ctx.sessionID,
+          parentID: parentSessionID,
           title: params.description + ` (@${agent.name} subagent)`,
         })
       })
@@ -86,7 +94,20 @@ export const TaskTool = Tool.define("task", async () => {
       }
       ctx.abort.addEventListener("abort", cancel)
       using _ = defer(() => ctx.abort.removeEventListener("abort", cancel))
-      const promptParts = await SessionPrompt.resolvePromptParts(params.prompt)
+      
+      // Enhance prompt with parent session context if provided
+      let enhancedPrompt = params.prompt
+      if (params.parent_session_id && params.parent_session_id !== ctx.sessionID) {
+        enhancedPrompt = `You are working in a child session (session ID: ${session.id}) that was created as a subtask from parent session ${params.parent_session_id}.\n\n` +
+          `Your task is to:\n\n${params.prompt}\n\n` +
+          `Remember: you are operating in a child session. The parent session ID is ${params.parent_session_id}. ` +
+          `When you need to reference or compact the parent session, use that session ID.`
+      } else if (params.parent_session_id) {
+        enhancedPrompt = `You are working in a child session (session ID: ${session.id}) that was created as a subtask from the current session (${params.parent_session_id}).\n\n` +
+          `Your task is to:\n\n${params.prompt}`
+      }
+      
+      const promptParts = await SessionPrompt.resolvePromptParts(enhancedPrompt)
 
       const config = await Config.get()
       const result = await SessionPrompt.prompt({

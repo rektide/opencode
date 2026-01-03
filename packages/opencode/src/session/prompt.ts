@@ -327,6 +327,7 @@ export namespace SessionPrompt {
               description: task.description,
               subagent_type: task.agent,
               command: task.command,
+              parent_session_id: task.parent_session_id,
             },
             time: {
               start: Date.now(),
@@ -338,6 +339,7 @@ export namespace SessionPrompt {
           description: task.description,
           subagent_type: task.agent,
           command: task.command,
+          parent_session_id: task.parent_session_id,
         }
         await Plugin.trigger(
           "tool.execute.before",
@@ -1287,6 +1289,32 @@ export namespace SessionPrompt {
     const raw = input.arguments.match(argsRegex) ?? []
     const args = raw.map((arg) => arg.replace(quoteTrimRegex, ""))
 
+    // Parse optional --session-id or --session-id=value flag
+    let parentSessionID: string | undefined = undefined
+    const sessionIdFlagIndex = args.findIndex((arg) => arg.startsWith("--session-id"))
+    if (sessionIdFlagIndex >= 0) {
+      const flag = args[sessionIdFlagIndex]
+      if (flag.includes("=")) {
+        parentSessionID = flag.split("=", 2)[1]
+      } else if (sessionIdFlagIndex + 1 < args.length) {
+        parentSessionID = args[sessionIdFlagIndex + 1]
+      }
+      // Remove the flag and its value from args
+      args.splice(sessionIdFlagIndex, flag.includes("=") ? 1 : 2)
+    } else {
+      // Also check if first argument looks like a session ID (alphanumeric, 20+ chars)
+      // This allows `/handoff abc123def456... guidance text` syntax
+      if (args.length > 0 && /^[a-zA-Z0-9]{20,}$/.test(args[0])) {
+        parentSessionID = args[0]
+        args.shift()
+      }
+    }
+
+    // If no explicit session ID provided, use current session as parent
+    if (!parentSessionID) {
+      parentSessionID = input.sessionID
+    }
+
     const placeholders = command.template.match(placeholderRegex) ?? []
     let last = 0
     for (const item of placeholders) {
@@ -1302,7 +1330,8 @@ export namespace SessionPrompt {
       if (position === last) return args.slice(argIndex).join(" ")
       return args[argIndex]
     })
-    let template = withArgs.replaceAll("$ARGUMENTS", input.arguments)
+    // Replace $ARGUMENTS with remaining args (after session ID parsing)
+    let template = withArgs.replaceAll("$ARGUMENTS", args.join(" "))
 
     const shell = ConfigMarkdown.shell(template)
     if (shell.length > 0) {
@@ -1357,6 +1386,7 @@ export namespace SessionPrompt {
               agent: agent.name,
               description: command.description ?? "",
               command: input.command,
+              parent_session_id: parentSessionID,
               // TODO: how can we make task tool accept a more complex input?
               prompt: await resolvePromptParts(template).then((x) => x.find((y) => y.type === "text")?.text ?? ""),
             },
