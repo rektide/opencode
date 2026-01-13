@@ -32,6 +32,7 @@ import { DialogSelectFile } from "@/components/dialog-select-file"
 import { DialogSelectModel } from "@/components/dialog-select-model"
 import { DialogSelectMcp } from "@/components/dialog-select-mcp"
 import { DialogFork } from "@/components/dialog-fork"
+import { DialogModifyVariant } from "@/components/dialog-modify-variant"
 import { useCommand } from "@/context/command"
 import { useNavigate, useParams } from "@solidjs/router"
 import { UserMessage } from "@opencode-ai/sdk/v2"
@@ -499,6 +500,14 @@ export default function Page() {
       keybind: "mod+'",
       slash: "model",
       onSelect: () => dialog.show(() => <DialogSelectModel />),
+    },
+    {
+      id: "model.variant.modify",
+      title: "Modify variant",
+      description: "Edit current model variant settings",
+      category: "Model",
+      keybind: "ctrl+x,v",
+      onSelect: () => dialog.show(() => <DialogModifyVariant />),
     },
     {
       id: "mcp.toggle",

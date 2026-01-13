@@ -14,6 +14,7 @@ import { DialogModel, useConnected } from "@tui/component/dialog-model"
 import { DialogMcp } from "@tui/component/dialog-mcp"
 import { DialogStatus } from "@tui/component/dialog-status"
 import { DialogThemeList } from "@tui/component/dialog-theme-list"
+import { DialogVariantModify } from "@tui/routes/session/dialog-variant-modify"
 import { DialogHelp } from "./ui/dialog-help"
 import { CommandProvider, useCommandDialog } from "@tui/component/dialog-command"
 import { DialogAgent } from "@tui/component/dialog-agent"
@@ -372,14 +373,6 @@ function App() {
       },
     },
     {
-      title: "Toggle MCPs",
-      value: "mcp.list",
-      category: "Agent",
-      onSelect: () => {
-        dialog.replace(() => <DialogMcp />)
-      },
-    },
-    {
       title: "Agent cycle",
       value: "agent.cycle",
       keybind: "agent_cycle",
@@ -396,6 +389,15 @@ function App() {
       category: "Agent",
       onSelect: () => {
         local.model.variant.cycle()
+      },
+    },
+    {
+      title: "Modify variant",
+      value: "model.variant.modify",
+      keybind: "model_variant_modify",
+      category: "Agent",
+      onSelect: () => {
+        dialog.replace(() => <DialogVariantModify />)
       },
     },
     {

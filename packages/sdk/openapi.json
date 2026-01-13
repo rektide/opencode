@@ -8295,6 +8295,11 @@
             "default": "ctrl+t",
             "type": "string"
           },
+          "model_variant_modify": {
+            "description": "Modify model variant settings",
+            "default": "<leader>v",
+            "type": "string"
+          },
           "input_clear": {
             "description": "Clear input field",
             "default": "ctrl+c",

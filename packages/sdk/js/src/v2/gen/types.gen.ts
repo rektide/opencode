@@ -1074,6 +1074,10 @@ export type KeybindsConfig = {
    */
   variant_cycle?: string
   /**
+   * Modify model variant settings
+   */
+  model_variant_modify?: string
+  /**
    * Clear input field
    */
   input_clear?: string
