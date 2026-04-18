@@ -1,4 +1,7 @@
 import z from "zod"
+import { readFile } from "fs/promises"
+import { statSync } from "fs"
+import { dirname, join } from "path"
 import { and, Database, eq } from "../storage"
 import { ProjectTable } from "./project.sql"
 import { SessionTable } from "../session/session.sql"
@@ -18,7 +21,7 @@ import { withStatics } from "@/util/schema"
 
 const log = Log.create({ service: "project" })
 
-const ProjectVcs = Schema.Literal("git")
+const ProjectVcs = Schema.Literal("git", "jj")
 
 const ProjectIcon = Schema.Struct({
   url: Schema.optional(Schema.String),
@@ -98,13 +101,13 @@ export interface Interface {
   readonly initGit: (input: { directory: string; project: Info }) => Effect.Effect<Info>
   readonly setInitialized: (id: ProjectID) => Effect.Effect<void>
   readonly sandboxes: (id: ProjectID) => Effect.Effect<string[]>
-  readonly addSandbox: (id: ProjectID, directory: string) => Effect.Effect<void>
+  readonly addSandbox: (id: ProjectID; directory: string) => Effect.Effect<void>
   readonly removeSandbox: (id: ProjectID, directory: string) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Project") {}
 
-type GitResult = { code: number; text: string; stderr: string }
+type VcsResult = { code: number; text: string; stderr: string }
 
 export const layer: Layer.Layer<
   Service,
@@ -117,21 +120,24 @@ export const layer: Layer.Layer<
     const pathSvc = yield* Path.Path
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 
-    const git = Effect.fnUntraced(
-      function* (args: string[], opts?: { cwd?: string }) {
+    const runVcs = Effect.fnUntraced(
+      function* (cmd: string, args: string[], opts?: { cwd?: string }) {
         const handle = yield* spawner.spawn(
-          ChildProcess.make("git", args, { cwd: opts?.cwd, extendEnv: true, stdin: "ignore" }),
+          ChildProcess.make(cmd, args, { cwd: opts?.cwd, extendEnv: true, stdin: "ignore" }),
         )
         const [text, stderr] = yield* Effect.all(
           [Stream.mkString(Stream.decodeText(handle.stdout)), Stream.mkString(Stream.decodeText(handle.stderr))],
           { concurrency: 2 },
         )
         const code = yield* handle.exitCode
-        return { code, text, stderr } satisfies GitResult
+        return { code, text, stderr } satisfies VcsResult
       },
       Effect.scoped,
-      Effect.catch(() => Effect.succeed({ code: 1, text: "", stderr: "" } satisfies GitResult)),
+      Effect.catch(() => Effect.succeed({ code: 1, text: "", stderr: "" } satisfies VcsResult)),
     )
+
+    const git = (args: string[], opts?: { cwd?: string }) => runVcs("git", args, opts)
+    const jj = (args: string[], opts?: { cwd?: string }) => runVcs("jj", args, opts)
 
     const db = <T>(fn: (d: Parameters<typeof Database.use>[0] extends (trx: infer D) => any ? D : never) => T) =>
       Effect.sync(() => Database.use(fn))
@@ -147,7 +153,7 @@ export const layer: Layer.Layer<
 
     const fakeVcs = Schema.decodeUnknownSync(Schema.optional(ProjectVcs))(Flag.OPENCODE_FAKE_VCS)
 
-    const resolveGitPath = (cwd: string, name: string) => {
+    const resolveVcsPath = (cwd: string, name: string) => {
       if (!name) return cwd
       name = name.replace(/[\r\n]+$/, "")
       if (!name) return cwd
@@ -166,13 +172,72 @@ export const layer: Layer.Layer<
       )
     })
 
+    const jjIsWorkspace = (dotjjPath: string): boolean => {
+      try {
+        return statSync(join(dotjjPath, "repo")).isFile()
+      } catch {
+        return false
+      }
+    }
+
+    const jjGetWorkparent = (dotjjPath: string): Effect.Effect<string | undefined> =>
+      Effect.promise(async () => {
+        try {
+          const content = await readFile(join(dotjjPath, "repo"), "utf-8")
+          return dirname(dirname(content.trim()))
+        } catch {
+          return undefined
+        }
+      })
+
+    const jjGetRootCommit = (cwd: string): Effect.Effect<string | undefined> =>
+      Effect.gen(function* () {
+        const result = yield* jj(["log", "-r", "root()", "-T", "commit_id", "-n", "1", "--no-pager", "--no-graph"], { cwd })
+        return result.code === 0 ? result.text.trim() : undefined
+      })
+
     const fromDirectory = Effect.fn("Project.fromDirectory")(function* (directory: string) {
       log.info("fromDirectory", { directory })
 
-      // Phase 1: discover git info
       type DiscoveryResult = { id: ProjectID; worktree: string; sandbox: string; vcs: Info["vcs"] }
 
       const data: DiscoveryResult = yield* Effect.gen(function* () {
+        const dotjjMatches = yield* fs.up({ targets: [".jj"], start: directory }).pipe(Effect.orDie)
+        const dotjj = dotjjMatches[0]
+
+        if (dotjj) {
+          let sandbox = pathSvc.dirname(dotjj)
+          const jjBinary = yield* Effect.sync(() => which("jj"))
+          let id = yield* readCachedProjectId(dotjj)
+
+          if (!jjBinary) {
+            return { id: id ?? ProjectID.global, worktree: sandbox, sandbox, vcs: fakeVcs }
+          }
+
+          if (jjIsWorkspace(dotjj)) {
+            const workparent = yield* jjGetWorkparent(dotjj)
+            if (workparent) {
+              const workparentIdPath = pathSvc.join(workparent, ".jj", "opencode")
+              id = yield* readCachedProjectId(workparentIdPath)
+              if (!id) {
+                id = yield* jjGetRootCommit(workparent)
+                if (id) {
+                  yield* fs.writeFileString(workparentIdPath, id).pipe(Effect.ignore)
+                }
+              }
+              return { id: id ?? ProjectID.global, worktree: workparent, sandbox, vcs: "jj" as const }
+            }
+          }
+
+          if (!id) {
+            id = yield* jjGetRootCommit(sandbox)
+            if (id) {
+              yield* fs.writeFileString(pathSvc.join(dotjj, "opencode"), id).pipe(Effect.ignore)
+            }
+          }
+          return { id: id ?? ProjectID.global, worktree: sandbox, sandbox, vcs: "jj" as const }
+        }
+
         const dotgitMatches = yield* fs.up({ targets: [".git"], start: directory }).pipe(Effect.orDie)
         const dotgit = dotgitMatches[0]
 
@@ -208,7 +273,7 @@ export const layer: Layer.Layer<
           }
         }
         const worktree = (() => {
-          const common = resolveGitPath(sandbox, commonDir.text.trim())
+          const common = resolveVcsPath(sandbox, commonDir.text.trim())
           return common === sandbox ? sandbox : pathSvc.dirname(common)
         })()
 
@@ -243,7 +308,7 @@ export const layer: Layer.Layer<
             vcs: fakeVcs,
           }
         }
-        sandbox = resolveGitPath(sandbox, topLevel.text.trim())
+        sandbox = resolveVcsPath(sandbox, topLevel.text.trim())
 
         return { id, sandbox, worktree, vcs: "git" as const }
       })
@@ -328,7 +393,7 @@ export const layer: Layer.Layer<
     })
 
     const discover = Effect.fn("Project.discover")(function* (input: Info) {
-      if (input.vcs !== "git") return
+      if (input.vcs !== "git" && input.vcs !== "jj") return
       if (input.icon?.override) return
       if (input.icon?.url) return
 

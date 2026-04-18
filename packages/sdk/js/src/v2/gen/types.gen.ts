@@ -7,7 +7,7 @@ export type ClientOptions = {
 export type Project = {
   id: string
   worktree: string
-  vcs?: "git"
+  vcs?: "git" | "jj"
   name?: string
   icon?: {
     url?: string
