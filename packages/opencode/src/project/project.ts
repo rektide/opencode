@@ -101,7 +101,7 @@ export interface Interface {
   readonly initGit: (input: { directory: string; project: Info }) => Effect.Effect<Info>
   readonly setInitialized: (id: ProjectID) => Effect.Effect<void>
   readonly sandboxes: (id: ProjectID) => Effect.Effect<string[]>
-  readonly addSandbox: (id: ProjectID; directory: string) => Effect.Effect<void>
+  readonly addSandbox: (id: ProjectID, directory: string) => Effect.Effect<void>
   readonly removeSandbox: (id: ProjectID, directory: string) => Effect.Effect<void>
 }
 
