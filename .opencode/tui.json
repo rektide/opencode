@@ -13,6 +13,7 @@
           "dialog_close": "escape,q"
         }
       }
-    ]
+    ],
+    ["./plugins/tui-lastused.tsx", {}]
   ]
 }
