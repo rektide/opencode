@@ -19,6 +19,7 @@ import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
 import { Bus } from "@/bus"
 import { Wildcard } from "@/util/wildcard"
+import { LlmTrace } from "./llm-trace"
 import { SessionID } from "@/session/schema"
 import { Auth } from "@/auth"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
@@ -487,6 +488,13 @@ const live: Layer.Layer<
             ).pipe(
               Stream.mapEffect((event) => LLMAISDK.toLLMEvents(state, event)),
               Stream.flatMap((events) => Stream.fromIterable(events)),
+              Stream.ensuring(
+                Effect.sync(() => {
+                  Promise.resolve(result.result.response).then((r) => {
+                    LlmTrace.traceGood(r.headers, input.model.providerID, input.model.id)
+                  }).catch(() => {})
+                }),
+              ),
             )
           }),
         ),

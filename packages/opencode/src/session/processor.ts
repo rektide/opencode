@@ -19,6 +19,7 @@ import { SessionSummary } from "./summary"
 import type { Provider } from "@/provider/provider"
 import { Question } from "@/question"
 import { errorMessage } from "@/util/error"
+import { LlmTrace } from "./llm-trace"
 import * as Log from "@opencode-ai/core/util/log"
 import { isRecord } from "@/util/record"
 import { EventV2 } from "@opencode-ai/core/event"
@@ -750,6 +751,15 @@ export const layer = Layer.effect(
       const halt = Effect.fn("SessionProcessor.halt")(function* (e: unknown) {
         slog.error("process", { error: errorMessage(e), stack: e instanceof Error ? e.stack : undefined })
         const error = parse(e)
+        if (MessageV2.APIError.isInstance(error)) {
+          LlmTrace.traceBad(
+            error.data.responseHeaders,
+            input.model.providerID,
+            input.model.id,
+            error.data.statusCode,
+            error.data.message,
+          )
+        }
         if (MessageV2.ContextOverflowError.isInstance(error)) {
           ctx.needsCompaction = true
           yield* bus.publish(Session.Event.Error, { sessionID: ctx.sessionID, error })

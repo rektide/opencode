@@ -213,3 +213,46 @@ field names described above.
   use this service name so grep-ratelimits finds them consistently. The llm.ts `stream`
   function uses `service: "llm"` for its own logs (`stream`, `stream error`) which are
   separate from the LLM-TRACE entries.
+
+# Appendix: 2026-05 reimplementation
+
+## What changed from the original plan
+
+We assessed all four original touch points and decided to **skip the `RetryError` fix**
+(step 2 / `message-v2.ts` change). The other three steps were implemented as planned.
+
+## Why RetryError was deferred
+
+The original plan called for adding a `RetryError.isInstance(e)` case to
+`fromError()` in `message-v2.ts`, arguing it was "the essential change." On closer
+inspection of the current codebase, the main session flow uses `maxRetries: 0`
+(the default — `llm.ts:389` sets `maxRetries: input.retries ?? 0`), meaning the
+AI SDK's internal retry mechanism is **disabled** for session streaming.
+
+Retries for the main session are handled externally by `Effect.retry()` in
+`processor.ts:568`. Each retry attempt is a fresh `streamText()` call. When a single
+call fails (e.g. HTTP 429), it throws `APICallError` — not `RetryError`. The existing
+`APICallError.isInstance(e)` case at `message-v2.ts:1164` already extracts
+`responseHeaders` and `statusCode` correctly.
+
+The only place `retries: 2` is set is title generation (`prompt.ts:203`), which uses
+`Effect.orDie` and doesn't go through the processor's `halt()` / LLM-TRACE path.
+
+**Verdict**: the RetryError fix is a valid correctness improvement for `fromError()`
+but doesn't affect LLM-TRACE logging in any current code path. It can be added later
+as its own commit if a code path that uses `maxRetries > 0` and goes through `halt()`
+emerges.
+
+## Files actually changed
+
+| File | Change | Lines |
+|------|--------|-------|
+| `src/session/llm-trace.ts` | **New file.** Isolated helper with `traceGood()` and `traceBad()`. No Effect dependencies. Uses `service: "session.processor"` logger. | ~65 |
+| `src/session/llm.ts` | Added `LlmTrace` import + `Stream.ensuring` wrapper on the returned stream. After drain, reads `result.response` via detached Promise and calls `traceGood()`. | +1 import, +7 lines |
+| `src/session/processor.ts` | Added `LlmTrace` import + `traceBad()` call inside `halt()`. Calls only when `APIError.isInstance(error)` (which includes `responseHeaders`). | +1 import, +6 lines |
+
+## How to re-apply after an upstream rebase
+
+1. `llm-trace.ts` — survives untouched (no upstream equivalent).
+2. `llm.ts` — find the `stream` function, locate where `Stream.fromAsyncIterable(result.fullStream, ...)` is returned, re-attach the `.pipe(Stream.ensuring(...))` wrapper.
+3. `processor.ts` — find `halt()`, locate `const error = parse(e)`, re-add the `traceBad` call block after it.
