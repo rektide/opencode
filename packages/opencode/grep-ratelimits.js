@@ -210,6 +210,7 @@ function recent(files, cfg) {
   }
 
   for (const evt of Object.values(map)) {
+    evt.data.shard = evt.data._shard
     delete evt.data._shard
   }
 
