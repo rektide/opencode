@@ -26,7 +26,7 @@ function parse(args) {
     headersRes: false,
     top: 12,
     topProc: 0,
-    bytes: 4 * 1024 * 1024,
+    bytes: 16 * 1024 * 1024,
     providers: [],
   }
 
