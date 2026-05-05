@@ -192,8 +192,10 @@ function all(files, cfg) {
 }
 
 function shard(rl, provider) {
-  const reset = rl["x-codex-primary-reset-at"] || rl["x-codex-secondary-reset-at"]
-  return reset ? `${provider}:${reset}` : provider
+  const resetAt = rl["x-codex-primary-reset-at"] || rl["x-codex-secondary-reset-at"]
+  if (!resetAt) return provider
+  const bucket = Math.floor(Number(resetAt) / 100) * 100
+  return `${provider}:${bucket}`
 }
 
 function recent(files, cfg) {
@@ -287,8 +289,8 @@ function parseLine(file, line, cfg) {
   const service = m[4]
   const rest = m[5]
 
-  const isGood = rest.includes("LLM-TRACE-good")
-  const isBad = rest.includes("LLM-TRACE-bad")
+  const isGood = rest.endsWith("LLM-TRACE-good") || rest.match(/LLM-TRACE-good\s*$/)
+  const isBad = rest.endsWith("LLM-TRACE-bad") || rest.match(/LLM-TRACE-bad\s*$/)
   const type = isGood ? "good" : isBad ? "bad" : null
   if (!type) return null
 
