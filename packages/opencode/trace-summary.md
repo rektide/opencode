@@ -249,10 +249,33 @@ emerges.
 |------|--------|-------|
 | `src/session/llm-trace.ts` | **New file.** Isolated helper with `traceGood()` and `traceBad()`. No Effect dependencies. Uses `service: "session.processor"` logger. | ~65 |
 | `src/session/llm.ts` | Added `LlmTrace` import + `Stream.ensuring` wrapper on the returned stream. After drain, reads `result.response` via detached Promise and calls `traceGood()`. | +1 import, +7 lines |
-| `src/session/processor.ts` | Added `LlmTrace` import + `traceBad()` call inside `halt()`. Calls only when `APIError.isInstance(error)` (which includes `responseHeaders`). | +1 import, +6 lines |
+| `src/session/retry.ts` | Added `LlmTrace` import + `traceBad()` call inside `policy()`. Every failed attempt that produces an `APIError` gets traced immediately, regardless of retry state. Policy opts extended with `providerID`/`modelID`. | +1 import, +8 lines |
+| `src/session/processor.ts` | Passes `providerID`/`modelID` to `SessionRetry.policy()`. Removed the old `traceBad` from `halt()` (now redundant — every failure is already traced by the retry policy). | +2 lines, -6 lines |
 
 ## How to re-apply after an upstream rebase
 
 1. `llm-trace.ts` — survives untouched (no upstream equivalent).
 2. `llm.ts` — find the `stream` function, locate where `Stream.fromAsyncIterable(result.fullStream, ...)` is returned, re-attach the `.pipe(Stream.ensuring(...))` wrapper.
-3. `processor.ts` — find `halt()`, locate `const error = parse(e)`, re-add the `traceBad` call block after it.
+3. `retry.ts` — find `policy()`, add the `traceBad` call after `opts.parse(meta.input)`, add `providerID`/`modelID` to opts type.
+4. `processor.ts` — pass `providerID`/`modelID` to `SessionRetry.policy()`.
+
+## Bug found: traceBad in halt() never fires for retryable errors
+
+The original plan placed `traceBad` inside `halt()` in `processor.ts`. This was wrong.
+`halt()` only fires when `Effect.retry` exhausts its schedule. But the retry policy
+retries retryable errors (429, 5xx, rate limit messages) **indefinitely** — it never
+exhausts. So `halt()` never runs for those errors, and `traceBad` never fires.
+
+Every failed attempt is still logged by `service=llm` via the `onError` callback in
+`streamText()`, but those logs don't include rate-limit headers — only the structured
+`LLM-TRACE-bad` entries do.
+
+**Fix**: moved `traceBad` into `SessionRetry.policy()` in `retry.ts`. The policy parses
+every error that comes through (retryable or not). If it's an `APIError`, we emit
+`traceBad` immediately. This covers every failed attempt regardless of whether retries
+continue.
+
+## grep-ratelimits.js changes
+
+- Default tail window increased from 4MB to 16MB (log files grow fast due to permission/bus noise)
+- `shard` field now included in `recent()` mode output (previously stripped)
