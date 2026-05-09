@@ -1,6 +1,7 @@
 import type { NamedError } from "@opencode-ai/core/util/error"
 import { Cause, Clock, Duration, Effect, Schedule } from "effect"
 import { MessageV2 } from "./message-v2"
+import { LlmTrace } from "./llm-trace"
 import { iife } from "@/util/iife"
 import { isRecord } from "@/util/record"
 
@@ -176,10 +177,21 @@ export function policy(opts: {
   provider: string
   parse: (error: unknown) => Err
   set: (input: { attempt: number; message: string; action?: Retryable["action"]; next: number }) => Effect.Effect<void>
+  providerID?: string
+  modelID?: string
 }) {
   return Schedule.fromStepWithMetadata(
     Effect.succeed((meta: Schedule.InputMetadata<unknown>) => {
       const error = opts.parse(meta.input)
+      if (MessageV2.APIError.isInstance(error)) {
+        LlmTrace.traceBad(
+          error.data.responseHeaders,
+          opts.providerID ?? "",
+          opts.modelID ?? "",
+          error.data.statusCode,
+          error.data.message,
+        )
+      }
       const retry = retryable(error, opts.provider)
       if (!retry) return Cause.done(meta.attempt)
       return Effect.gen(function* () {

@@ -751,15 +751,6 @@ export const layer = Layer.effect(
       const halt = Effect.fn("SessionProcessor.halt")(function* (e: unknown) {
         slog.error("process", { error: errorMessage(e), stack: e instanceof Error ? e.stack : undefined })
         const error = parse(e)
-        if (MessageV2.APIError.isInstance(error)) {
-          LlmTrace.traceBad(
-            error.data.responseHeaders,
-            input.model.providerID,
-            input.model.id,
-            error.data.statusCode,
-            error.data.message,
-          )
-        }
         if (MessageV2.ContextOverflowError.isInstance(error)) {
           ctx.needsCompaction = true
           yield* bus.publish(Session.Event.Error, { sessionID: ctx.sessionID, error })
@@ -820,8 +811,9 @@ export const layer = Layer.effect(
               SessionRetry.policy({
                 provider: input.model.providerID,
                 parse,
+                providerID: input.model.providerID,
+                modelID: input.model.id,
                 set: (info) => {
-                  // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
                   const event = flags.experimentalEventSystem
                     ? events.publish(SessionEvent.Retried, {
                         sessionID: ctx.sessionID,
