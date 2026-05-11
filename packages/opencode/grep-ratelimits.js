@@ -18,7 +18,7 @@ for (const evt of out) {
 function parse(args) {
   const cfg = {
     logDir: process.env.OPENCODE_LOG_PATH || `${process.env.HOME}/.local/share/opencode/log`,
-    pattern: "LLM-TRACE-good",
+    pattern: "LLM-TRACE",
     proc: false,
     dump: false,
     headers: false,

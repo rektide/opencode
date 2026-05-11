@@ -52,7 +52,8 @@ export function traceBad(
     ...rateLimits,
   }
   if (message) {
-    extra.message = message.length > 200 ? message.slice(0, 197) + "..." : message
+    const cleaned = message.replace(/\s*responseHeaders=\{.*\}$/, "")
+    extra.message = cleaned.length > 200 ? cleaned.slice(0, 197) + "..." : cleaned
   }
   if (LOG_HEADERS === "both" || LOG_HEADERS === "response") {
     if (headers) extra.responseHeaders = headers
