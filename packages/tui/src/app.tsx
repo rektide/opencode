@@ -98,6 +98,8 @@ import { cliErrorMessage, errorFormat } from "./util/error"
 import { AttentionProvider } from "./context/attention"
 import { StorageProvider } from "./context/storage"
 import { createTuiClipboard } from "./clipboard"
+import { createAnimationScheduler, systemAnimationClock } from "./ui/animation-scheduler"
+import { animationScheduler, registerAnimationScheduler } from "./ui/animation-registry"
 
 registerOpencodeSpinner()
 
@@ -222,7 +224,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
     Effect.gen(function* () {
       const options = {
         externalOutputMode: "passthrough",
-        targetFps: 60,
+        targetFps: Config.animation(config.animations, 60).fps,
         gatherStats: false,
         exitOnCtrlC: false,
         useKittyKeyboard: {},
@@ -236,6 +238,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
       const renderer = yield* Effect.gen(function* () {
         if (handoff) {
           handoff.renderer.useMouse = options.useMouse
+          handoff.renderer.targetFps = options.targetFps
           return yield* Effect.acquireRelease(Effect.succeed(handoff.renderer), (renderer) =>
             Effect.sync(() => destroyRenderer(renderer)),
           )
@@ -251,6 +254,15 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
           }),
           (renderer) => Effect.sync(() => destroyRenderer(renderer)),
         )
+      })
+      const animation = createAnimationScheduler({
+        clock: systemAnimationClock,
+        render: () => renderer.requestRender(),
+      })
+      const unregisterAnimation = registerAnimationScheduler(renderer, animation)
+      renderer.once(CliRenderEvents.DESTROY, () => {
+        unregisterAnimation()
+        animation.dispose()
       })
       const clipboard = yield* Effect.acquireRelease(
         Effect.sync(() => createTuiClipboard(renderer)),
@@ -458,10 +470,12 @@ function App(props: { pair?: DialogPairCredentials }) {
   const route = useRoute()
   const dimensions = useTerminalDimensions()
   const renderer = useRenderer()
+  const animation = animationScheduler(renderer)
   const dialog = useDialog()
   const local = useLocal()
   const sessionTabs = useSessionTabs()
   const keymap = Keymap.use()
+  createEffect(() => (renderer.targetFps = Config.animation(config.data.animations, 60).fps))
   const event = useEvent()
   const client = useClient()
   const toast = useToast()
@@ -999,8 +1013,12 @@ function App(props: { pair?: DialogPairCredentials }) {
         palette: undefined,
         enabled: process.platform !== "win32",
         run: () => {
+          animation.suspend()
           renderer.suspend()
-          process.once("SIGCONT", () => renderer.resume())
+          process.once("SIGCONT", () => {
+            renderer.resume()
+            animation.resume()
+          })
           process.kill(0, "SIGTSTP")
         },
       },
