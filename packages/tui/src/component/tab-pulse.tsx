@@ -6,7 +6,6 @@ import type { AnimationScheduler } from "../ui/animation-scheduler"
 type TabPulseOptions = RenderableOptions<TabPulseRenderable> & {
   edge?: "above" | "below"
   scheduler?: AnimationScheduler
-  fps?: number
   enabled?: boolean
   active?: boolean
   outerActive?: boolean
@@ -335,7 +334,6 @@ class TabPulseRenderable extends Renderable {
   private _onLevel: ((level: number) => void) | undefined
   private lastLevel = 0
   private _scheduler: AnimationScheduler | undefined
-  private _fps = 60
   private cancel: (() => void) | undefined
 
   constructor(ctx: RenderContext, options: TabPulseOptions = {}) {
@@ -391,13 +389,6 @@ class TabPulseRenderable extends Renderable {
     if (value === this._scheduler) return
     this.stop()
     this._scheduler = value
-    this.schedule()
-  }
-
-  set fps(value: number) {
-    if (value === this._fps) return
-    this.stop()
-    this._fps = value
     this.schedule()
   }
 
@@ -465,7 +456,7 @@ class TabPulseRenderable extends Renderable {
 
   private schedule() {
     if (!this._scheduler || !this._enabled || this.isDestroyed || (!this.inner.live && !this.outer.live)) return
-    this.cancel = this._scheduler.add(this._fps, (delta) => {
+    this.cancel = this._scheduler.add((delta) => {
       if (!this._enabled || this.isDestroyed) return false
       this.inner.advance(delta)
       this.outer.advance(delta)
@@ -662,7 +653,6 @@ export function TabPulse(props: {
   top?: number
   width?: number
   edge?: "above" | "below"
-  fps?: number
   enabled?: boolean
   active: boolean
   outerActive?: boolean
@@ -691,7 +681,6 @@ export function TabPulse(props: {
   return (
     <tab_pulse
       scheduler={scheduler}
-      fps={props.fps ?? 60}
       position="absolute"
       top={props.top}
       edge={props.edge}

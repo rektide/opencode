@@ -21,7 +21,7 @@ test("a prompt pulse restarts the neutral edge flash while the tab remains busy"
   const [promptPulse, setPromptPulse] = createSignal(0)
   const clock = new ManualClock()
   let app: Awaited<ReturnType<typeof testRender>>
-  const scheduler = createAnimationScheduler({ clock, render: () => app.renderer.requestRender() })
+  const scheduler = createAnimationScheduler({ clock, fps: 60, render: () => app.renderer.requestRender() })
   app = await testRender(
     () => (
       <AnimationSchedulerProvider value={scheduler}>
@@ -69,13 +69,12 @@ test("requests finite pulse frames without entering live mode", async () => {
   const background = RGBA.fromHex("#101010")
   const [promptPulse, setPromptPulse] = createSignal(0)
   let renders = 0
-  const scheduler = createAnimationScheduler({ clock, render: () => renders++ })
+  const scheduler = createAnimationScheduler({ clock, fps: 10, render: () => renders++ })
   const app = await testRender(
     () => (
       <AnimationSchedulerProvider value={scheduler}>
         <box width={8} height={1} backgroundColor={background}>
           <TabPulse
-            fps={10}
             active={false}
             promptPulse={promptPulse()}
             color={background}

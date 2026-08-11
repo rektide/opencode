@@ -257,6 +257,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
       })
       const animation = createAnimationScheduler({
         clock: systemAnimationClock,
+        fps: options.targetFps,
         render: () => renderer.requestRender(),
       })
       renderer.once(CliRenderEvents.DESTROY, animation.dispose)
