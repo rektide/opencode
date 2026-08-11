@@ -22,6 +22,7 @@ import { useEvent } from "../../context/event"
 import { editorSelectionKey, useEditorContext, type EditorSelection } from "../../context/editor"
 import { normalizePromptContent, openEditor } from "../../editor"
 import { useExit } from "../../context/exit"
+import { useAnimation } from "../../context/animation"
 import { promptOffsetWidth } from "../../prompt/display"
 import { expandPromptInputPastedText, realignPromptInputMentions } from "../../prompt/mention"
 import { parseSlashHead } from "../../prompt/parse"
@@ -169,6 +170,7 @@ export function Prompt(props: PromptProps) {
   const stash = usePromptStash()
   const keymap = Keymap.use()
   const renderer = useRenderer()
+  const animationScheduler = useAnimation()
   const exit = useExit()
   const dimensions = useTerminalDimensions()
   const theme = useTheme()
@@ -512,6 +514,7 @@ export function Prompt(props: PromptProps) {
           const value = editorPrompt.text
           const content = await openEditor({
             renderer,
+            suspension: animationScheduler,
             value,
             cwd:
               (data.location.info()?.project.directory === "/" ? undefined : data.location.info()?.project.directory) ||

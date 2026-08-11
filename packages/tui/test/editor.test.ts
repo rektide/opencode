@@ -12,14 +12,30 @@ afterEach(() => {
 test("rejects when the external editor cannot start", async () => {
   delete process.env.VISUAL
   process.env.EDITOR = "opencode-editor-that-does-not-exist"
+  const events: string[] = []
   const renderer = {
-    suspend() {},
-    resume() {},
-    requestRender() {},
+    suspend() {
+      events.push("renderer suspend")
+    },
+    resume() {
+      events.push("renderer resume")
+    },
+    requestRender() {
+      events.push("render")
+    },
     currentRenderBuffer: { clear() {} },
   }
+  const suspension = {
+    suspend() {
+      events.push("animation suspend")
+    },
+    resume() {
+      events.push("animation resume")
+    },
+  }
 
-  await expect(openEditor({ value: "original", renderer: renderer as never })).rejects.toThrow()
+  await expect(openEditor({ value: "original", renderer: renderer as never, suspension })).rejects.toThrow()
+  expect(events).toEqual(["animation suspend", "renderer suspend", "renderer resume", "animation resume", "render"])
 })
 
 test("normalizes a single trailing editor newline for one-line prompts", () => {

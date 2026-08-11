@@ -11,11 +11,18 @@ export { normalizePromptContent } from "./prompt/content"
 
 type EditorStdio = "inherit" | "pipe" | "ignore" | number | Stream
 
-export async function openEditor(input: { value: string; renderer: CliRenderer; cwd?: string; stdin?: EditorStdio }) {
+export async function openEditor(input: {
+  value: string
+  renderer: CliRenderer
+  suspension?: { suspend(): void; resume(): void }
+  cwd?: string
+  stdin?: EditorStdio
+}) {
   const editor = process.env.VISUAL || process.env.EDITOR
   if (!editor) return
   const file = path.join(os.tmpdir(), `${Date.now()}.md`)
   await writeFile(file, input.value)
+  input.suspension?.suspend()
   input.renderer.suspend()
   input.renderer.currentRenderBuffer.clear()
   try {
@@ -37,6 +44,7 @@ export async function openEditor(input: { value: string; renderer: CliRenderer; 
     await rm(file, { force: true }).catch(() => {})
     input.renderer.currentRenderBuffer.clear()
     input.renderer.resume()
+    input.suspension?.resume()
     input.renderer.requestRender()
   }
 }
