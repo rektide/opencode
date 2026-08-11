@@ -51,20 +51,20 @@ export function createAnimationScheduler(input: { clock: AnimationClock; render(
     if (paused || disposed) return
     const now = input.clock.now()
     let render = false
-    for (const task of [...tasks]) {
-      if (task.due > now) continue
+    Array.from(tasks).forEach((task) => {
+      if (task.due > now) return
       const delta = Math.max(0, now - task.last)
       task.last = now
       render = true
       if (!task.step(delta)) {
         tasks.delete(task)
-        continue
+        return
       }
       const interval = period(task.fps)
       const skipped = Math.max(1, Math.floor((now - task.due) / interval) + 1)
       const due = task.due + skipped * interval
       task.due = Number.isFinite(due) && due > now ? due : next(now, task.fps)
-    }
+    })
     if (render) input.render()
     arm()
   }
@@ -90,10 +90,10 @@ export function createAnimationScheduler(input: { clock: AnimationClock; render(
       if (!paused || disposed) return
       paused = false
       const now = input.clock.now()
-      for (const task of tasks) {
+      tasks.forEach((task) => {
         task.last = now
         task.due = next(now, task.fps)
-      }
+      })
       arm()
     },
     dispose() {
