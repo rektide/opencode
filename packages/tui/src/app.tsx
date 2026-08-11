@@ -98,6 +98,8 @@ import { cliErrorMessage, errorFormat } from "./util/error"
 import { AttentionProvider } from "./context/attention"
 import { StorageProvider } from "./context/storage"
 import { createTuiClipboard } from "./clipboard"
+import { AnimationProvider, useAnimation } from "./context/animation"
+import { createAnimationScheduler, systemAnimationClock } from "./ui/animation-scheduler"
 
 registerOpencodeSpinner()
 
@@ -222,7 +224,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
     Effect.gen(function* () {
       const options = {
         externalOutputMode: "passthrough",
-        targetFps: 60,
+        targetFps: Config.animation(config.animations, 60).fps,
         gatherStats: false,
         exitOnCtrlC: false,
         useKittyKeyboard: {},
@@ -236,6 +238,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
       const renderer = yield* Effect.gen(function* () {
         if (handoff) {
           handoff.renderer.useMouse = options.useMouse
+          handoff.renderer.targetFps = options.targetFps
           return yield* Effect.acquireRelease(Effect.succeed(handoff.renderer), (renderer) =>
             Effect.sync(() => destroyRenderer(renderer)),
           )
@@ -252,6 +255,11 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
           (renderer) => Effect.sync(() => destroyRenderer(renderer)),
         )
       })
+      const animation = createAnimationScheduler({
+        clock: systemAnimationClock,
+        render: () => renderer.requestRender(),
+      })
+      renderer.once(CliRenderEvents.DESTROY, animation.dispose)
       const clipboard = yield* Effect.acquireRelease(
         Effect.sync(() => createTuiClipboard(renderer)),
         (clipboard) =>
@@ -355,8 +363,9 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                       service={input.config}
                                       options={{ terminalSuspend: process.platform !== "win32" }}
                                     >
-                                      <Keymap.Provider>
-                                        <ToastProvider>
+                                      <AnimationProvider scheduler={animation} renderer={renderer}>
+                                        <Keymap.Provider>
+                                          <ToastProvider>
                                           <RouteProvider
                                             initialRoute={
                                               input.args.continue
@@ -415,8 +424,9 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                               </PermissionProvider>
                                             </ClientProvider>
                                           </RouteProvider>
-                                        </ToastProvider>
-                                      </Keymap.Provider>
+                                          </ToastProvider>
+                                        </Keymap.Provider>
+                                      </AnimationProvider>
                                     </ConfigProvider>
                                   </ArgsProvider>
                                 </ClipboardProvider>
@@ -458,6 +468,7 @@ function App(props: { pair?: DialogPairCredentials }) {
   const route = useRoute()
   const dimensions = useTerminalDimensions()
   const renderer = useRenderer()
+  const animation = useAnimation()
   const dialog = useDialog()
   const local = useLocal()
   const sessionTabs = useSessionTabs()
@@ -999,8 +1010,12 @@ function App(props: { pair?: DialogPairCredentials }) {
         palette: undefined,
         enabled: process.platform !== "win32",
         run: () => {
+          animation.suspend()
           renderer.suspend()
-          process.once("SIGCONT", () => renderer.resume())
+          process.once("SIGCONT", () => {
+            renderer.resume()
+            animation.resume()
+          })
           process.kill(0, "SIGTSTP")
         },
       },
