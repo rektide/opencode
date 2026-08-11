@@ -28,6 +28,6 @@ requirements before implementation.
 ## Workspace
 
 - Workspace: `~/src/opencode-anim-rate`
-- Shared repository trunk: `dev`
+- Upstream base: `v2@origin`
 - Patch bookmark: `anim-rate`
 - Scope: V2 `packages/tui`; avoid `packages/opencode`

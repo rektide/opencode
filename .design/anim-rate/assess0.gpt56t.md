@@ -7,18 +7,16 @@ animation cadence from ordinary render responsiveness and improves on the
 original `targetFps`-only idea by removing `TabPulseRenderable` from OpenTUI's
 renderer-wide continuous mode.
 
-The handoff is not currently executable, however, because the workspace is
-based on the wrong line of development. After correcting that base, the design
-needs a few lifecycle and ownership decisions made explicit, but it does not
-need a different architecture.
+The design needs a few lifecycle and ownership decisions made explicit, but it
+does not need a different architecture. The original workspace-base blocker
+found during this assessment has now been corrected.
 
-## Blocking Base Mismatch
+## Resolved Base Mismatch
 
-The `anim-rate` bookmark currently points to documentation commit `97a89ad5`,
-whose parent is local `dev` at `bc1fd063` (`#13494`). That checkout has no
-`packages/tui` directory. Its TUI is under
-`packages/opencode/src/cli/cmd/tui`, exactly the package the prompt says not to
-modify.
+The `anim-rate` bookmark initially descended from an old local `dev` revision
+that had no `packages/tui` directory. Its TUI was under
+`packages/opencode/src/cli/cmd/tui`, exactly the V1 package the prompt forbids
+modifying.
 
 The named implementation files exist at `v2@origin` (`2372edd5`), including:
 
@@ -31,11 +29,10 @@ Current `dev@origin` (`5d953482`) has the extracted `packages/tui` package but
 does not have `tab-pulse.tsx` or `session-tabs.tsx`. The prompt therefore cannot
 be repaired merely by updating local `dev` to `dev@origin`.
 
-Before implementation, choose and record the intended upstream line. Based on
-the source references, that is presently `v2@origin`, not `dev`. Reparent the
-design commit and `anim-rate` bookmark onto that revision (or its reviewed
-successor) before touching code. Do not let an implementation agent infer this
-from missing files.
+The design commits and working copy now descend from `v2@origin` at
+`2372edd5`, and the implementation handoff records that base. The blocker is
+resolved; implementation should remain on this V2 line and avoid
+`packages/opencode`.
 
 ## Validated Claims
 
@@ -68,10 +65,22 @@ reusable when no other changing layout condition prevents it.
 
 ### 1. Normalize The Value At A Named Seam
 
-Choose an integer range of `1..60` fps. The upper bound matches `maxFps`; rates
-above 60 cannot be delivered by demand-driven `requestRender()` while
-`maxFps` remains 60. Effect Schema's integer and range checks reject zero,
-negative, fractional, non-finite, and ineffective oversized values.
+Accept any finite number greater than zero. Cadences such as `1.5`, `59.998`,
+and `1000` are meaningful user choices and do not need product-policy limits.
+Effect Schema should reject only zero, negative values, `NaN`, and infinities.
+
+`maxFps: 60` can prevent a high requested cadence from producing a distinct
+render for every timer tick, but that is renderer behavior rather than a reason
+to reject the configuration. The scheduler should avoid needless accumulated
+work when requests coalesce, document the distinction between requested sample
+rate and delivered frame rate, and leave future renderer limits independent of
+the public animation-rate domain.
+
+This permissive domain moves edge handling into the scheduler implementation.
+Extremely small positive values can overflow `1000 / fps`; extremely high
+values can fall below host timer resolution. Saturating or chunking long waits
+and treating short periods as event-loop-limited preserves the interface
+without allowing invalid timeout behavior or missed-sample backlog.
 
 Define one normalization helper for the public `boolean | number | undefined`
 value:
@@ -104,12 +113,41 @@ when the normalized rate changes or explicitly define numeric rate changes as
 restart-only. Pulse props alone cannot keep other live renderables at the new
 cadence.
 
-### 3. Scope One Scheduler Per Renderer
+### 3. Choose Scheduler Ownership And Injection
 
-"One small scheduler shared by pulse instances" should mean one scheduler per
-`RenderContext`, not one process-global timer. A `WeakMap<RenderContext,
-Scheduler>` keeps pulse instances on the same renderer coalesced without
-coupling multiple renderers or concurrent `testRender` instances.
+The recommendation to scope scheduling per `RenderContext` comes from resource
+ownership, not from a requirement to use a `WeakMap`. Render requests,
+coalescing, suspension, destruction, output backpressure, and the eventual
+frame all belong to one renderer. A process-global scheduler would have to
+partition those concerns by renderer anyway, while coupling otherwise
+independent renderers and concurrent `testRender` instances.
+
+Prefer an explicitly constructed scheduler module beside the renderer. Inject
+a small internal port containing the monotonic clock, timeout operations, and
+one render invalidation function. Pulse tasks supply only their cadence and
+advance callback. Production adapts the renderer and system clock to the port;
+tests adapt OpenTUI's `ManualClock`. This is a real seam because it has both
+production and deterministic test adapters, while its clock details remain
+internal rather than expanding the pulse interface.
+
+How custom renderables receive that scheduler is a separate decision:
+
+- Explicit propagation through the TUI animation context is easiest to reason
+  about and makes dependency ownership visible.
+- A `WeakMap<RenderContext, Scheduler>` can be a narrow lookup adapter if
+  OpenTUI's custom-renderable construction makes explicit propagation noisy.
+- A process animation broker can own one timer heap while partitioning tasks
+  and render invalidations by renderer. This is more advanced and useful only
+  if multiple renderers or many independent cadences demonstrate timer cost.
+- An OpenTUI-owned scheduler would integrate best with suspension,
+  backpressure, visibility, and its private clock, but requires a justified
+  upstream core interface rather than a speculative OpenCode patch.
+
+The external interface should stay deep: register an advancing task at a
+cadence and receive a cancellation function. Timer heaps, phase alignment,
+drift correction, renderer partitioning, and coalescing stay implementation
+details. Cadence is passed explicitly as data; clock and render effects are
+injected dependencies.
 
 Each scheduler should:
 
@@ -169,9 +207,11 @@ The requested coverage is appropriate, but tests should target three layers:
 
 1. Schema and normalization tests for accepted values, rejected boundaries,
    enablement, and default rates.
-2. Scheduler unit tests with injected `now`, `setTimeout`, and `clearTimeout`
-   functions. Assert one timeout per renderer, cadence alignment, elapsed-time
-   catch-up, removal during a tick, and timer teardown.
+2. Scheduler unit tests through its small task-registration interface using an
+   injected `ManualClock` adapter. Assert one active timeout per renderer,
+   fractional cadence, high requested cadence, cadence alignment, elapsed-time
+   catch-up, safe reciprocal overflow, no missed-sample backlog, removal during
+   a tick, and timer teardown.
 3. `TabPulseRenderable` integration tests using OpenTUI's test renderer. Assert
    immediate invalidation, finite completion, destroy/disable cleanup, and that
    renderer scheduler state never enters continuous mode.
@@ -194,11 +234,13 @@ kill-switch overstates what the application config controls.
 
 Revise the prompt before implementation to:
 
-1. Replace the stated `dev` base with the reviewed V2 revision that actually
-   contains `TabPulseRenderable`.
-2. Fix the numeric schema to integer `1..60` instead of leaving the cap open.
+1. Keep the patch based on the reviewed V2 revision that contains
+   `TabPulseRenderable`.
+2. Accept any finite positive numeric cadence, including fractional and high
+   values.
 3. Name the normalization seam and how the rate reaches each pulse.
-4. Specify one scheduler per `RenderContext` and `destroySelf()` cleanup.
+4. Choose renderer-local scheduler ownership, its injection seam, and
+   `destroySelf()` cleanup without prescribing `WeakMap` lookup.
 5. State mini-mode scope, renderer-handoff behavior, visibility catch-up, and
    toggle restoration semantics.
 6. Define config hot-reload, ordinary removal/reparenting, and renderer

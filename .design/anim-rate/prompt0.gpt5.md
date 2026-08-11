@@ -5,7 +5,7 @@ Implement and verify the OpenCode V2 TUI animation-rate patch in
 slice as you go, and leave an empty working-copy commit when finished. Follow
 the repository `AGENTS.md`; do not modify the V1 `packages/opencode` package.
 
-The patch bookmark is `anim-rate`, based on the shared `dev` bookmark. The
+The patch bookmark is `anim-rate`, based on `v2@origin`. The
 source idea is entry 13 in
 [`~/archive/doc/opencode/patches.md`](file:///home/rektide/archive/doc/opencode/patches.md#tui-animation-fps-throttle-animations-number--boolean--new).
 
@@ -102,11 +102,19 @@ Semantics:
 - a positive numeric value: enable animations and sample them at that many
   frames per second.
 
-Use a finite, positive, bounded schema rather than unconstrained
-`Schema.Number`; zero, negative values, `NaN`, and infinity must not reach
-`1000 / fps`. Prefer an integer range with a defensible upper bound. Preserve
-the current default unless measurement and product direction justify changing
-it.
+Use `Schema.Finite.check(Schema.isGreaterThan(0))`; zero, negative values,
+`NaN`, and infinity must not reach `1000 / fps`. Fractional and high rates are
+valid user choices: accept values such as `1.5`, `59.998`, and `1000`.
+Preserve the current default unless measurement and product direction justify
+changing it. Treat requested animation cadence and delivered renderer frame
+rate as distinct when `maxFps` coalesces requests.
+
+Do not assume every accepted rate maps exactly to a host timeout. A tiny
+positive rate can overflow `1000 / fps`, and a high rate can produce a period
+below timer resolution. Keep validation permissive, but make scheduling safe:
+chunk or saturate unrepresentably long delays, run sub-resolution cadences no
+faster than the event loop permits, and never accumulate a backlog of missed
+samples.
 
 Keep the caller-facing interface small. Derive "animations enabled" and
 "animation frame rate" once rather than scattering `typeof` checks throughout
@@ -133,12 +141,17 @@ Replace pulse use of OpenTUI `live` with an "ask render" scheduler:
 6. Do not set `this.live = true`; after the patch, tab pulses must not call
    `requestLive()` or keep OpenTUI's continuous loop alive.
 
-Prefer one small scheduler module shared by pulse instances over one independent
-timer per rendered strip. The module can maintain registered pulse tasks and
-use one timeout for the next cadence boundary. Pulse instances still own
-registration and request their own render; OpenTUI coalesces same-tick ordinary
-render requests. Keep this seam internal unless a second real animation
-consumer demonstrates that it belongs in the general animation module.
+Prefer one small scheduler module scoped to a renderer over one independent
+timer per rendered strip. Construct it beside the renderer and inject a narrow
+internal port for monotonic time, timeout operations, and one renderer
+invalidation function. Pulse tasks provide their cadence and advance callback,
+and registration returns cancellation. The implementation can maintain
+registered pulse tasks and use one timeout for the next cadence boundary. It
+should advance every due pulse and invalidate the renderer once per tick. Keep
+this seam internal unless a second real animation consumer demonstrates that
+it belongs in the general animation module. A `WeakMap` keyed by
+`RenderContext` is an optional lookup adapter if custom-renderable construction
+makes explicit propagation noisy, not a required ownership model.
 
 Do not advance animation state from both `onUpdate` and the timeout. Choose one
 clock owner. The likely shape is for the scheduler callback to advance state
@@ -169,8 +182,10 @@ rate` and `fix(tui): render tab pulses on demand`.
 Build a deterministic fake-clock seam rather than sleeping in tests. Cover:
 
 - configuration accepts `false`, `true`, omitted, and valid numeric fps;
-- configuration rejects zero, negative, non-finite, fractional if integers are
-  required, and values above the chosen cap;
+- configuration rejects zero, negative, and non-finite values while accepting
+  fractional and high positive rates;
+- extreme positive rates do not overflow timeout scheduling or accumulate
+  missed-sample backlog;
 - numeric fps leaves animations enabled;
 - the scheduler coalesces multiple pulse tasks onto one timer;
 - elapsed wall time, not nominal frame count, advances pulse clocks;
