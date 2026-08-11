@@ -98,7 +98,8 @@ function VerticalSessionTabs(props: { controller?: SessionTabsController; animat
   const theme = useTheme("elevated")
   const { mode } = useThemes()
   const config = useConfig().data
-  const animations = () => props.animations ?? animation(config.animations, 60).enabled
+  const cadence = createMemo(() => animation(config.animations, 60))
+  const animations = () => props.animations ?? cadence().enabled
   const width = () => SESSION_SIDEBAR_WIDTH
   const hueStep = () => (mode() === "light" ? 800 : 200)
   const accent = () => theme.hue.accent[hueStep()]
@@ -295,6 +296,7 @@ function VerticalSessionTabs(props: { controller?: SessionTabsController; animat
                   onMouseDragEnd={release}
                 >
                   <TabPulse
+                    fps={cadence().fps}
                     top={-1}
                     edge="above"
                     enabled={animations()}
@@ -320,6 +322,7 @@ function VerticalSessionTabs(props: { controller?: SessionTabsController; animat
                   />
                   <Show when={index() === items().length - 1}>
                     <TabPulse
+                      fps={cadence().fps}
                       top={2}
                       edge="below"
                       enabled={animations()}
@@ -346,6 +349,7 @@ function VerticalSessionTabs(props: { controller?: SessionTabsController; animat
                   </Show>
                   <box height={1} width="100%" flexDirection="row" position="relative">
                     <TabPulse
+                      fps={cadence().fps}
                       enabled={animations()}
                       active={runs()}
                       promptPulse={status().promptPulse}
@@ -399,6 +403,7 @@ function VerticalSessionTabs(props: { controller?: SessionTabsController; animat
                   </box>
                   <box height={1} width="100%" position="relative" flexDirection="row">
                     <TabPulse
+                      fps={cadence().fps}
                       enabled={animations()}
                       active={runs()}
                       promptPulse={status().promptPulse}
@@ -433,7 +438,8 @@ function HorizontalSessionTabs(props: { controller?: SessionTabsController; anim
   const theme = useTheme()
   const { mode } = useThemes()
   const config = useConfig().data
-  const animations = () => props.animations ?? animation(config.animations, 60).enabled
+  const cadence = createMemo(() => animation(config.animations, 60))
+  const animations = () => props.animations ?? cadence().enabled
   const [hovered, setHovered] = createSignal<string>()
   const marquee = createMarquee(hovered, animations)
   const [dragging, setDragging] = createSignal<string>()
@@ -690,6 +696,7 @@ function HorizontalSessionTabs(props: { controller?: SessionTabsController; anim
               onMouseDragEnd={release}
             >
               <TabPulse
+                fps={cadence().fps}
                 enabled={animations()}
                 active={status().busy && !status().attention}
                 promptPulse={status().promptPulse}

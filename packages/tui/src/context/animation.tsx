@@ -13,7 +13,11 @@ export function AnimationProvider(props: {
   const config = useConfig()
   createEffect(() => (props.renderer.targetFps = animation(config.data.animations, 60).fps))
   onCleanup(props.scheduler.dispose)
-  return <AnimationContext.Provider value={props.scheduler}>{props.children}</AnimationContext.Provider>
+  return <AnimationSchedulerProvider value={props.scheduler}>{props.children}</AnimationSchedulerProvider>
+}
+
+export function AnimationSchedulerProvider(props: { value: AnimationScheduler; children: JSX.Element }) {
+  return <AnimationContext.Provider value={props.value}>{props.children}</AnimationContext.Provider>
 }
 
 export function useAnimation() {
