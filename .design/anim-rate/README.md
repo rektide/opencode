@@ -19,6 +19,12 @@ The implementation handoff is
 measurements, relevant source seams, constraints, proposed commit slices, and
 verification expected from the next agent.
 
+The independent assessment is
+[`assess0.gpt56t.md`](/.design/anim-rate/assess0.gpt56t.md). It validates the
+core diagnosis, identifies that the workspace is based on the wrong development
+line, and sharpens scheduler ownership, lifecycle, configuration, and testing
+requirements before implementation.
+
 ## Workspace
 
 - Workspace: `~/src/opencode-anim-rate`
