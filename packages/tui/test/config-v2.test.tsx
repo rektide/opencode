@@ -2,7 +2,7 @@
 import { testRender } from "@opentui/solid"
 import { expect, test } from "bun:test"
 import { Schema } from "effect"
-import { resolve, ConfigProvider, Info, useConfig, type Interface } from "../src/config"
+import { animation, resolve, ConfigProvider, Info, useConfig, type Interface } from "../src/config"
 import { settings } from "../src/component/dialog-config"
 
 test("validates mini replay settings", () => {
@@ -25,6 +25,22 @@ test("validates the session tabs setting", () => {
   expect(() => decode({ tabs: { enabled: "on" } })).toThrow()
   expect(decode({ prompt: { image_preview: true } })).toEqual({ prompt: { image_preview: true } })
   expect(decode({ session: { image_preview: true } })).toEqual({ session: { image_preview: true } })
+})
+
+test("validates and resolves animation cadence", () => {
+  const decode = Schema.decodeUnknownSync(Info)
+
+  for (const animations of [false, true, 1.5, 59.998, 1000]) {
+    expect(decode({ animations })).toEqual({ animations })
+  }
+  for (const animations of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    expect(() => decode({ animations })).toThrow()
+  }
+
+  expect(animation(undefined, 60)).toEqual({ enabled: true, fps: 60 })
+  expect(animation(true, 30)).toEqual({ enabled: true, fps: 30 })
+  expect(animation(false, 60)).toEqual({ enabled: false, fps: 60 })
+  expect(animation(1.5, 60)).toEqual({ enabled: true, fps: 1.5 })
 })
 
 test("resolves nested config and keybind defaults", () => {

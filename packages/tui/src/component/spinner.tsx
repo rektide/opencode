@@ -1,6 +1,6 @@
 import { Show } from "solid-js"
 import { useTheme } from "../context/theme"
-import { useConfig } from "../config"
+import { animation, useConfig } from "../config"
 import type { JSX } from "@opentui/solid"
 import type { RGBA } from "@opentui/core"
 import { registerOpencodeSpinner } from "./register-spinner"
@@ -16,7 +16,7 @@ export function Spinner(props: { children?: JSX.Element; color?: RGBA }) {
   const color = () => props.color ?? theme.text.subdued
   return (
     <Show
-      when={config.animations ?? true}
+      when={animation(config.animations, 60).enabled}
       fallback={<text fg={color()}>{props.children ? <>⋯ {props.children}</> : "⋯"}</text>}
     >
       <box flexDirection="row" gap={1}>

@@ -78,7 +78,7 @@ import { FormPrompt } from "./form"
 import { DialogExportOptions } from "../../ui/dialog-export-options"
 import { DialogExportResult } from "../../ui/dialog-export-result"
 import { sessionEpilogue } from "../../util/presentation"
-import { useConfig } from "../../config"
+import { animation, useConfig } from "../../config"
 import { useClipboard } from "../../context/clipboard"
 import { nextThinkingMode, reasoningSummary, type ThinkingMode } from "../../context/thinking"
 import { getScrollAcceleration } from "../../util/scroll"
@@ -1741,7 +1741,7 @@ function CompactionMessage(props: { message: Extract<SessionMessageInfo, { type:
         <box flexDirection="row" gap={1} paddingLeft={1} paddingRight={1}>
           <Switch>
             <Match when={status() === "running"}>
-              <Show when={ctx.config.animations ?? true} fallback={<text fg={color()}>⋯</text>}>
+              <Show when={animation(ctx.config.animations, 60).enabled} fallback={<text fg={color()}>⋯</text>}>
                 <spinner frames={SPINNER_FRAMES} interval={80} color={color()} />
               </Show>
             </Match>

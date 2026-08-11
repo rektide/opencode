@@ -45,7 +45,7 @@ import { useToast } from "../../ui/toast"
 import { createFadeIn } from "../../util/signal"
 import { DialogSkill } from "../dialog-skill"
 import { useArgs } from "../../context/args"
-import { useConfig } from "../../config"
+import { animation, useConfig } from "../../config"
 import { usePromptMove } from "./move"
 import {
   normalizePastedFilepath,
@@ -173,7 +173,7 @@ export function Prompt(props: PromptProps) {
   const dimensions = useTerminalDimensions()
   const theme = useTheme()
   const { currentSyntax: syntax } = useThemes()
-  const animationsEnabled = createMemo(() => config.animations ?? true)
+  const animationsEnabled = createMemo(() => animation(config.animations, 60).enabled)
   const list = createMemo(() => props.placeholders?.normal ?? [])
   const shell = createMemo(() => props.placeholders?.shell ?? [])
   const fileContextEnabled = createMemo(() => config.prompt?.editor ?? true)
@@ -1783,7 +1783,10 @@ export function Prompt(props: PromptProps) {
               <Match when={status() === "running"}>
                 <box flexDirection="row" gap={1} flexGrow={1} justifyContent="flex-start">
                   <box marginLeft={1}>
-                    <Show when={config.animations ?? true} fallback={<text fg={theme.text.subdued}>[⋯]</text>}>
+                    <Show
+                      when={animation(config.animations, 60).enabled}
+                      fallback={<text fg={theme.text.subdued}>[⋯]</text>}
+                    >
                       <spinner color={spinnerDef().color} frames={spinnerDef().frames} interval={40} />
                     </Show>
                   </box>

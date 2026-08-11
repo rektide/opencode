@@ -44,6 +44,8 @@ export const Cursor = Schema.Struct({
   }),
 }).annotate({ description: "Terminal cursor settings" })
 
+export const Animation = Schema.Union([Schema.Boolean, Schema.Finite.check(Schema.isGreaterThan(0))])
+
 export const Info = Schema.Struct({
   theme: Schema.optional(
     Schema.Struct({
@@ -189,7 +191,9 @@ export const Info = Schema.Struct({
       }),
     }),
   ).annotate({ description: "Debugging settings" }),
-  animations: Schema.optional(Schema.Boolean).annotate({ description: "Enable interface animations" }),
+  animations: Schema.optional(Animation).annotate({
+    description: "Enable interface animations or set their requested frame rate",
+  }),
   mouse: Schema.optional(Schema.Boolean).annotate({ description: "Enable terminal mouse capture" }),
   cursor: Schema.optional(Cursor),
 })
@@ -215,6 +219,13 @@ export type Resolved = Omit<Info, "attention" | "cursor" | "keybinds" | "leader"
     enabled: boolean
     scope: "global" | "cwd"
     layout: "horizontal" | "vertical"
+  }
+}
+
+export function animation(value: Info["animations"], fallback: number) {
+  return {
+    enabled: value !== false,
+    fps: typeof value === "number" ? value : fallback,
   }
 }
 

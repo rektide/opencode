@@ -1022,13 +1022,13 @@ function App(props: { pair?: DialogPairCredentials }) {
       },
       {
         name: "app.toggle.animations",
-        title: (config.data.animations ?? true) ? "Disable animations" : "Enable animations",
+        title: Config.animation(config.data.animations, 60).enabled ? "Disable animations" : "Enable animations",
         category: "System",
         palette: undefined,
         run: () => {
           void config
             .update((draft) => {
-              draft.animations = !(config.data.animations ?? true)
+              draft.animations = !Config.animation(config.data.animations, 60).enabled
             })
             .catch(toast.error)
           dialog.clear()

@@ -1,7 +1,7 @@
 import { RGBA, ScrollBoxRenderable, TextAttributes } from "@opentui/core"
 import { For, Show, createComputed, createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js"
 import { useTerminalDimensions } from "@opentui/solid"
-import { useConfig } from "../config"
+import { animation, useConfig } from "../config"
 import { useSessionTabs } from "../context/session-tabs"
 import { useData } from "../context/data"
 import { useTheme, useThemes } from "../context/theme"
@@ -98,7 +98,7 @@ function VerticalSessionTabs(props: { controller?: SessionTabsController; animat
   const theme = useTheme("elevated")
   const { mode } = useThemes()
   const config = useConfig().data
-  const animations = () => props.animations ?? config.animations ?? true
+  const animations = () => props.animations ?? animation(config.animations, 60).enabled
   const width = () => SESSION_SIDEBAR_WIDTH
   const hueStep = () => (mode() === "light" ? 800 : 200)
   const accent = () => theme.hue.accent[hueStep()]
@@ -433,7 +433,7 @@ function HorizontalSessionTabs(props: { controller?: SessionTabsController; anim
   const theme = useTheme()
   const { mode } = useThemes()
   const config = useConfig().data
-  const animations = () => props.animations ?? config.animations ?? true
+  const animations = () => props.animations ?? animation(config.animations, 60).enabled
   const [hovered, setHovered] = createSignal<string>()
   const marquee = createMarquee(hovered, animations)
   const [dragging, setDragging] = createSignal<string>()
