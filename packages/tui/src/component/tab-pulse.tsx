@@ -1,8 +1,11 @@
 import { OptimizedBuffer, Renderable, RGBA, type RenderableOptions, type RenderContext } from "@opentui/core"
 import { extend } from "@opentui/solid"
+import { animationScheduler } from "../ui/animation-registry"
+import type { AnimationScheduler } from "../ui/animation-scheduler"
 
 type TabPulseOptions = RenderableOptions<TabPulseRenderable> & {
   edge?: "above" | "below"
+  fps?: number
   enabled?: boolean
   active?: boolean
   outerActive?: boolean
@@ -330,6 +333,9 @@ class TabPulseRenderable extends Renderable {
   private outerRenderColor = RGBA.fromInts(0, 0, 0)
   private _onLevel: ((level: number) => void) | undefined
   private lastLevel = 0
+  private scheduler: AnimationScheduler
+  private _fps = 60
+  private cancel: (() => void) | undefined
 
   constructor(ctx: RenderContext, options: TabPulseOptions = {}) {
     const enabled = options.enabled ?? true
@@ -343,10 +349,8 @@ class TabPulseRenderable extends Renderable {
     super(ctx, {
       ...options,
       height: 1,
-      live:
-        enabled &&
-        (active || (glow && breathe) || (edge !== undefined && (outerActive || (outerGlow && outerBreathe)))),
     })
+    this.scheduler = animationScheduler(ctx)
     this._enabled = enabled
     this.inner = new PulseState({
       enabled,
@@ -377,10 +381,18 @@ class TabPulseRenderable extends Renderable {
     this._outerCompletionColor = options.outerCompletionColor ?? options.completionColor ?? this._outerColor
     this._backgroundColor = options.backgroundColor ?? RGBA.defaultBackground()
     this._onLevel = options.onLevel
+    this.schedule()
   }
 
   set onLevel(value: ((level: number) => void) | undefined) {
     this._onLevel = value
+  }
+
+  set fps(value: number) {
+    if (value === this._fps) return
+    this.stop()
+    this._fps = value
+    this.schedule()
   }
 
   private emitLevel(value: number) {
@@ -396,8 +408,7 @@ class TabPulseRenderable extends Renderable {
     this._enabled = value
     this.inner.setEnabled(value)
     this.outer.setEnabled(value && this._edge !== undefined)
-    this.live = this.inner.live || this.outer.live
-    this.requestRender()
+    this.changed()
   }
 
   set active(value: boolean) {
@@ -441,8 +452,26 @@ class TabPulseRenderable extends Renderable {
   }
 
   private changed() {
-    this.live = this.inner.live || this.outer.live
+    this.stop()
+    this.schedule()
     this.requestRender()
+  }
+
+  private schedule() {
+    if (!this._enabled || this.isDestroyed || (!this.inner.live && !this.outer.live)) return
+    this.cancel = this.scheduler.add(this._fps, (delta) => {
+      if (!this._enabled || this.isDestroyed) return false
+      this.inner.advance(delta)
+      this.outer.advance(delta)
+      const live = this.inner.live || this.outer.live
+      if (!live) this.cancel = undefined
+      return live
+    })
+  }
+
+  private stop() {
+    this.cancel?.()
+    this.cancel = undefined
   }
 
   set color(value: RGBA) {
@@ -485,8 +514,7 @@ class TabPulseRenderable extends Renderable {
     if (value === this._edge) return
     this._edge = value
     this.outer.setEnabled(this._enabled && value !== undefined)
-    this.live = this.inner.live || this.outer.live
-    this.requestRender()
+    this.changed()
   }
 
   set flashColor(value: RGBA) {
@@ -519,11 +547,8 @@ class TabPulseRenderable extends Renderable {
     this.requestRender()
   }
 
-  protected override onUpdate(deltaTime: number): void {
-    if (!this._enabled) return
-    this.inner.advance(deltaTime)
-    this.outer.advance(deltaTime)
-    this.live = this.inner.live || this.outer.live
+  protected override destroySelf(): void {
+    this.stop()
   }
 
   protected override renderSelf(buffer: OptimizedBuffer): void {
@@ -631,6 +656,7 @@ export function TabPulse(props: {
   top?: number
   width?: number
   edge?: "above" | "below"
+  fps?: number
   enabled?: boolean
   active: boolean
   outerActive?: boolean
@@ -657,6 +683,7 @@ export function TabPulse(props: {
 }) {
   return (
     <tab_pulse
+      fps={props.fps ?? 60}
       position="absolute"
       top={props.top}
       edge={props.edge}

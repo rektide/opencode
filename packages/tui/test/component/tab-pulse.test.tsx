@@ -1,7 +1,8 @@
 /** @jsxImportSource @opentui/solid */
 import { expect, test } from "bun:test"
 import { RGBA } from "@opentui/core"
-import { testRender } from "@opentui/solid"
+import { createTestRenderer, ManualClock } from "@opentui/core/testing"
+import { render, type JSX } from "@opentui/solid"
 import { createSignal } from "solid-js"
 import {
   TabPulse,
@@ -11,11 +12,35 @@ import {
   unreadGlowIntensity,
 } from "../../src/component/tab-pulse"
 import { tint } from "../../src/theme/color"
+import { createAnimationScheduler } from "../../src/ui/animation-scheduler"
+import { registerAnimationScheduler } from "../../src/ui/animation-registry"
+
+async function testRender(node: () => JSX.Element, clock: ManualClock, onRender = () => {}) {
+  const app = await createTestRenderer({ clock, width: 8, height: 1 })
+  const scheduler = createAnimationScheduler({
+    clock,
+    render: () => {
+      onRender()
+      app.renderer.requestRender()
+    },
+  })
+  const unregister = registerAnimationScheduler(app.renderer, scheduler)
+  await render(node, app.renderer)
+  return {
+    ...app,
+    dispose() {
+      unregister()
+      scheduler.dispose()
+      app.renderer.destroy()
+    },
+  }
+}
 
 test("a prompt pulse restarts the neutral edge flash while the tab remains busy", async () => {
   const background = RGBA.fromHex("#101010")
   const flash = RGBA.fromHex("#f0f0f0")
   const [promptPulse, setPromptPulse] = createSignal(0)
+  const clock = new ManualClock()
   const app = await testRender(
     () => (
       <box width={8} height={1} backgroundColor={background}>
@@ -28,7 +53,7 @@ test("a prompt pulse restarts the neutral edge flash while the tab remains busy"
         />
       </box>
     ),
-    { width: 8, height: 1 },
+    clock,
   )
 
   const firstBackground = () => app.captureSpans().lines[0]?.spans[0]?.bg
@@ -38,21 +63,55 @@ test("a prompt pulse restarts the neutral edge flash while the tab remains busy"
     expect(firstBackground()?.equals(background)).toBeTrue()
 
     setPromptPulse(1)
-    await Bun.sleep(80)
+    clock.advance(80)
     await app.renderOnce()
     expect(firstBackground()?.equals(background)).toBeFalse()
     expect(firstBackground()?.r ?? 0).toBeGreaterThan(0.17)
 
-    await Bun.sleep(800)
+    clock.advance(800)
     await app.renderOnce()
     expect(firstBackground()?.equals(background)).toBeTrue()
 
     setPromptPulse(2)
-    await Bun.sleep(80)
+    clock.advance(80)
     await app.renderOnce()
     expect(firstBackground()?.equals(background)).toBeFalse()
   } finally {
-    app.renderer.destroy()
+    app.dispose()
+  }
+})
+
+test("requests finite pulse frames without entering live mode", async () => {
+  const clock = new ManualClock()
+  const background = RGBA.fromHex("#101010")
+  const [promptPulse, setPromptPulse] = createSignal(0)
+  let renders = 0
+  const app = await testRender(
+    () => (
+      <box width={8} height={1} backgroundColor={background}>
+        <TabPulse
+          fps={10}
+          active={false}
+          promptPulse={promptPulse()}
+          color={background}
+          backgroundColor={background}
+        />
+      </box>
+    ),
+    clock,
+    () => renders++,
+  )
+
+  try {
+    await app.renderOnce()
+    setPromptPulse(1)
+    expect(app.renderer.getSchedulerState().isRunning).toBeFalse()
+    clock.advance(800)
+    expect(renders).toBe(8)
+    clock.advance(1000)
+    expect(renders).toBe(8)
+  } finally {
+    app.dispose()
   }
 })
 
