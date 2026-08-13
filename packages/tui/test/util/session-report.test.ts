@@ -7,6 +7,8 @@ test("formats every selected Session in stable order with complete pagination", 
   const requests: string[] = []
   const calls = createFetch((url) => {
     requests.push(url.pathname + url.search)
+    if (url.searchParams.has("cursor") && url.searchParams.has("order"))
+      return json({ message: "Cursor cannot be combined with order" }, { status: 400 })
     const sessionID = url.pathname.split("/")[3]
     if (!url.pathname.endsWith("/message"))
       return json({
@@ -42,8 +44,8 @@ test("formats every selected Session in stable order with complete pagination", 
   expect(report).toContain("last first")
   expect(requests.filter((request) => request.includes("/message"))).toEqual([
     "/api/session/second/message?limit=200&order=asc",
-    "/api/session/second/message?limit=200&order=asc&cursor=second-next",
+    "/api/session/second/message?limit=200&cursor=second-next",
     "/api/session/first/message?limit=200&order=asc",
-    "/api/session/first/message?limit=200&order=asc&cursor=first-next",
+    "/api/session/first/message?limit=200&cursor=first-next",
   ])
 })

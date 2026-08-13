@@ -15,7 +15,6 @@ export async function formatSessionReports(api: OpenCodeClient, sessionIDs: read
         await api.message.list({
           sessionID,
           limit: 200,
-          order: "asc",
           cursor: pages.at(-1)!.cursor.next ?? undefined,
         }),
       )
