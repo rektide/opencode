@@ -6,6 +6,7 @@ export interface Args {
   prompt?: string
   continue?: boolean
   sessionID?: string
+  sessionIDs?: readonly string[]
   fork?: boolean
   auto?: boolean
 }

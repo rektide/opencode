@@ -203,6 +203,9 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
   })
   const options = { baseUrl: input.server.endpoint.url, headers: Service.headers(input.server.endpoint) }
   const api = OpenCode.make(options)
+  const requestedSessionIDs = input.args.sessionIDs ?? (input.args.sessionID ? [input.args.sessionID] : [])
+  yield* Effect.try(() => assertStartupSessionTabs(config.tabs.enabled, requestedSessionIDs))
+  const sessionIDs = yield* Effect.tryPromise(() => resolveStartupSessions(api, requestedSessionIDs))
   const location = yield* Effect.tryPromise(() => api.file.list({ location: { directory: process.cwd() } })).pipe(
     Effect.map((response) => response.location),
     Effect.catch(() => Effect.tryPromise(() => api.location.get())),
@@ -355,7 +358,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                 }}
                               >
                                 <ClipboardProvider value={clipboard}>
-                                  <ArgsProvider {...input.args}>
+                                  <ArgsProvider {...input.args} sessionIDs={sessionIDs}>
                                     <ConfigProvider
                                       config={config}
                                       service={input.config}
@@ -454,6 +457,28 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
     if (result.epilogue) process.stdout.write(result.epilogue + "\n")
   })
 })
+
+export async function resolveStartupSessions(api: ReturnType<typeof OpenCode.make>, sessionIDs: readonly string[]) {
+  const sessions = new Map<string, SessionInfo>()
+  const roots: string[] = []
+  for (const sessionID of sessionIDs) {
+    let session = sessions.get(sessionID) ?? (await api.session.get({ sessionID }))
+    sessions.set(session.id, session)
+    const seen = new Set([session.id])
+    while (session.parentID && !seen.has(session.parentID)) {
+      seen.add(session.parentID)
+      const parentID = session.parentID
+      session = sessions.get(parentID) ?? (await api.session.get({ sessionID: parentID }))
+      sessions.set(session.id, session)
+    }
+    if (!roots.includes(session.id)) roots.push(session.id)
+  }
+  return roots
+}
+
+export function assertStartupSessionTabs(enabled: boolean, sessionIDs: readonly string[]) {
+  if (!enabled && sessionIDs.length > 1) throw new Error("Multiple --session values require tabs to be enabled")
+}
 
 function App(props: { pair?: DialogPairCredentials }) {
   const log = useLog({ component: "app" })
@@ -587,10 +612,11 @@ function App(props: { pair?: DialogPairCredentials }) {
           })
         local.model.set({ providerID, modelID }, { recent: true })
       }
-      if (args.sessionID && !args.fork) {
+      if (args.sessionIDs?.length && !args.fork) {
+        sessionTabs.open(args.sessionIDs)
         route.navigate({
           type: "session",
-          sessionID: args.sessionID,
+          sessionID: args.sessionIDs.at(-1)!,
           prompt: startupPrompt,
         })
       }
@@ -599,7 +625,7 @@ function App(props: { pair?: DialogPairCredentials }) {
 
   let continued = false
   createEffect(() => {
-    if (continued || !args.continue) return
+    if (continued || !args.continue || args.sessionIDs?.length) return
     continued = true
     const location = data.location.default()
     void client.api.session
@@ -628,10 +654,11 @@ function App(props: { pair?: DialogPairCredentials }) {
   // Handle --session with --fork once.
   let forked = false
   createEffect(() => {
-    if (forked || !args.sessionID || !args.fork) return
+    const sessionID = args.sessionIDs?.at(-1)
+    if (forked || !sessionID || !args.fork) return
     forked = true
     void client.api.session
-      .fork({ sessionID: args.sessionID, boundary: { type: "through" } })
+      .fork({ sessionID, boundary: { type: "through" } })
       .then((result) => route.navigate({ type: "session", sessionID: result.id, prompt: startupPrompt }))
       .catch(toast.error)
   })

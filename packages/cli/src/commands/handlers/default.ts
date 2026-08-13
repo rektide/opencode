@@ -62,7 +62,7 @@ export default Runtime.handler(Commands, (input) =>
       },
       args: {
         continue: input.continue,
-        sessionID: Option.getOrUndefined(input.session),
+        sessionIDs: input.session,
         prompt: Option.getOrUndefined(input.prompt),
         auto: input.auto || input.yolo || input.dangerouslySkipPermissions,
       },

@@ -282,6 +282,15 @@ export const { use: useSessionTabs, provider: SessionTabsProvider } = createSimp
         }
         scrollPositions.set(target, position)
       },
+      open(sessionIDs: readonly string[]) {
+        if (!enabled()) return
+        update((draft) => {
+          draft.tabs = sessionIDs.reduce(
+            (tabs, sessionID) => openSessionTab(tabs, { sessionID, title: title(sessionID) }),
+            draft.tabs,
+          )
+        })
+      },
       select(sessionID: string) {
         if (!enabled()) return
         route.navigate({ type: "session", sessionID: root(sessionID) })

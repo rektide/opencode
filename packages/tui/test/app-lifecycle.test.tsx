@@ -244,6 +244,7 @@ test("session startup prompt is submitted exactly once", async () => {
   const calls = createFetch(async (url, request) => {
     if (url.pathname === "/api/location") return json(location)
     if (url.pathname === "/api/session") return json({ data: [session], cursor: {} })
+    if (url.pathname === "/api/session/first") return json({ data: { ...session, id: "first", title: "First" } })
     if (url.pathname === "/api/session/dummy") return json({ data: session })
     if (url.pathname === "/api/session/dummy/message") return json({ data: [], cursor: {} })
     if (url.pathname === "/api/session/dummy/inbox") return json({ data: [] })
@@ -275,7 +276,7 @@ test("session startup prompt is submitted exactly once", async () => {
         config: { get: async () => ({}), update: async () => ({}) },
         packages: { resolve: async () => undefined },
         terminalHandoff: async () => ({ renderer: setup.renderer, mode: "dark", complete: () => {} }),
-        args: { sessionID: "dummy", prompt: "RESUME_READY" },
+        args: { sessionIDs: ["first", "dummy"], prompt: "RESUME_READY" },
         log: () => {},
       }).pipe(Effect.provide(AppNodeBuilder.build(Global.node)), Effect.provide(FileSystem.layerNoop({}))),
     )

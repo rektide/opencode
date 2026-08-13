@@ -42,8 +42,8 @@ export const Commands = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCO
     ),
     session: Flag.string("session").pipe(
       Flag.withAlias("s"),
-      Flag.withDescription("Session ID to continue"),
-      Flag.optional,
+      Flag.withDescription("Session ID to open (repeatable)"),
+      Flag.atMost(Number.MAX_SAFE_INTEGER),
     ),
     prompt: Flag.string("prompt").pipe(Flag.withDescription("Prompt to use"), Flag.optional),
   },
