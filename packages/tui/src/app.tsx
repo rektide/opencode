@@ -274,10 +274,11 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
         }),
       )
       const shutdown = yield* Deferred.make<unknown>()
-      const onSighup = () => destroyRenderer(renderer)
+      const signals = ["SIGHUP", "SIGINT", "SIGTERM"] as const
+      const shutdownRenderer = () => destroyRenderer(renderer)
       yield* Effect.acquireRelease(
-        Effect.sync(() => process.on("SIGHUP", onSighup)),
-        () => Effect.sync(() => process.off("SIGHUP", onSighup)),
+        Effect.sync(() => signals.forEach((signal) => process.on(signal, shutdownRenderer))),
+        () => Effect.sync(() => signals.forEach((signal) => process.off(signal, shutdownRenderer))),
       )
       renderer.once("destroy", () => Deferred.doneUnsafe(shutdown, Effect.void))
       yield* Effect.tryPromise(async () => {
