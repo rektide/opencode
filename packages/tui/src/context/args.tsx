@@ -6,6 +6,7 @@ export interface Args {
   prompt?: string
   continue?: boolean
   sessionID?: string
+  /** Ordered Sessions explicitly selected at startup. */
   sessionIDs?: readonly string[]
   fork?: boolean
   auto?: boolean
