@@ -206,8 +206,8 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
   const options = { baseUrl: input.server.endpoint.url, headers: Service.headers(input.server.endpoint) }
   const api = OpenCode.make(options)
   const requestedSessionIDs = input.args.sessionIDs ?? (input.args.sessionID ? [input.args.sessionID] : [])
-  yield* Effect.try(() => assertStartupSessionTabs(config.tabs.enabled, requestedSessionIDs))
   const sessionIDs = yield* Effect.tryPromise(() => resolveStartupSessions(api, requestedSessionIDs))
+  yield* Effect.try(() => assertStartupSessionTabs(config.tabs.enabled, sessionIDs))
   const location = yield* Effect.tryPromise(() => api.file.list({ location: { directory: process.cwd() } })).pipe(
     Effect.map((response) => response.location),
     Effect.catch(() => Effect.tryPromise(() => api.location.get())),
