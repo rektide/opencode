@@ -7,7 +7,7 @@ import { Global } from "@opencode-ai/util/global"
 import { ClipboardProvider, useClipboard } from "./context/clipboard"
 import { LogProvider, useLog, type LogSink } from "./context/log"
 import { ExitProvider, useExit } from "./context/exit"
-import { EpilogueProvider } from "./context/epilogue"
+import { EpilogueProvider, useEpilogue } from "./context/epilogue"
 import * as Selection from "./util/selection"
 import {
   CliRenderEvents,
@@ -97,6 +97,7 @@ import { DialogVariant } from "./component/dialog-variant"
 import { win32DisableProcessedInput, win32FlushInputBuffer } from "./terminal-win32"
 import { destroyRenderer } from "./util/renderer"
 import { cliErrorMessage, errorFormat } from "./util/error"
+import { formatSessionReports } from "./util/session-report"
 import { AttentionProvider } from "./context/attention"
 import { StorageProvider } from "./context/storage"
 import { createTuiClipboard } from "./clipboard"
@@ -160,6 +161,7 @@ const appBindingCommands = [
   "theme.mode.lock",
   "help.show",
   "docs.open",
+  "app.print_sessions",
   "diff.open",
   "app.debug",
   "app.console",
@@ -224,7 +226,11 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
         restart: managed.restart,
       }
     : undefined
-  const exit = { epilogue: undefined as string | undefined, reason: undefined as unknown }
+  const exit = {
+    epilogue: undefined as string | undefined,
+    report: undefined as string | undefined,
+    reason: undefined as unknown,
+  }
   const result = yield* Effect.scoped(
     Effect.gen(function* () {
       const options = {
@@ -301,7 +307,10 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                   destroyRenderer(renderer)
                 }}
               >
-                <EpilogueProvider set={(value) => (exit.epilogue = value)}>
+                <EpilogueProvider
+                  set={(value) => (exit.epilogue = value)}
+                  report={(value) => (exit.report = value)}
+                >
                   <TuiAppProvider value={input.app}>
                     <ErrorBoundary
                       fallback={(error, reset) => (
@@ -447,7 +456,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
         }
       })
       yield* Deferred.await(shutdown)
-      return { epilogue: exit.epilogue, reason: exit.reason }
+      return { epilogue: exit.report ?? exit.epilogue, reason: exit.reason }
     }),
   )
   yield* Effect.sync(() => {
@@ -502,6 +511,7 @@ function App(props: { pair?: DialogPairCredentials }) {
   const data = useData()
   const location = useLocation()
   const exit = useExit()
+  const epilogue = useEpilogue()
   const promptRef = usePromptRef()
   const plugins = usePlugin()
   const clipboard = useClipboard()
@@ -1008,6 +1018,22 @@ function App(props: { pair?: DialogPairCredentials }) {
         run: () => {
           open("https://opencode.ai/docs").catch(() => {})
           dialog.clear()
+        },
+        category: "System",
+      },
+      {
+        name: "app.print_sessions",
+        title: "Print selected sessions and exit",
+        slash: { name: "print-sessions" },
+        enabled: Boolean(args.sessionIDs?.length || args.sessionID),
+        run: async () => {
+          const sessionIDs = args.sessionIDs?.length ? args.sessionIDs : args.sessionID ? [args.sessionID] : []
+          await formatSessionReports(client.api, sessionIDs)
+            .then((report) => {
+              epilogue.report(report)
+              exit()
+            })
+            .catch(toast.error)
         },
         category: "System",
       },
