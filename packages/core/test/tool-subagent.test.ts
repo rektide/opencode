@@ -612,6 +612,32 @@ describe("SubagentTool", () => {
             },
           })
           yield* jobs.cancel(child.id)
+
+          activeSessions.add(child.id)
+          expect(
+            yield* executeTool(registry, {
+              sessionID: parent.id,
+              ...toolIdentity,
+              call: {
+                type: "tool-call",
+                id: "call-active-continuation",
+                name: SubagentTool.name,
+                input: {
+                  agent: "reviewer",
+                  description: "follow up",
+                  prompt: "continue this",
+                  sessionID: child.id,
+                },
+              },
+            }),
+          ).toEqual({
+            status: "error",
+            error: {
+              type: "tool.execution",
+              message: "Continuing a running subagent is not implemented yet",
+            },
+          })
+          activeSessions.delete(child.id)
         }),
       ),
     ),

@@ -190,7 +190,11 @@ export const Plugin = {
                 return yield* new ToolFailure({
                   message: `Session ${existing.id} belongs to agent ${existing.agent ?? "unknown"}, not ${agent.id}`,
                 })
-              if (existing !== undefined && (yield* runtime.job.get(existing.id))?.status === "running")
+              if (
+                existing !== undefined &&
+                ((yield* runtime.job.get(existing.id))?.status === "running" ||
+                  (yield* runtime.session.active).has(existing.id))
+              )
                 return yield* new ToolFailure({
                   message: "Continuing a running subagent is not implemented yet",
                 })
