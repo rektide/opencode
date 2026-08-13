@@ -13,6 +13,7 @@ import { AppProcess } from "@opencode-ai/util/process"
 import { Bus } from "./bus"
 import { VcsGit } from "./vcs/git"
 import { VcsHg } from "./vcs/hg"
+import { VcsJj } from "./vcs/jj"
 
 export { FileStatus, Info, Mode }
 
@@ -35,6 +36,7 @@ const adapter = (proc: AppProcess.Interface, fs: FSUtil.Interface, location: Loc
   const scope = { directory: location.directory, worktree: location.project.directory }
   if (location.vcs?.type === "git") return VcsGit.make(proc, scope)
   if (location.vcs?.type === "hg") return VcsHg.make(proc, fs, scope)
+  if (location.vcs?.type === "jj") return VcsJj.make(proc, scope)
 }
 
 const layer = Layer.effect(
@@ -48,7 +50,7 @@ const layer = Layer.effect(
     const vcs = location.vcs
     const state = { info: impl ? yield* impl.info() : ({ branch: {} } satisfies Info) }
 
-    if (vcs && impl) {
+    if (vcs && impl && vcs.type !== "jj") {
       const store = yield* fs.realPath(vcs.store).pipe(Effect.catch(() => Effect.succeed(vcs.store)))
       const isBranchMetadata =
         vcs.type === "git"
