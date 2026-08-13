@@ -196,6 +196,20 @@ test("stores session tabs for the current working directory by default", async (
   }
 })
 
+test("merges startup sessions into restored tabs in order", async () => {
+  const setup = await renderSessionTabs("active", { home: true, persisted: ["restored", "shared"] })
+
+  try {
+    setup.tabs.open(["shared", "first", "last"])
+    setup.tabs.select("last")
+    await wait(() => setup.tabs.current() === "last" && setup.tabs.tabs().length === 4)
+
+    expect(setup.tabs.tabs().map((tab) => tab.sessionID)).toEqual(["restored", "shared", "first", "last"])
+  } finally {
+    await setup.destroy()
+  }
+})
+
 test("concurrent TUIs do not alternate shared tab titles from divergent session caches", async () => {
   await using temporary = await tmpdir()
   const state = temporary.path
