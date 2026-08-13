@@ -34,6 +34,7 @@ const childText = "child final response"
 const childModel = Model.Ref.make({ id: Model.ID.make("child"), providerID: Provider.ID.make("test") })
 const parentModel = Model.Ref.make({ id: Model.ID.make("parent"), providerID: Provider.ID.make("test") })
 const tokens = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+const activeSessions = new Set<Session.ID>()
 
 const outputSessionID = (value: unknown) =>
   Schema.decodeUnknownSync(Schema.Struct({ sessionID: Session.ID }))(value).sessionID
@@ -80,7 +81,7 @@ const executionNode = makeGlobalNode({
         })
       })
       return SessionExecution.Service.of({
-        active: Effect.succeed(new Set()),
+        active: Effect.sync(() => new Set(activeSessions)),
         resume: complete,
         wake: () => Effect.void,
         interrupt: () => Effect.void,
@@ -159,6 +160,11 @@ describe("SubagentTool", () => {
             agent: Agent.ID.make("reviewer"),
           })
           const idle = yield* sessions.create({ parentID: parent.id, title: "idle", agent: Agent.ID.make("reviewer") })
+          const active = yield* sessions.create({
+            parentID: parent.id,
+            title: "active",
+            agent: Agent.ID.make("reviewer"),
+          })
           yield* sessions.create({ parentID: completed.id, title: "grandchild" })
           yield* sessions.create({ parentID: unrelated.id, title: "other child" })
           yield* sessions.prompt({
@@ -170,6 +176,8 @@ describe("SubagentTool", () => {
           yield* sessions.prompt({ sessionID: failed.id, text: "failed prompt", resume: false })
           yield* sessions.prompt({ sessionID: cancelled.id, text: "cancelled prompt", resume: false })
           yield* sessions.prompt({ sessionID: idle.id, text: "idle prompt", resume: false })
+          yield* sessions.prompt({ sessionID: active.id, text: "active prompt", resume: false })
+          activeSessions.add(active.id)
 
           const bus = yield* Bus.Service
           const database = yield* Database.Service
@@ -218,7 +226,7 @@ describe("SubagentTool", () => {
           const output = Schema.decodeUnknownSync(SubagentListTool.Output)(settled.output)
 
           expect(output.map((child) => child.sessionID).toSorted()).toEqual(
-            [completed.id, failed.id, cancelled.id, idle.id].toSorted(),
+            [completed.id, failed.id, cancelled.id, idle.id, active.id].toSorted(),
           )
           expect(output.find((child) => child.sessionID === completed.id)).toMatchObject({
             agent: "reviewer",
@@ -235,6 +243,8 @@ describe("SubagentTool", () => {
           })
           expect(output.find((child) => child.sessionID === cancelled.id)?.status).toBe("cancelled")
           expect(output.find((child) => child.sessionID === idle.id)?.status).toBe("idle")
+          expect(output.find((child) => child.sessionID === active.id)?.status).toBe("running")
+          activeSessions.delete(active.id)
           expect(settled.content?.[0]).toMatchObject({
             type: "text",
             text: expect.stringContaining("call subagent with its sessionID"),
