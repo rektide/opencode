@@ -14,7 +14,7 @@ import { it } from "./lib/effect"
 
 const describeJj = Bun.which("jj") ? describe : describe.skip
 
-const provide = (directory: string) =>
+const provide = (directory: string, worktree = directory) =>
   Effect.provide(
     LayerNode.compile(LayerNode.group([Vcs.node, Bus.node]), [
       [
@@ -24,7 +24,10 @@ const provide = (directory: string) =>
           Location.Service.of(
             location(
               { directory: AbsolutePath.make(directory) },
-              { vcs: { type: "jj", store: AbsolutePath.make(path.join(directory, ".jj", "repo", "store", "git")) } },
+              {
+                projectDirectory: AbsolutePath.make(worktree),
+                vcs: { type: "jj", store: AbsolutePath.make(path.join(worktree, ".jj", "repo", "store", "git")) },
+              },
             ),
           ),
         ),
@@ -85,6 +88,29 @@ describeJj("Vcs Jujutsu", () => {
         expect(tight[0].patch).not.toContain("line-0")
         expect(yield* vcs.diff("branch")).toEqual([])
       }),
+    ),
+  )
+
+  it.live("returns paths relative to a nested location", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const directory = tmp.path
+        const nested = path.join(directory, "nested")
+        yield* Effect.promise(async () => {
+          await $`jj git init`.cwd(directory).quiet()
+          await fs.mkdir(nested)
+          await fs.writeFile(path.join(nested, "file.txt"), "hello\n")
+        })
+          const scoped = yield* (yield* Vcs.Service).diff("working")
+
+          expect(scoped.map((item) => item.file)).toEqual(["file.txt"])
+          expect(scoped[0].patch).toContain("nested/file.txt")
+        }).pipe(provide(path.join(tmp.path, "nested"), tmp.path)),
+      ),
     ),
   )
 })
