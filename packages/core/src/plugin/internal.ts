@@ -53,6 +53,7 @@ import { ReadToolFileSystem } from "../tool/read-filesystem.js"
 import { ReadTool } from "../tool/plugin/read.js"
 import { ShellTool } from "../tool/plugin/shell.js"
 import { SkillTool } from "../tool/plugin/skill.js"
+import { SubagentListTool } from "../tool/plugin/subagent-list.js"
 import { SubagentTool } from "../tool/plugin/subagent.js"
 import { Tool } from "../tool.js"
 import { WebFetchTool } from "../tool/plugin/webfetch.js"
@@ -212,6 +213,7 @@ const pre = [
   ReadTool.Plugin,
   ShellTool.Plugin,
   SkillTool.Plugin,
+  SubagentListTool.Plugin,
   SubagentTool.Plugin,
   WebFetchTool.Plugin,
   WebSearchTool.Plugin,
