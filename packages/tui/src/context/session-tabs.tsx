@@ -313,6 +313,15 @@ export const { use: useSessionTabs, provider: SessionTabsProvider } = createSimp
         if (current?.messageID === anchor.messageID && current.screenY === anchor.screenY) return
         scrollAnchors.set(target, anchor)
       },
+      open(sessionIDs: readonly string[]) {
+        if (!enabled()) return
+        update((draft) => {
+          draft.tabs = sessionIDs.reduce(
+            (tabs, sessionID) => openSessionTab(tabs, { sessionID, title: title(sessionID) }),
+            draft.tabs,
+          )
+        })
+      },
       select(sessionID: string) {
         if (!enabled()) return
         route.navigate({ type: "session", sessionID: root(sessionID) })
