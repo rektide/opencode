@@ -135,6 +135,6 @@ export function normalizeProjectInfo(project: Project | CurrentProject): Project
     ...project,
     worktree,
     worktrees: "worktrees" in project ? project.worktrees : [{ directory: worktree }],
-    vcs: project.vcs === "git" ? "git" : undefined,
+    vcs: project.vcs,
   }
 }

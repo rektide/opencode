@@ -55,7 +55,7 @@ export function createSessionReview(input: {
   const options = createMemo<ChangeMode[]>(() => {
     const list: ChangeMode[] = []
     const project = input.session.project()
-    if (project?.vcs === "git") list.push("git")
+    if (project?.vcs === "git" || project?.vcs === "jj") list.push("git")
     if (
       project?.vcs === "git" &&
       vcs()?.branch.current &&
@@ -94,7 +94,10 @@ export function createSessionReview(input: {
     const value = vcsMode()
     return {
       queryKey: [...vcsKey(), value] as const,
-      enabled: server.connection.status() === "connected" && wantsReview() && input.session.project()?.vcs === "git",
+      enabled:
+        server.connection.status() === "connected" &&
+        wantsReview() &&
+        (input.session.project()?.vcs === "git" || input.session.project()?.vcs === "jj"),
       refetchOnMount: "always" as const,
       refetchOnWindowFocus: true,
       queryFn: value
@@ -110,7 +113,10 @@ export function createSessionReview(input: {
   })
   const detailsQuery = createQuery(() => ({
     queryKey: [server.scope, "session-details", input.session.workspace.directory()] as const,
-    enabled: state.detailsOpen && server.connection.status() === "connected" && input.session.project()?.vcs === "git",
+    enabled:
+      state.detailsOpen &&
+      server.connection.status() === "connected" &&
+      (input.session.project()?.vcs === "git" || input.session.project()?.vcs === "jj"),
     queryFn: () =>
       server.api.vcs
         .diff({ location: { directory: input.session.workspace.directory() }, mode: "working" })
