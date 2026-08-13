@@ -32,7 +32,7 @@ import { Tool } from "@opencode-ai/core/tool"
 import { tmpdir } from "./fixture/tmpdir"
 import { tempGlobalLayer } from "./fixture/global"
 import { testEffect } from "./lib/effect"
-import { executeTool, registerToolPlugin, toolIdentity } from "./lib/tool"
+import { executeTool, registerToolPlugin, toolIdentity, waitForTool } from "./lib/tool"
 
 const childText = "child final response"
 const childModel = Model.Ref.make({ id: Model.ID.make("child"), providerID: Provider.ID.make("test") })
@@ -195,9 +195,9 @@ describe("SubagentTool", () => {
 
           const bus = yield* Bus.Service
           const database = yield* Database.Service
-          yield* SessionPending.promote(database.db, bus, completed.id, "input")
-          yield* SessionPending.promote(database.db, bus, completed.id, "input")
-          yield* SessionPending.promote(database.db, bus, failed.id, "input")
+          yield* SessionInbox.promote(database.db, bus, completed.id, "input")
+          yield* SessionInbox.promote(database.db, bus, completed.id, "input")
+          yield* SessionInbox.promote(database.db, bus, failed.id, "input")
           const completeID = SessionMessage.ID.create()
           yield* bus.publish(SessionEvent.Step.Started, {
             sessionID: completed.id,
@@ -525,8 +525,8 @@ describe("SubagentTool", () => {
           expect((yield* sessions.list({ parentID: parent.id })).data).toHaveLength(1)
           expect((yield* sessions.get(childID)).title).toBe("review")
           expect(
-            (yield* sessions.pending(childID)).flatMap((message) =>
-              message.type === "user" ? [message.data.text] : [],
+            (yield* sessions.inbox(childID)).flatMap((message) =>
+              message.type === "user" ? [message.payload.text] : [],
             ),
           ).toEqual(["You are a subagent spawned by another session.\nreview this", "continue this"])
           expect(second.content).toEqual([

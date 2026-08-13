@@ -69,7 +69,7 @@ export const Plugin = {
               return yield* Effect.forEach(sessions, (session) =>
                 Effect.gen(function* () {
                   const messages = yield* runtime.session.messages({ sessionID: session.id, order: "asc" })
-                  const pending = yield* runtime.session.pending(session.id)
+                  const pending = yield* runtime.session.inbox(session.id)
                   const prompts = [
                     ...messages.flatMap((message) =>
                       message.type === "user"
@@ -86,7 +86,7 @@ export const Plugin = {
                       message.type === "user"
                         ? [
                             {
-                              text: message.data.text,
+                              text: message.payload.text,
                               time: DateTime.toEpochMillis(message.timeCreated),
                               state: "pending" as const,
                             },
