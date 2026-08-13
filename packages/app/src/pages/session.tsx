@@ -653,13 +653,13 @@ export default function Page() {
   const turnDiffs = createMemo(() => list(lastUserMessage()?.summary?.diffs))
   const nogit = createMemo(() => {
     const project = sync().project
-    return !!project && project.vcs !== "git"
+    return !!project && !project.vcs
   })
   const changesOptions = createMemo<ChangeMode[]>(() => {
     const list: ChangeMode[] = []
     const project = sync().project
     const vcs = sync().data.vcs
-    if (project?.vcs === "git") list.push("git")
+    if (project?.vcs === "git" || project?.vcs === "jj") list.push("git")
     if (project?.vcs === "git" && vcs?.branch && vcs?.default_branch && vcs.branch !== vcs.default_branch) {
       list.push("branch")
     }
@@ -683,7 +683,7 @@ export default function Page() {
   )
   const vcsQuery = createQuery(() => {
     const mode = vcsMode()
-    const enabled = wantsReview() && sync().project?.vcs === "git"
+    const enabled = wantsReview() && (sync().project?.vcs === "git" || sync().project?.vcs === "jj")
 
     return {
       queryKey: [...vcsKey(), mode] as const,
