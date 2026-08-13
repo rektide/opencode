@@ -49,7 +49,7 @@ interface Data {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Vcs") {}
 
-const layer = Layer.effect(
+const layer = Layer.effect(const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const fs = yield* FSUtil.Service
@@ -126,7 +126,7 @@ const layer = Layer.effect(
       if (changed) yield* bus.publish(VcsEvent.BranchUpdated, { branch: next.branch.current })
     })
 
-    if (vcs) {
+    if (vcs && vcs.type !== "jj") {
       const store = yield* fs.realPath(vcs.store).pipe(Effect.orElseSucceed(() => vcs.store))
       const isBranchMetadata =
         vcs.type === "git"
