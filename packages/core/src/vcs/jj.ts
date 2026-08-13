@@ -18,6 +18,7 @@ import {
 export function make(proc: AppProcess.Interface, input: { directory: string; worktree: string }): Interface {
   const jj = makeJj(proc, input.worktree)
   const scope = path.relative(input.worktree, input.directory) || "."
+  const local = (file: string) => (scope === "." ? file : path.relative(scope, file).replaceAll("\\", "/"))
 
   const changes = Effect.fnUntraced(function* (revision: Revision, options?: DiffOptions) {
     const [items, conflicts, patch] = yield* Effect.all(
@@ -35,7 +36,7 @@ export function make(proc: AppProcess.Interface, input: { directory: string; wor
         const chunk = chunks.get(item.file) ?? emptyPatch(item.file)
         const count = countPatch(chunk)
         return {
-          file: item.file,
+          file: local(item.file),
           patch: chunk,
           additions: count.additions,
           deletions: count.deletions,

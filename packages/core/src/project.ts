@@ -197,11 +197,11 @@ const layer = Layer.effect(
     })
 
     const jjDiscover = Effect.fnUntraced(function* (input: AbsolutePath) {
-      const dotJj = yield* fs.up({ targets: [".jj"], start: input, mode: "first" }).pipe(
+      const marker = yield* fs.up({ targets: [".jj", ".git", ".hg"], start: input, mode: "first" }).pipe(
         Effect.map((matches) => matches[0]),
         Effect.catch(() => Effect.succeed(undefined)),
       )
-      if (!dotJj) return undefined
+      if (!marker || path.basename(marker) !== ".jj") return undefined
 
       const worktreeText = yield* command(input, "jj", ["--no-pager", "--color=never", "workspace", "root"])
       const storeText = yield* command(input, "jj", ["--no-pager", "--color=never", "git", "root"])
@@ -223,8 +223,9 @@ const layer = Layer.effect(
       const workspaces = (workspaceText ?? "").split("\0")
       const roots = Array.from({ length: Math.floor(workspaces.length / 2) }, (_, index) => ({
         name: workspaces[index * 2],
-        root: workspaces[index * 2 + 1],
+        root: path.resolve(workspaces[index * 2 + 1]),
       })).filter((item) => item.name && item.root)
+      if (!roots.some((item) => item.root === directory)) return undefined
       const canonical = roots.find((item) => item.name === "default") ?? roots.toSorted((a, b) => a.name.localeCompare(b.name))[0]
       return {
         previous,

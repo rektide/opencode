@@ -298,6 +298,42 @@ describe("Project.resolve", () => {
     }),
   )
 
+  itJj.live("keeps a nested git repository separate from its enclosing jj repository", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      const nested = path.join(tmp.path, "nested")
+      yield* Effect.promise(async () => {
+        await $`jj git init`.cwd(tmp.path).quiet()
+        await fs.mkdir(nested)
+        await initRepo(nested, { commit: true })
+      })
+      const project = yield* Project.Service
+
+      expect((yield* project.resolve(abs(nested))).vcs?.type).toBe("git")
+    }),
+  )
+
+  itJj.live("does not accept a forgotten jj workspace as an active working copy", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      const linked = `${tmp.path}-forgotten`
+      yield* Effect.addFinalizer(() => Effect.promise(() => $`rm -rf ${linked}`.quiet().nothrow()).pipe(Effect.ignore))
+      yield* Effect.promise(async () => {
+        await $`jj git init`.cwd(tmp.path).quiet()
+        await $`jj workspace add --name forgotten ${linked}`.cwd(tmp.path).quiet()
+        await $`jj workspace forget forgotten`.cwd(tmp.path).quiet()
+      })
+
+      expect((yield* (yield* Project.Service).resolve(abs(linked))).vcs).toBeUndefined()
+    }),
+  )
+
   itHg.live("detects mercurial repositories from nested directories", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireRelease(
