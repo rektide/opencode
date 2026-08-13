@@ -432,6 +432,50 @@ describe("Project.resolve", () => {
   )
 
   const itHg = Bun.which("hg") ? it : { live: it.live.skip }
+  const itJj = Bun.which("jj") ? it : { live: it.live.skip }
+
+  itJj.live("detects pure jj repositories and shares identity across workspaces", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      const linked = `${tmp.path}-linked`
+      yield* Effect.addFinalizer(() => Effect.promise(() => $`rm -rf ${linked}`.quiet().nothrow()).pipe(Effect.ignore))
+      yield* Effect.promise(async () => {
+        await $`jj git init`.cwd(tmp.path).quiet()
+        await fs.mkdir(path.join(tmp.path, "a", "b"), { recursive: true })
+        await $`jj workspace add --name linked ${linked}`.cwd(tmp.path).quiet()
+      })
+      const project = yield* Project.Service
+
+      const main = yield* project.resolve(abs(path.join(tmp.path, "a", "b")))
+      const peer = yield* project.resolve(abs(linked))
+
+      expect(main.vcs?.type).toBe("jj")
+      expect(main.id).not.toBe(Project.ID.global)
+      expect(peer.id).toBe(main.id)
+      expect(peer.canonical).toBe(main.canonical)
+      expect(peer.directory).toBe(yield* real(linked))
+    }),
+  )
+
+  itJj.live("prefers jj semantics in colocated git repositories", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      yield* Effect.promise(async () => {
+        await $`jj git init --colocate`.cwd(tmp.path).quiet()
+        await $`git remote add origin git@github.com:owner/repo.git`.cwd(tmp.path).quiet()
+      })
+      const result = yield* (yield* Project.Service).resolve(abs(tmp.path))
+
+      expect(result.vcs?.type).toBe("jj")
+      expect(result.id).toBe(remoteID("github.com/owner/repo"))
+    }),
+  )
 
   itHg.live("detects mercurial repositories from nested directories", () =>
     Effect.gen(function* () {
