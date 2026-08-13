@@ -24,6 +24,7 @@ import { SessionStore } from "@opencode-ai/core/session/store"
 import { PluginRuntime } from "@opencode-ai/core/plugin/runtime"
 import { PluginSupervisor } from "@opencode-ai/core/plugin/supervisor"
 import { SubagentTool } from "@opencode-ai/core/tool/plugin/subagent"
+import { SubagentListTool } from "@opencode-ai/core/tool/plugin/subagent-list"
 import { Tool } from "@opencode-ai/core/tool"
 import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
@@ -131,6 +132,143 @@ const withSubagent = (location: Location.Ref) =>
   })
 
 describe("SubagentTool", () => {
+  it.live("lists only direct children with durable prompts and honest statuses", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const location = Location.Ref.make({ directory: AbsolutePath.make(dir.path) })
+          const sessions = yield* Session.Service
+          const parent = yield* sessions.create({ location })
+          const unrelated = yield* sessions.create({ location, title: "unrelated" })
+          const completed = yield* sessions.create({
+            parentID: parent.id,
+            title: "completed",
+            agent: Agent.ID.make("reviewer"),
+          })
+          const failed = yield* sessions.create({
+            parentID: parent.id,
+            title: "failed",
+            agent: Agent.ID.make("reviewer"),
+          })
+          const cancelled = yield* sessions.create({
+            parentID: parent.id,
+            title: "cancelled",
+            agent: Agent.ID.make("reviewer"),
+          })
+          const idle = yield* sessions.create({ parentID: parent.id, title: "idle", agent: Agent.ID.make("reviewer") })
+          yield* sessions.create({ parentID: completed.id, title: "grandchild" })
+          yield* sessions.create({ parentID: unrelated.id, title: "other child" })
+          yield* sessions.prompt({
+            sessionID: completed.id,
+            text: "You are a subagent spawned by another session.\noriginal prompt",
+            resume: false,
+          })
+          yield* sessions.prompt({ sessionID: completed.id, text: "follow-up prompt", resume: false })
+          yield* sessions.prompt({ sessionID: failed.id, text: "failed prompt", resume: false })
+          yield* sessions.prompt({ sessionID: cancelled.id, text: "cancelled prompt", resume: false })
+          yield* sessions.prompt({ sessionID: idle.id, text: "idle prompt", resume: false })
+
+          const bus = yield* Bus.Service
+          const database = yield* Database.Service
+          yield* SessionPending.promote(database.db, bus, completed.id, "input")
+          yield* SessionPending.promote(database.db, bus, completed.id, "input")
+          yield* SessionPending.promote(database.db, bus, failed.id, "input")
+          const completeID = SessionMessage.ID.create()
+          yield* bus.publish(SessionEvent.Step.Started, {
+            sessionID: completed.id,
+            assistantMessageID: completeID,
+            agent: Agent.ID.make("reviewer"),
+            model: childModel,
+          })
+          yield* bus.publish(SessionEvent.Step.Ended, {
+            sessionID: completed.id,
+            assistantMessageID: completeID,
+            finish: "stop",
+            cost: Money.USD.zero,
+            tokens,
+          })
+          const failedID = SessionMessage.ID.create()
+          yield* bus.publish(SessionEvent.Step.Started, {
+            sessionID: failed.id,
+            assistantMessageID: failedID,
+            agent: Agent.ID.make("reviewer"),
+            model: childModel,
+          })
+          yield* bus.publish(SessionEvent.Step.Failed, {
+            sessionID: failed.id,
+            assistantMessageID: failedID,
+            error: { type: "test", message: "durable failure" },
+          })
+          const jobs = yield* Job.Service
+          yield* jobs.start({ id: cancelled.id, type: "subagent", run: Effect.never })
+          yield* jobs.cancel(cancelled.id)
+
+          yield* withSubagent(parent.location)
+          const locations = yield* LocationServiceMap.Service
+          const registry = yield* Tool.Service.pipe(Effect.provide(locations.get(parent.location)))
+          yield* waitForTool(registry, SubagentListTool.name)
+          const settled = yield* executeTool(registry, {
+            sessionID: parent.id,
+            ...toolIdentity,
+            call: { type: "tool-call", id: "call-subagent-list", name: SubagentListTool.name, input: {} },
+          })
+          const output = Schema.decodeUnknownSync(SubagentListTool.Output)(settled.output)
+
+          expect(output.map((child) => child.sessionID).toSorted()).toEqual(
+            [completed.id, failed.id, cancelled.id, idle.id].toSorted(),
+          )
+          expect(output.find((child) => child.sessionID === completed.id)).toMatchObject({
+            agent: "reviewer",
+            title: "completed",
+            status: "completed",
+            prompts: [
+              { text: "original prompt", state: "history" },
+              { text: "follow-up prompt", state: "history" },
+            ],
+          })
+          expect(output.find((child) => child.sessionID === failed.id)).toMatchObject({
+            status: "error",
+            error: "durable failure",
+          })
+          expect(output.find((child) => child.sessionID === cancelled.id)?.status).toBe("cancelled")
+          expect(output.find((child) => child.sessionID === idle.id)?.status).toBe("idle")
+          expect(settled.content?.[0]).toMatchObject({
+            type: "text",
+            text: expect.stringContaining("call subagent with its sessionID"),
+          })
+        }),
+      ),
+    ),
+  )
+
+  it.live("reports when a session has no direct subagent children", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const location = Location.Ref.make({ directory: AbsolutePath.make(dir.path) })
+          const parent = yield* (yield* Session.Service).create({ location })
+          yield* withSubagent(parent.location)
+          const locations = yield* LocationServiceMap.Service
+          const registry = yield* Tool.Service.pipe(Effect.provide(locations.get(parent.location)))
+          yield* waitForTool(registry, SubagentListTool.name)
+          const settled = yield* executeTool(registry, {
+            sessionID: parent.id,
+            ...toolIdentity,
+            call: { type: "tool-call", id: "call-empty-subagent-list", name: SubagentListTool.name, input: {} },
+          })
+          expect(settled.output).toEqual([])
+          expect(settled.content).toEqual([{ type: "text", text: "No direct subagent children found." }])
+        }),
+      ),
+    ),
+  )
+
   it.live("registers globally while resolving agents from the caller location", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),

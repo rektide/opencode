@@ -47,6 +47,7 @@ import { ReadTool } from "../tool/plugin/read"
 import { ShellTool } from "../tool/plugin/shell"
 import { SkillTool } from "../tool/plugin/skill"
 import { SubagentTool } from "../tool/plugin/subagent"
+import { SubagentListTool } from "../tool/plugin/subagent-list"
 import { Tool } from "../tool"
 import { WebFetchTool } from "../tool/plugin/webfetch"
 import { WebSearchTool } from "../tool/plugin/websearch"
@@ -156,6 +157,7 @@ const pre = [
   ReadTool.Plugin,
   ShellTool.Plugin,
   SkillTool.Plugin,
+  SubagentListTool.Plugin,
   SubagentTool.Plugin,
   WebFetchTool.Plugin,
   WebSearchTool.Plugin,
