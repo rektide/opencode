@@ -167,6 +167,7 @@ const layer = Layer.effect(
             ...(input.follow ? ["--follow"] : []),
             `--glob=${input.pattern}`,
             "--glob=!**/.git/**",
+            "--glob=!**/.jj/**",
             ".",
           ],
           parse: (line) =>
@@ -200,6 +201,7 @@ const layer = Layer.effect(
             ...(input.pattern === "*" ? [] : [`--glob=${input.pattern}`]),
             ...(input.exclude ?? []).map((pattern) => `--glob=!${pattern}`),
             "--glob=!**/.git/**",
+            "--glob=!**/.jj/**",
             ".",
           ],
           parse: (line) => {
@@ -229,6 +231,7 @@ const layer = Layer.effect(
             "--no-messages",
             ...(input.include ? [`--glob=${input.include}`] : []),
             "--glob=!**/.git/**",
+            "--glob=!**/.jj/**",
             "--",
             input.pattern,
             input.file ?? ".",

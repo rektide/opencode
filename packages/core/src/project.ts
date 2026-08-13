@@ -46,7 +46,7 @@ export interface Resolved {
 
 // Keep this filesystem-only; permission checks use it and should not execute VCS commands.
 export const root = Effect.fn("Project.root")(function* (fs: FSUtil.Interface, input: AbsolutePath) {
-  return yield* fs.up({ targets: [".git", ".hg"], start: input, mode: "first" }).pipe(
+  return yield* fs.up({ targets: [".jj", ".git", ".hg"], start: input, mode: "first" }).pipe(
     Effect.map((matches) => (matches[0] ? AbsolutePath.make(path.dirname(matches[0])) : undefined)),
     Effect.catch(() => Effect.succeed(undefined)),
   )
@@ -118,7 +118,8 @@ const layer = Layer.effect(
               {
                 projectID: project.id,
                 directory: project.directory,
-                strategy: project.vcs.type === "git" ? "git_worktree" : undefined,
+                strategy:
+                  project.vcs.type === "git" ? "git_worktree" : project.vcs.type === "jj" ? "jj_workspace" : undefined,
               },
               tx,
             )
@@ -187,6 +188,53 @@ const layer = Layer.effect(
       return root ? ID.make(root) : undefined
     })
 
+    const command = Effect.fnUntraced(function* (cwd: AbsolutePath, executable: string, args: string[]) {
+      const result = yield* proc
+        .run(ChildProcess.make(executable, args, { cwd, extendEnv: true, stdin: "ignore" }))
+        .pipe(Effect.catch(() => Effect.succeed(undefined)))
+      if (!result || result.exitCode !== 0) return undefined
+      return result.stdout.toString("utf8")
+    })
+
+    const jjDiscover = Effect.fnUntraced(function* (input: AbsolutePath) {
+      const dotJj = yield* fs.up({ targets: [".jj"], start: input, mode: "first" }).pipe(
+        Effect.map((matches) => matches[0]),
+        Effect.catch(() => Effect.succeed(undefined)),
+      )
+      if (!dotJj) return undefined
+
+      const worktreeText = yield* command(input, "jj", ["--no-pager", "--color=never", "workspace", "root"])
+      const storeText = yield* command(input, "jj", ["--no-pager", "--color=never", "git", "root"])
+      if (!worktreeText || !storeText) return undefined
+      const directory = AbsolutePath.make(path.resolve(worktreeText.trim()))
+      const store = AbsolutePath.make(path.resolve(storeText.trim()))
+      const previous = yield* cached(store)
+      const origin = yield* command(directory, "git", ["--git-dir", store, "remote", "get-url", "origin"])
+      const normalized = origin ? url(origin) : undefined
+      const id = normalized ? ID.make(Hash.fast(`git-remote:${normalized}`)) : previous ?? ID.make(Hash.fast(`jj-store:${store}`))
+      const workspaceText = yield* command(directory, "jj", [
+        "--no-pager",
+        "--color=never",
+        "workspace",
+        "list",
+        "-T",
+        'name ++ "\\0" ++ root ++ "\\0"',
+      ])
+      const workspaces = (workspaceText ?? "").split("\0")
+      const roots = Array.from({ length: Math.floor(workspaces.length / 2) }, (_, index) => ({
+        name: workspaces[index * 2],
+        root: workspaces[index * 2 + 1],
+      })).filter((item) => item.name && item.root)
+      const canonical = roots.find((item) => item.name === "default") ?? roots.toSorted((a, b) => a.name.localeCompare(b.name))[0]
+      return {
+        previous,
+        id,
+        directory,
+        canonical: canonical ? AbsolutePath.make(path.resolve(canonical.root)) : directory,
+        vcs: { type: "jj" as const, store },
+      }
+    })
+
     // Mercurial identity uses the cached ID or the first root changeset; remote-derived
     // identity (the git `remote()` path) is a follow-up.
     const hgRoot = Effect.fnUntraced(function* (worktree: AbsolutePath) {
@@ -229,6 +277,9 @@ const layer = Layer.effect(
     })
 
     const resolve = Effect.fn("Project.resolve")(function* (input: AbsolutePath) {
+      const jj = yield* jjDiscover(input)
+      if (jj) return yield* persist(jj)
+
       const repo = yield* git.repo.discover(input)
       if (repo) {
         const previous = yield* cached(repo.commonDirectory)

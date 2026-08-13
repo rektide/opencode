@@ -31,5 +31,9 @@ export const Vcs = Schema.Union([
     type: Schema.Literal("hg"),
     store: AbsolutePath,
   }),
+  Schema.Struct({
+    type: Schema.Literal("jj"),
+    store: AbsolutePath,
+  }),
 ])
 export type Vcs = typeof Vcs.Type
