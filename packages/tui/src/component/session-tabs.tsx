@@ -301,7 +301,7 @@ function VerticalSessionTabs(props: { controller?: SessionTabsController; animat
   const theme = useTheme("elevated")
   const { mode } = useThemes()
   const config = useConfig().data
-  const animations = () => props.animations ?? config.animations ?? true
+  const animations = () => props.animations ?? config.animations !== false
   const width = () => SESSION_SIDEBAR_WIDTH
   const hueStep = () => (mode() === "light" ? 800 : 200)
   const accent = () => theme.hue.accent[hueStep()]
@@ -772,7 +772,7 @@ function HorizontalSessionTabs(props: { controller?: SessionTabsController; anim
   const theme = useTheme()
   const { mode } = useThemes()
   const config = useConfig().data
-  const animations = () => props.animations ?? config.animations ?? true
+  const animations = () => props.animations ?? config.animations !== false
   const [addHovered, setAddHovered] = createSignal(false)
   const marquee = createTabMarquee(animations)
   const hovered = marquee.hovered

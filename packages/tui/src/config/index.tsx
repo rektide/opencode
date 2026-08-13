@@ -195,7 +195,9 @@ export const Info = Schema.Struct({
   experimental: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)).annotate({
     description: "Experimental features that may change or be removed at any time",
   }),
-  animations: Schema.optional(Schema.Boolean).annotate({ description: "Enable interface animations" }),
+  animations: Schema.optional(Schema.Union([Schema.Boolean, Schema.Number.check(Schema.isGreaterThan(0))])).annotate({
+    description: "Enable interface animations or set their target frame rate",
+  }),
   mouse: Schema.optional(Schema.Boolean).annotate({ description: "Enable terminal mouse capture" }),
   cursor: Schema.optional(Cursor),
 })

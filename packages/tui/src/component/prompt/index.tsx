@@ -192,7 +192,7 @@ export function Prompt(props: PromptProps) {
   const dimensions = useTerminalDimensions()
   const theme = useTheme()
   const { currentSyntax: syntax } = useThemes()
-  const animationsEnabled = createMemo(() => config.animations ?? true)
+  const animationsEnabled = createMemo(() => config.animations !== false)
   const list = createMemo(() => props.placeholders?.normal ?? [])
   const shell = createMemo(() => props.placeholders?.shell ?? [])
   const fileContextEnabled = createMemo(() => config.prompt?.editor ?? true)
