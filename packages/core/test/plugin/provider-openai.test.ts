@@ -1,9 +1,12 @@
 import { Money } from "@opencode-ai/schema/money"
 import { Agent } from "@opencode-ai/schema/agent"
+import { Document, Info } from "@opencode-ai/schema/config"
 import { Session } from "@opencode-ai/schema/session"
 import { describe, expect } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { Catalog } from "@opencode-ai/core/catalog"
+import { Config } from "@opencode-ai/core/config"
+import { ConfigProviderPlugin } from "@opencode-ai/core/config/plugin/provider"
 import { Credential } from "@opencode-ai/core/credential"
 import { Integration } from "@opencode-ai/core/integration"
 import { Model } from "@opencode-ai/core/model"
@@ -16,6 +19,7 @@ import { testEffect } from "../lib/effect"
 import { PluginTestLayer } from "./fixture"
 
 const it = testEffect(PluginTestLayer)
+const decodeConfig = Schema.decodeUnknownSync(Info)
 
 const addPlugin = Effect.fn(function* () {
   const plugin = yield* Plugin.Service
@@ -140,6 +144,56 @@ describe("OpenAIPlugin", () => {
       expect(gpt56.enabled).toBe(true)
       expect(gpt56.limit).toEqual({ context: 400_000, input: 272_000, output: 128_000 })
       expect(required(yield* catalog.model.get(Provider.ID.openai, Model.ID.make("gpt-4.1"))).enabled).toBe(false)
+    }),
+  )
+
+  it.effect("preserves configured ChatGPT model limits", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const credentials = yield* Credential.Service
+      const plugin = yield* Plugin.Service
+      const host = yield* PluginHost.make(plugin)
+      yield* catalog.transform((catalog) => {
+        catalog.model.update(Provider.ID.openai, Model.ID.make("gpt-5.6-sol"), (model) => {
+          model.limit = { context: 1_050_000, input: 922_000, output: 128_000 }
+        })
+      })
+      yield* credentials.create({
+        integrationID: Integration.ID.make("openai"),
+        value: Credential.OAuth.make({
+          type: "oauth",
+          methodID: Integration.MethodID.make("chatgpt-browser"),
+          access: "chatgpt-token",
+          refresh: "refresh",
+          expires: Date.now() + 60_000,
+          metadata: { accountID: "acct_123" },
+        }),
+      })
+      yield* OpenAIPlugin.effect(host).pipe(Effect.provideService(Integration.Service, yield* Integration.Service))
+      yield* ConfigProviderPlugin.Plugin.effect(host).pipe(
+        Effect.provide(
+          Config.testLayer([
+            new Document({
+              type: "document",
+              info: decodeConfig({
+                providers: {
+                  openai: {
+                    models: {
+                      "gpt-5.6-sol": { limit: { input: 330_000 } },
+                    },
+                  },
+                },
+              }),
+            }),
+          ]),
+        ),
+      )
+
+      expect(required(yield* catalog.model.get(Provider.ID.openai, Model.ID.make("gpt-5.6-sol"))).limit).toEqual({
+        context: 400_000,
+        input: 330_000,
+        output: 128_000,
+      })
     }),
   )
 
