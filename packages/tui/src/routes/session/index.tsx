@@ -102,7 +102,7 @@ import { switchLabel } from "../../util/model"
 import { findMessageBoundary, messageNavigationSlack } from "./message-navigation"
 import { stringWidth } from "../../util/string-width"
 import { useArgs } from "../../context/args"
-import { withTimestampedFallback } from "@opencode-ai/util/session-title-fallback"
+import { formatSessionTranscript } from "../../util/session-report"
 import { useSessionTabs } from "../../context/session-tabs"
 import { createSingleFlight } from "../../util/single-flight"
 import type { SessionInbox } from "@opencode-ai/schema/session-inbox"
@@ -142,7 +142,7 @@ function use() {
 }
 
 export function Session() {
-  const setEpilogue = useEpilogue()
+  const epilogue = useEpilogue()
   const clipboard = useClipboard()
   const writeExport = async (file: string, content: string) => {
     await mkdir(path.dirname(file), { recursive: true })
@@ -179,9 +179,9 @@ export function Session() {
 
   createEffect(() => {
     const title = Locale.truncate(session()?.title ?? "", 50)
-    setEpilogue(sessionEpilogue({ title, sessionID: session()?.id }))
+    epilogue.set(sessionEpilogue({ title, sessionID: session()?.id }))
   })
-  onCleanup(() => setEpilogue())
+  onCleanup(() => epilogue.set())
   const descendantSessionIDs = createMemo(() => {
     if (session()?.parentID) return []
     return data.session.family(route.sessionID).filter((id) => id !== route.sessionID)
@@ -3503,31 +3503,6 @@ export function toolDisplay(tool: string) {
 function recordValue(value: unknown): Record<string, unknown> | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return
   return value as Record<string, unknown>
-}
-
-function formatSessionTranscript(session: SessionInfo, messages: SessionMessageInfo[], thinking: boolean) {
-  const body = messages.flatMap((message) => {
-    if (message.type === "user") return [`## User\n\n${message.text}`]
-    if (message.type === "shell")
-      return [`## Shell\n\n\`\`\`\n$ ${message.command}\n${message.output?.output ?? ""}\n\`\`\``]
-    if (message.type !== "assistant") return []
-    const content = message.content.flatMap((item) => {
-      if (item.type === "text") return [item.text]
-      if (item.type === "reasoning") return thinking ? [`_Thinking:_\n\n${item.text}`] : []
-      const input = typeof item.state.input === "string" ? item.state.input : JSON.stringify(item.state.input, null, 2)
-      const output =
-        item.state.status === "error"
-          ? item.state.error.message
-          : item.state.status === "streaming"
-            ? ""
-            : toolDisplayContent(item.state)
-                .flatMap((entry) => (entry.type === "text" ? [entry.text] : [entry.name ?? entry.uri]))
-                .join("\n")
-      return [`**Tool: ${item.name}**\n\n**Input:**\n\`\`\`json\n${input}\n\`\`\`\n\n${output}`]
-    })
-    return [`## Assistant\n\n${content.join("\n\n")}`]
-  })
-  return `# ${withTimestampedFallback(session)}\n\n**Session ID:** ${session.id}\n**Created:** ${new Date(session.time.created).toLocaleString()}\n**Updated:** ${new Date(session.time.updated).toLocaleString()}\n\n---\n\n${body.join("\n\n---\n\n")}\n`
 }
 
 export function parseApplyPatchFiles(value: unknown) {
