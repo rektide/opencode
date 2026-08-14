@@ -26,6 +26,8 @@ export type Vcs = ProjectSchema.Vcs
 export const Current = ProjectSchema.Current
 export type Current = ProjectSchema.Current
 
+export const Event = ProjectSchema.Event
+
 export const Info = ProjectSchema.Info
 export interface Info extends Schema.Schema.Type<typeof Info> {}
 
