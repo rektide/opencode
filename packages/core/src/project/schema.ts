@@ -10,6 +10,8 @@ export type ID = typeof ID.Type
 export const Current = Project.Current
 export type Current = typeof Current.Type
 
+export const Event = Project.Event
+
 export const Directory = Project.Directory
 export type Directory = typeof Directory.Type
 

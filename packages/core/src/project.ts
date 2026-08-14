@@ -24,6 +24,8 @@ export type Vcs = ProjectSchema.Vcs
 export const Current = ProjectSchema.Current
 export type Current = ProjectSchema.Current
 
+export const Event = ProjectSchema.Event
+
 export const Directory = ProjectSchema.Directory
 export type Directory = ProjectSchema.Directory
 

@@ -304,11 +304,10 @@ export async function bootstrapDirectory(input: {
         input.queryClient
           .ensureQueryData(loadAgentsQuery(input.scope, input.directory, input.api.agent))
           .then((data) => input.setStore("agent", data)),
-      !seededProject &&
-        (() =>
-          retry(() => input.api.project.current({ location: { directory: input.directory } })).then((project) =>
-            input.setStore("project", project.id),
-          )),
+      () =>
+        retry(() => input.api.project.current({ location: { directory: input.directory } })).then((project) =>
+          input.setStore("project", project.id),
+        ),
       !seededPath &&
         (() =>
           input.queryClient

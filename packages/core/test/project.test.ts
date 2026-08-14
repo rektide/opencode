@@ -298,6 +298,27 @@ describe("Project.resolve", () => {
     }),
   )
 
+  itJj.live("reclassifies an opened git project after colocated jj initialization", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      yield* Effect.promise(() => initRepo(tmp.path, { commit: true, remote: "git@github.com:owner/repo.git" }))
+      const project = yield* Project.Service
+      const git = yield* project.resolve(abs(tmp.path))
+
+      yield* Effect.promise(() => $`jj git init --colocate`.cwd(tmp.path).quiet())
+      const jj = yield* project.resolve(abs(tmp.path))
+      const listed = (yield* project.list()).find((item) => item.id === git.id)
+
+      expect(git.vcs?.type).toBe("git")
+      expect(jj.vcs?.type).toBe("jj")
+      expect(jj.id).toBe(git.id)
+      expect(listed?.vcs).toBe("jj")
+    }),
+  )
+
   itJj.live("keeps a nested git repository separate from its enclosing jj repository", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireRelease(
