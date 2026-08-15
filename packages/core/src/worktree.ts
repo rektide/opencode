@@ -288,7 +288,20 @@ const layer = Layer.effect(
     })
 
     const create = Effect.fn("Worktree.create")(function* (input: CreateInput) {
-      const selected = yield* getStrategy(input.strategy)
+      const projectVcs = yield* db
+        .select({ vcs: ProjectTable.vcs })
+        .from(ProjectTable)
+        .where(eq(ProjectTable.id, input.projectID))
+        .get()
+        .pipe(Effect.orDie, Effect.map((row) => row?.vcs))
+      const strategyID =
+        input.strategy ??
+        (projectVcs === "jj"
+          ? Worktree.StrategyID.make("jj_workspace")
+          : projectVcs === "git"
+            ? Worktree.StrategyID.make("git")
+            : Worktree.StrategyID.make(projectVcs ?? "unknown"))
+      const selected = yield* getStrategy(strategyID)
       const sourceDirectory = yield* source(input.from, input.projectID)
       yield* fs.makeDirectory(input.directory, { recursive: true }).pipe(Effect.orDie)
       const name = input.name ?? Slug.create()
@@ -311,7 +324,7 @@ const layer = Layer.effect(
         yield* ops.create({
           projectID: input.projectID,
           directory: result.directory,
-          strategy: input.strategy,
+          strategy: strategyID,
           metadata: result.metadata,
         }),
       )

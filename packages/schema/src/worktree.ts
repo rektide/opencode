@@ -11,7 +11,7 @@ export type StrategyID = typeof StrategyID.Type
 
 export const CreateInput = Schema.Struct({
   projectID: ProjectID,
-  strategy: StrategyID,
+  strategy: optional(StrategyID),
   from: optional(AbsolutePath),
   branch: optional(Schema.Trim.pipe(Schema.check(Schema.isNonEmpty()))),
   base: optional(Schema.String),
