@@ -115,6 +115,7 @@ export interface Strategy {
     directory: AbsolutePath
     force: boolean
     metadata?: Worktree.Metadata
+    sourceDirectory: AbsolutePath
   }) => Effect.Effect<void, Git.WorktreeError | JjWorkspaceError | DirectoryUnavailableError>
   readonly list: (
     directory: AbsolutePath,
@@ -346,10 +347,13 @@ const layer = Layer.effect(
       const stored = yield* ops.find(input.projectID, worktreeDirectory)
       if (!stored?.strategy) return yield* new InvalidDirectoryError({ directory: worktreeDirectory })
       const strategy = yield* getStrategy(StrategyID.make(stored.strategy))
+      const primary = yield* ops.primary(input.projectID)
+      if (!primary) return yield* new SourceDirectoryNotFoundError({ projectID: input.projectID })
       yield* strategy.remove({
         directory: worktreeDirectory,
         force: input.force,
         metadata: stored.metadata,
+        sourceDirectory: primary,
       })
       yield* changed(input.projectID, yield* ops.remove(input.projectID, worktreeDirectory))
     })

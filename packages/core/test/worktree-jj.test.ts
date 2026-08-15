@@ -198,4 +198,27 @@ describe("Worktree (jj)", () => {
       yield* worktrees.remove({ projectID: input.projectID, directory: discovered, force: true })
     }),
   )
+
+  itJj.live("keeps the persisted JJ project root canonical after workspace renames", () =>
+    Effect.gen(function* () {
+      const input = yield* setupJj()
+      const worktrees = yield* Worktree.Service
+      const target = abs(`${input.root.path}-jj-alpha`)
+      yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(target, { recursive: true, force: true })))
+      yield* Effect.promise(async () => {
+        await $`jj workspace rename zeta`.cwd(input.root.path).quiet()
+        await $`jj workspace add --name alpha -r @- ${target}`.cwd(input.root.path).quiet()
+      })
+
+      yield* worktrees.refresh({ projectID: input.projectID })
+      const canonical = yield* storedMetadata(input.projectID, input.sourceDirectory)
+      const linked = yield* storedMetadata(input.projectID, abs(yield* Effect.promise(() => fs.realpath(target))))
+
+      expect(canonical?.strategy).toBeUndefined()
+      expect(canonical?.metadata).toBeUndefined()
+      expect(linked?.strategy).toBe("jj_workspace")
+      expect(linked?.metadata).toMatchObject({ type: "jj_workspace", workspace: "alpha" })
+      if (linked) yield* worktrees.remove({ projectID: input.projectID, directory: abs(yield* Effect.promise(() => fs.realpath(target))), force: true })
+    }),
+  )
 })

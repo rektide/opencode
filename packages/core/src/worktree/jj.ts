@@ -51,7 +51,6 @@ export const make = Effect.gen(function* () {
       changeID: fields[index * 4 + 2],
       commitID: fields[index * 4 + 3],
     })).filter((item) => item.workspace && item.root)
-    const rootWorkspace = records.find((item) => item.workspace === "default")?.workspace ?? records[0]?.workspace
     return yield* Effect.forEach(
       records,
       (item) =>
@@ -60,9 +59,9 @@ export const make = Effect.gen(function* () {
             (root) =>
               ({
                 directory: root,
-                type: item.workspace === rootWorkspace ? "root" : "worktree",
+                type: root === source ? "root" : "worktree",
                 metadata:
-                  item.workspace === rootWorkspace
+                  root === source
                     ? undefined
                     : ({
                         type: "jj_workspace",
@@ -119,7 +118,7 @@ export const make = Effect.gen(function* () {
     }),
     remove: Effect.fn("Worktree.Jj.remove")(function* (input) {
       const directory = yield* canonical(fs, input.directory)
-      const entries = yield* list(directory)
+      const entries = yield* list(input.sourceDirectory)
       const entry = entries.find((item) => item.directory === directory)
       const expected = input.metadata?.type === "jj_workspace" ? input.metadata : undefined
       if (!entry || entry.metadata?.type !== "jj_workspace") {
