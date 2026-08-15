@@ -1211,7 +1211,7 @@ const Endpoint24_0 = (raw: RawClient["server.projectCopy"]) => (input: Endpoint2
     raw["projectCopy.create"]({
       params: { projectID: input["projectID"] },
       query: { location: input["location"] },
-      payload: { strategy: input["strategy"], directory: input["directory"], name: input["name"], base: input["base"] },
+      payload: { directory: input["directory"], name: input["name"], base: input["base"], strategy: input["strategy"] },
     }).pipe(Effect.mapError(mapClientError)),
   )
 

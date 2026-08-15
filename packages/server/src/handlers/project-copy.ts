@@ -13,9 +13,22 @@ export const ProjectCopyHandler = HttpApiBuilder.group(Api, "server.projectCopy"
         Effect.gen(function* () {
           const copies = yield* ProjectCopy.Service
           const location = yield* Location.Service
+          const strategy =
+            ctx.payload.strategy ??
+            (location.vcs?.type === "jj"
+              ? ProjectCopy.StrategyID.make("jj_workspace")
+              : location.vcs?.type === "git"
+                ? ProjectCopy.StrategyID.make("git_worktree")
+                : undefined)
+          if (!strategy)
+            return yield* new ProjectCopyError({
+              name: "ProjectCopyError",
+              data: { message: `No project-copy strategy is available for ${location.vcs?.type ?? "this directory"}` },
+            })
           return yield* badRequest(
             copies.create({
               ...ctx.payload,
+              strategy,
               projectID: ctx.params.projectID,
               sourceDirectory: location.project.directory,
             }),

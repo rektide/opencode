@@ -17,7 +17,10 @@ export class ProjectCopyError extends Schema.ErrorClass<ProjectCopyError>("Proje
   { httpApiStatus: 400 },
 ) {}
 
-const CreatePayload = Schema.Struct(Struct.omit(ProjectCopy.CreateInput.fields, ["projectID", "sourceDirectory"]))
+const CreatePayload = Schema.Struct({
+  ...Struct.omit(ProjectCopy.CreateInput.fields, ["projectID", "sourceDirectory", "strategy"]),
+  strategy: Schema.optional(ProjectCopy.StrategyID),
+})
 const RemovePayload = Schema.Struct(Struct.omit(ProjectCopy.RemoveInput.fields, ["projectID"]))
 
 export const ProjectCopyGroup = HttpApiGroup.make("server.projectCopy")

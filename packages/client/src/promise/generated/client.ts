@@ -1743,10 +1743,10 @@ export function make(options: ClientOptions) {
             path: `/experimental/project/${encodeURIComponent(input.projectID)}/copy`,
             query: { location: input["location"] },
             body: {
-              strategy: input["strategy"],
               directory: input["directory"],
               name: input["name"],
               base: input["base"],
+              strategy: input["strategy"],
             },
             successStatus: 200,
             declaredStatuses: [400, 401],

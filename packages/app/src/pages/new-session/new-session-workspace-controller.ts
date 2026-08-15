@@ -36,7 +36,9 @@ export function createNewSessionWorkspaceController() {
   const sync = useSync()
   const serverSync = useServerSync()
   const [worktree, setWorktree] = createSignal<string>()
-  const visible = createMemo(() => workspaceBarEnabled && sync().project?.vcs === "git")
+  const visible = createMemo(
+    () => workspaceBarEnabled && (sync().project?.vcs === "git" || sync().project?.vcs === "jj"),
+  )
   const value = createMemo(() =>
     resolveNewSessionWorktree({
       enabled: visible(),

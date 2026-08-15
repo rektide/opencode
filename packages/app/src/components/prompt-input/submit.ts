@@ -381,7 +381,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         const createdWorktree = await sdk()
           .api.projectCopy.create({
             projectID: sync().data.project,
-            strategy: "git_worktree",
             directory: getDirectory(projectDirectory),
             location: { directory: projectDirectory },
           })

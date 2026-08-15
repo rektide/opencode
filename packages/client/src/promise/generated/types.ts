@@ -5583,30 +5583,30 @@ export type ProjectCopyCreateInput = {
   readonly location?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
   }["location"]
-  readonly strategy: {
-    readonly strategy: string
-    readonly directory: string
-    readonly name?: string
-    readonly base?: string
-  }["strategy"]
   readonly directory: {
-    readonly strategy: string
     readonly directory: string
     readonly name?: string
     readonly base?: string
+    readonly strategy?: string | null
   }["directory"]
   readonly name?: {
-    readonly strategy: string
     readonly directory: string
     readonly name?: string
     readonly base?: string
+    readonly strategy?: string | null
   }["name"]
   readonly base?: {
-    readonly strategy: string
     readonly directory: string
     readonly name?: string
     readonly base?: string
+    readonly strategy?: string | null
   }["base"]
+  readonly strategy?: {
+    readonly directory: string
+    readonly name?: string
+    readonly base?: string
+    readonly strategy?: string | null
+  }["strategy"]
 }
 
 export type ProjectCopyCreateOutput = ProjectCopyCopy

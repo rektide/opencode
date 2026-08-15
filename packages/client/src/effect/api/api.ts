@@ -1555,10 +1555,10 @@ export interface ReferenceApi<E = never> {
 export type Endpoint24_0Input = {
   readonly projectID: Project.ID
   readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
-  readonly strategy: ProjectCopy.StrategyID
   readonly directory: AbsolutePath
   readonly name?: string | undefined
   readonly base?: string | undefined
+  readonly strategy?: ProjectCopy.StrategyID | undefined
 }
 export type Endpoint24_0Output = ProjectCopy.Copy
 export type ProjectCopyCreateOperation<E = never> = (input: Endpoint24_0Input) => Effect.Effect<Endpoint24_0Output, E>
