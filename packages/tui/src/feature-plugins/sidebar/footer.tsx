@@ -6,8 +6,9 @@ function View(props: { context: Plugin.Context }) {
   const directory = createMemo(() => {
     if (!props.context.location) return undefined
     const value = props.context.ui.format.path(props.context.location.directory)
-    const branch = props.context.data.location.vcs.info(props.context.location)?.branch.current
-    return branch ? `${value}:${branch}` : value
+    const vcs = props.context.data.location.vcs.info(props.context.location)
+    const label = vcs?.branch.current ?? vcs?.workingCopy?.label
+    return label ? `${value}:${label}` : value
   })
   return (
     <Show when={directory()}>

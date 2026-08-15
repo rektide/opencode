@@ -1412,15 +1412,17 @@ export function Prompt(props: PromptProps) {
       // No session yet: show where the next session will be created.
       const location = currentLocation.ref ?? data.location.default()
       const directory = abbreviateHome(location.directory, paths.home)
-      const branch = data.location.vcs.info(location)?.branch.current
-      return branch ? `${directory}:${branch}` : directory
+      const vcs = data.location.vcs.info(location)
+      const label = vcs?.branch.current ?? vcs?.workingCopy?.label
+      return label ? `${directory}:${label}` : directory
     }
     if (status() !== "idle") return
     const location = data.session.get(props.sessionID)?.location
     if (!location) return
     const directory = abbreviateHome(location.directory, paths.home)
-    const branch = data.location.vcs.info(location)?.branch.current
-    return branch ? `${directory}:${branch}` : directory
+    const vcs = data.location.vcs.info(location)
+    const label = vcs?.branch.current ?? vcs?.workingCopy?.label
+    return label ? `${directory}:${label}` : directory
   })
 
   const spinnerDef = createMemo(() => {

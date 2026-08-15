@@ -308,6 +308,16 @@ export async function bootstrapDirectory(input: {
         retry(() => input.api.project.current({ location: { directory: input.directory } })).then((project) =>
           input.setStore("project", project.id),
         ),
+      () =>
+        retry(() => input.api.vcs.get({ location: { directory: input.directory } })).then((response) => {
+          const value = {
+            branch: response.data.branch.current,
+            default_branch: response.data.branch.default,
+            workingCopy: response.data.workingCopy,
+          }
+          input.setStore("vcs", value)
+          input.vcsCache.setStore("value", value)
+        }),
       !seededPath &&
         (() =>
           input.queryClient
