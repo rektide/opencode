@@ -274,7 +274,7 @@ export function createChildStoreManager(input: {
 
           onPersistedInit(vcs[2], () => {
             const cached = vcsStore.value
-            if (!cached?.branch) return
+            if (!cached?.branch && !cached?.workingCopy) return
             child[1]("vcs", (value) => value ?? cached)
           })
 
