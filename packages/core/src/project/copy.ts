@@ -99,6 +99,7 @@ export interface Strategy {
     base?: string
   }) => Effect.Effect<Copy, Git.WorktreeError | JjWorkspaceError | DirectoryUnavailableError>
   readonly remove: (input: {
+    sourceDirectory: AbsolutePath
     directory: AbsolutePath
     force: boolean
     metadata?: ProjectCopy.Metadata
@@ -211,7 +212,15 @@ const layer = Layer.effect(
       const stored = yield* directories.get({ projectID: input.projectID, directory: copyDirectory })
       if (!stored?.strategy) return yield* new InvalidDirectoryError({ directory: copyDirectory })
       const strategy = yield* getStrategy(StrategyID.make(stored.strategy))
+      const project = yield* db
+        .select({ directory: ProjectTable.worktree })
+        .from(ProjectTable)
+        .where(eq(ProjectTable.id, input.projectID))
+        .get()
+        .pipe(Effect.orDie)
+      if (!project) return yield* new SourceDirectoryNotFoundError({ directory: copyDirectory })
       yield* strategy.remove({
+        sourceDirectory: yield* source(project.directory, input.projectID),
         directory: copyDirectory,
         force: input.force,
         metadata: stored.metadata,

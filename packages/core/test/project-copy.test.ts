@@ -312,6 +312,33 @@ describe("ProjectCopy", () => {
     }),
   )
 
+  itJj.live("keeps the persisted JJ project root canonical after workspace renames", () =>
+    Effect.gen(function* () {
+      const input = yield* setupJj()
+      const copy = yield* ProjectCopy.Service
+      const directories = yield* ProjectDirectories.Service
+      const target = abs(`${input.root.path}-jj-alpha`)
+      yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(target, { recursive: true, force: true })))
+      yield* Effect.promise(async () => {
+        await $`jj workspace rename zeta`.cwd(input.root.path).quiet()
+        await $`jj workspace add --name alpha -r @- ${target}`.cwd(input.root.path).quiet()
+      })
+
+      yield* copy.refresh({ projectID: input.projectID })
+      const canonical = yield* directories.get({ projectID: input.projectID, directory: input.sourceDirectory })
+      const linked = yield* directories.get({
+        projectID: input.projectID,
+        directory: abs(yield* Effect.promise(() => fs.realpath(target))),
+      })
+
+      expect(canonical?.strategy).toBeUndefined()
+      expect(canonical?.metadata).toBeUndefined()
+      expect(linked?.strategy).toBe(jjWorkspace)
+      expect(linked?.metadata).toMatchObject({ type: "jj_workspace", workspace: "alpha" })
+      if (linked) yield* copy.remove({ projectID: input.projectID, directory: linked.directory, force: true })
+    }),
+  )
+
   it.live("requires force to remove a dirty git worktree", () =>
     Effect.gen(function* () {
       const input = yield* setup()

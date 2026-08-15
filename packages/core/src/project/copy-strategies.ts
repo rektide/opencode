@@ -97,7 +97,6 @@ export function makeJjWorkspaceStrategy(input: {
       changeID: fields[index * 4 + 2],
       commitID: fields[index * 4 + 3],
     })).filter((item) => item.workspace && item.root)
-    const rootWorkspace = records.find((item) => item.workspace === "default")?.workspace ?? records[0]?.workspace
     return yield* Effect.forEach(
       records,
       (item) =>
@@ -106,9 +105,9 @@ export function makeJjWorkspaceStrategy(input: {
             (root) =>
               ({
                 directory: root,
-                type: item.workspace === rootWorkspace ? "root" : "copy",
+                type: root === source ? "root" : "copy",
                 metadata:
-                  item.workspace === rootWorkspace
+                  root === source
                     ? undefined
                     : ({
                         type: "jj_workspace",
@@ -165,7 +164,7 @@ export function makeJjWorkspaceStrategy(input: {
     }),
     remove: Effect.fn("ProjectCopy.JjWorkspace.remove")(function* (options) {
       const directory = yield* input.canonical(options.directory)
-      const entries = yield* list(directory)
+      const entries = yield* list(options.sourceDirectory)
       const entry = entries.find((item) => item.directory === directory)
       const expected = options.metadata?.type === "jj_workspace" ? options.metadata : undefined
       if (!entry || entry.metadata?.type !== "jj_workspace") {
