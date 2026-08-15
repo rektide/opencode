@@ -162,6 +162,7 @@ const layer = Layer.effect(const layer = Layer.effect(
             [],
           )
         return []
+        return state.info
       }),
       status: Effect.fn("Vcs.status")(function* () {
         const provider = selected()
