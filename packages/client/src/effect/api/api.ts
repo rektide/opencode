@@ -1558,6 +1558,7 @@ export type Endpoint24_0Input = {
   readonly strategy: ProjectCopy.StrategyID
   readonly directory: AbsolutePath
   readonly name?: string | undefined
+  readonly base?: string | undefined
 }
 export type Endpoint24_0Output = ProjectCopy.Copy
 export type ProjectCopyCreateOperation<E = never> = (input: Endpoint24_0Input) => Effect.Effect<Endpoint24_0Output, E>
