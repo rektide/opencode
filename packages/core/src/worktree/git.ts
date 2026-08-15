@@ -13,11 +13,16 @@ export const make = Effect.gen(function* () {
 
   return {
     id: Worktree.StrategyID.make("git"),
+    vcs: "git" as const,
     create: Effect.fn("Worktree.Git.create")(function* (input) {
       const repository = yield* git.repo.discover(input.sourceDirectory)
       if (!repository) return yield* new DirectoryUnavailableError({ directory: input.sourceDirectory })
       yield* git.worktree.create({ repository, directory: input.directory, ref: input.branch })
-      return { directory: yield* canonical(fs, input.directory) }
+      return {
+        directory: yield* canonical(fs, input.directory),
+        strategy: Worktree.StrategyID.make("git"),
+        metadata: { type: "git_worktree" } satisfies Worktree.GitWorktreeMetadata,
+      }
     }),
     remove: Effect.fn("Worktree.Git.remove")(function* (input) {
       const repository = yield* git.repo.discover(input.directory)
@@ -30,7 +35,14 @@ export const make = Effect.gen(function* () {
       const entries = yield* git.worktree.list(repository)
       return yield* Effect.forEach(entries, (entry) =>
         canonical(fs, entry.directory).pipe(
-          Effect.map((directory) => ({ directory, type: entry.kind === "main" ? "root" : "worktree" }) as const),
+          Effect.map(
+            (directory) =>
+              ({
+                directory,
+                type: entry.kind === "main" ? "root" : "worktree",
+                metadata: entry.kind === "main" ? undefined : ({ type: "git_worktree" } as const),
+              }) as const,
+          ),
           Effect.catchTag("Worktree.DirectoryUnavailableError", () => Effect.undefined),
         ),
       ).pipe(Effect.map((items) => items.filter((item): item is ListEntry => item !== undefined)))

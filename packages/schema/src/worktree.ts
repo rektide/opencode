@@ -14,6 +14,7 @@ export const CreateInput = Schema.Struct({
   strategy: StrategyID,
   from: optional(AbsolutePath),
   branch: optional(Schema.Trim.pipe(Schema.check(Schema.isNonEmpty()))),
+  base: optional(Schema.String),
   directory: AbsolutePath,
   name: optional(Schema.String),
 }).annotate({ identifier: "Worktree.CreateInput" })
@@ -26,14 +27,36 @@ export const RemoveInput = Schema.Struct({
 }).annotate({ identifier: "Worktree.RemoveInput" })
 export interface RemoveInput extends Schema.Schema.Type<typeof RemoveInput> {}
 
+export const GitWorktreeMetadata = Schema.Struct({
+  type: Schema.Literal("git_worktree"),
+}).annotate({ identifier: "Worktree.GitWorktreeMetadata" })
+export interface GitWorktreeMetadata extends Schema.Schema.Type<typeof GitWorktreeMetadata> {}
+
+export const JjWorkspaceMetadata = Schema.Struct({
+  type: Schema.Literal("jj_workspace"),
+  workspace: Schema.String,
+  base: optional(Schema.String),
+  changeID: optional(Schema.String),
+  commitID: optional(Schema.String),
+}).annotate({ identifier: "Worktree.JjWorkspaceMetadata" })
+export interface JjWorkspaceMetadata extends Schema.Schema.Type<typeof JjWorkspaceMetadata> {}
+
+export const Metadata = Schema.Union([GitWorktreeMetadata, JjWorkspaceMetadata]).annotate({
+  identifier: "Worktree.Metadata",
+})
+export type Metadata = typeof Metadata.Type
+
 export const Info = Schema.Struct({
   directory: AbsolutePath,
+  strategy: StrategyID,
+  metadata: Metadata,
 }).annotate({ identifier: "Worktree.Info" })
 export interface Info extends Schema.Schema.Type<typeof Info> {}
 
 export const Directory = Schema.Struct({
   directory: AbsolutePath,
   strategy: optional(Schema.String),
+  metadata: optional(Metadata),
 }).annotate({ identifier: "Worktree.Directory" })
 export interface Directory extends Schema.Schema.Type<typeof Directory> {}
 
