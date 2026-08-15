@@ -1,20 +1,23 @@
 export * as ProjectCopy from "./copy"
 
 import { Context, Effect, Layer, Schema } from "effect"
+import { eq } from "drizzle-orm"
 import path from "path"
 import { AbsolutePath } from "../schema"
 import { FSUtil } from "@opencode-ai/util/fs-util"
+import { AppProcess } from "@opencode-ai/util/process"
 import { Git } from "../git"
 import { makeLocationNode } from "@opencode-ai/util/effect/app-node"
 import { Project } from "../project"
 import { ProjectDirectories } from "./directories"
-import { makeGitWorktreeStrategy } from "./copy-strategies"
+import { makeGitWorktreeStrategy, makeJjWorkspaceStrategy } from "./copy-strategies"
 import { Slug } from "../util/slug"
 import { Bus } from "../bus"
 import { Database } from "../database/database"
 import { Location } from "../location"
 import { Event } from "@opencode-ai/schema/project-directories"
 import { ProjectCopy } from "@opencode-ai/schema/project-copy"
+import { ProjectTable } from "./sql"
 
 export const StrategyID = ProjectCopy.StrategyID
 export type StrategyID = typeof StrategyID.Type
@@ -42,6 +45,7 @@ export type Copy = typeof Copy.Type
 export const ListEntry = Schema.Struct({
   directory: AbsolutePath,
   type: Schema.Literals(["root", "copy"]),
+  metadata: Schema.optional(ProjectCopy.Metadata),
 }).annotate({ identifier: "ProjectCopy.ListEntry" })
 export type ListEntry = typeof ListEntry.Type
 
@@ -70,25 +74,38 @@ export class StrategyUnavailableError extends Schema.TaggedErrorClass<StrategyUn
   { strategy: StrategyID },
 ) {}
 
+export class JjWorkspaceError extends Schema.TaggedErrorClass<JjWorkspaceError>()("ProjectCopy.JjWorkspaceError", {
+  operation: Schema.Literals(["create", "remove", "list"]),
+  message: Schema.String,
+  directory: Schema.optional(AbsolutePath),
+  forceRequired: Schema.optional(Schema.Boolean),
+}) {}
+
 export type Error =
   | SourceDirectoryNotFoundError
   | DestinationExistsError
   | DirectoryUnavailableError
   | InvalidDirectoryError
   | StrategyUnavailableError
+  | JjWorkspaceError
   | Git.WorktreeError
 
 export interface Strategy {
   readonly id: StrategyID
+  readonly vcs: Project.Vcs["type"]
   readonly create: (input: {
     sourceDirectory: AbsolutePath
     directory: AbsolutePath
-  }) => Effect.Effect<Copy, Git.WorktreeError | DirectoryUnavailableError>
+    base?: string
+  }) => Effect.Effect<Copy, Git.WorktreeError | JjWorkspaceError | DirectoryUnavailableError>
   readonly remove: (input: {
     directory: AbsolutePath
     force: boolean
-  }) => Effect.Effect<void, Git.WorktreeError | DirectoryUnavailableError>
-  readonly list: (directory: AbsolutePath) => Effect.Effect<ListEntry[], Git.WorktreeError | DirectoryUnavailableError>
+    metadata?: ProjectCopy.Metadata
+  }) => Effect.Effect<void, Git.WorktreeError | JjWorkspaceError | DirectoryUnavailableError>
+  readonly list: (
+    directory: AbsolutePath,
+  ) => Effect.Effect<ListEntry[], Git.WorktreeError | JjWorkspaceError | DirectoryUnavailableError>
 }
 
 export { Event }
@@ -124,6 +141,7 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const fs = yield* FSUtil.Service
     const git = yield* Git.Service
+    const proc = yield* AppProcess.Service
     const directories = yield* ProjectDirectories.Service
     const db = (yield* Database.Service).db
     const bus = yield* Bus.Service
@@ -138,7 +156,11 @@ const layer = Layer.effect(
       return resolved
     })
 
-    const strategy = makeGitWorktreeStrategy({ git, canonical })
+    const strategies: Strategy[] = [
+      makeGitWorktreeStrategy({ git, canonical }),
+      makeJjWorkspaceStrategy({ proc, fs, canonical }),
+    ]
+    const registry = new Map(strategies.map((strategy) => [strategy.id, strategy] as const))
 
     const source = Effect.fnUntraced(function* (input: AbsolutePath, projectID: Project.ID) {
       const sourceDirectory = yield* canonical(input)
@@ -148,7 +170,8 @@ const layer = Layer.effect(
     })
 
     const getStrategy = Effect.fnUntraced(function* (id: StrategyID) {
-      if (id !== strategy.id) return yield* new StrategyUnavailableError({ strategy: id })
+      const strategy = registry.get(id)
+      if (!strategy) return yield* new StrategyUnavailableError({ strategy: id })
       return strategy
     })
 
@@ -168,6 +191,7 @@ const layer = Layer.effect(
       const result = yield* selected.create({
         directory: copyDirectory,
         sourceDirectory,
+        base: input.base,
       })
       yield* changed(
         input.projectID,
@@ -175,6 +199,7 @@ const layer = Layer.effect(
           projectID: input.projectID,
           directory: result.directory,
           strategy: input.strategy,
+          metadata: result.metadata,
           behavior: "replace",
         }),
       )
@@ -189,6 +214,7 @@ const layer = Layer.effect(
       yield* strategy.remove({
         directory: copyDirectory,
         force: input.force,
+        metadata: stored.metadata,
       })
       yield* changed(
         input.projectID,
@@ -206,21 +232,45 @@ const layer = Layer.effect(
       const sourceDirectories = checked
         .filter((item) => item.strategy === undefined && item.exists)
         .map((item) => item.directory)
+      const projectVcs = yield* db
+        .select({ vcs: ProjectTable.vcs })
+        .from(ProjectTable)
+        .where(eq(ProjectTable.id, input.projectID))
+        .get()
+        .pipe(Effect.orDie, Effect.map((row) => row?.vcs))
+      const selected = strategies.filter((strategy) => strategy.vcs === projectVcs)
+      const previous = new Map(stored.map((item) => [item.directory, item] as const))
       const discovered = yield* Effect.forEach(
         sourceDirectories,
         (sourceDirectory) =>
-          strategy.list(sourceDirectory).pipe(
-            Effect.catchTag("ProjectCopy.DirectoryUnavailableError", () => Effect.succeed([])),
-            Effect.map((items) =>
-              items.map((item) => ({
-                directory: item.directory,
-                strategy: item.type === "copy" ? strategy.id : undefined,
-              })),
+          Effect.forEach(selected, (strategy) =>
+            strategy.list(sourceDirectory).pipe(
+              Effect.catchTags({
+                "ProjectCopy.DirectoryUnavailableError": () => Effect.succeed([]),
+                "ProjectCopy.JjWorkspaceError": () => Effect.succeed([]),
+              }),
+              Effect.map((items) =>
+                items.map((item) => ({
+                  directory: item.directory,
+                  strategy: item.type === "copy" ? strategy.id : undefined,
+                  metadata: item.metadata,
+                })),
+              ),
             ),
-          ),
+          ).pipe(Effect.map((items) => items.flat())),
         { concurrency: "unbounded" },
       ).pipe(
-        Effect.map((sets) => new Map(sets.flat().map((item) => [item.directory, item] as const)).values().toArray()),
+        Effect.map((sets) =>
+          new Map(sets.flat().map((item) => [item.directory, item] as const))
+            .values()
+            .map((item) => {
+              const before = previous.get(item.directory)?.metadata
+              if (before?.type !== "jj_workspace" || item.metadata?.type !== "jj_workspace") return item
+              if (before.workspace !== item.metadata.workspace) return item
+              return { ...item, metadata: { ...item.metadata, base: before.base } }
+            })
+            .toArray(),
+        ),
       )
       const removed = checked.filter((item) => !item.exists).map((item) => item.directory)
       const result = yield* db
@@ -232,6 +282,7 @@ const layer = Layer.effect(
                   projectID: input.projectID,
                   directory: item.directory,
                   strategy: item.strategy,
+                  metadata: item.metadata,
                   behavior: "replace",
                 },
                 tx,
@@ -262,7 +313,7 @@ const layer = Layer.effect(
 export const node = makeLocationNode({
   service: Service,
   layer: layer,
-  deps: [FSUtil.node, Git.node, ProjectDirectories.node, Bus.node, Database.node],
+  deps: [FSUtil.node, Git.node, AppProcess.node, ProjectDirectories.node, Bus.node, Database.node],
 })
 
 export const refreshNode = makeLocationNode({

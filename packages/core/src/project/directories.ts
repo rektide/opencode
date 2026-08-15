@@ -9,6 +9,7 @@ import { ProjectSchema } from "./schema"
 import { ProjectDirectoryTable } from "./sql"
 import type { EffectDrizzleSqlite } from "@opencode-ai/effect-drizzle-sqlite"
 import type { Project } from "../project"
+import { ProjectCopy } from "@opencode-ai/schema/project-copy"
 
 export type Directory = Project.Directory
 
@@ -16,6 +17,7 @@ export const CreateInput = Schema.Struct({
   projectID: ProjectSchema.ID,
   directory: AbsolutePath,
   strategy: Schema.optional(Schema.String),
+  metadata: Schema.optional(ProjectCopy.Metadata),
   behavior: Schema.Literals(["ignore", "replace"]).pipe(Schema.optional),
 })
 export type CreateInput = typeof CreateInput.Type
@@ -53,17 +55,29 @@ const layer = Layer.effect(
     const db = (yield* Database.Service).db
 
     const create = Effect.fn("ProjectDirectories.create")(function* (input: CreateInput, tx?: Transaction) {
-      const insert = (tx ?? db)
+      const client = tx ?? db
+      const current = yield* client
+        .select({ strategy: ProjectDirectoryTable.strategy, metadata: ProjectDirectoryTable.metadata })
+        .from(ProjectDirectoryTable)
+        .where(
+          and(
+            eq(ProjectDirectoryTable.project_id, input.projectID),
+            eq(ProjectDirectoryTable.directory, input.directory),
+          ),
+        )
+        .get()
+        .pipe(Effect.orDie)
+      const strategy = input.strategy ?? null
+      const metadata = input.metadata ?? null
+      if (current && current.strategy === strategy && JSON.stringify(current.metadata) === JSON.stringify(metadata)) return false
+      const insert = client
         .insert(ProjectDirectoryTable)
-        .values({ project_id: input.projectID, directory: input.directory, strategy: input.strategy })
+        .values({ project_id: input.projectID, directory: input.directory, strategy: input.strategy, metadata: input.metadata })
       const query =
         input.behavior === "replace"
           ? insert.onConflictDoUpdate({
               target: [ProjectDirectoryTable.project_id, ProjectDirectoryTable.directory],
-              set: { strategy: input.strategy ?? null },
-              setWhere: input.strategy
-                ? or(isNull(ProjectDirectoryTable.strategy), ne(ProjectDirectoryTable.strategy, input.strategy))
-                : isNotNull(ProjectDirectoryTable.strategy),
+              set: { strategy, metadata },
             })
           : insert.onConflictDoNothing()
       return (
@@ -89,13 +103,21 @@ const layer = Layer.effect(
 
     const list = Effect.fn("ProjectDirectories.list")(function* (projectID: ProjectSchema.ID) {
       const rows = yield* db
-        .select({ directory: ProjectDirectoryTable.directory, strategy: ProjectDirectoryTable.strategy })
+        .select({
+          directory: ProjectDirectoryTable.directory,
+          strategy: ProjectDirectoryTable.strategy,
+          metadata: ProjectDirectoryTable.metadata,
+        })
         .from(ProjectDirectoryTable)
         .where(eq(ProjectDirectoryTable.project_id, projectID))
         .orderBy(desc(ProjectDirectoryTable.time_created), asc(ProjectDirectoryTable.directory))
         .all()
         .pipe(Effect.orDie)
-      return rows.map((row) => ({ directory: row.directory, strategy: row.strategy ?? undefined }))
+      return rows.map((row) => ({
+        directory: row.directory,
+        strategy: row.strategy ?? undefined,
+        metadata: row.metadata ?? undefined,
+      }))
     })
 
     const get = Effect.fn("ProjectDirectories.get")(function* (input: {
@@ -103,7 +125,11 @@ const layer = Layer.effect(
       directory: AbsolutePath
     }) {
       const row = yield* db
-        .select({ directory: ProjectDirectoryTable.directory, strategy: ProjectDirectoryTable.strategy })
+        .select({
+          directory: ProjectDirectoryTable.directory,
+          strategy: ProjectDirectoryTable.strategy,
+          metadata: ProjectDirectoryTable.metadata,
+        })
         .from(ProjectDirectoryTable)
         .where(
           and(
@@ -113,7 +139,9 @@ const layer = Layer.effect(
         )
         .get()
         .pipe(Effect.orDie)
-      return row ? { directory: row.directory, strategy: row.strategy ?? undefined } : undefined
+      return row
+        ? { directory: row.directory, strategy: row.strategy ?? undefined, metadata: row.metadata ?? undefined }
+        : undefined
     })
 
     return Service.of({

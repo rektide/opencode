@@ -285,7 +285,15 @@ export type ProjectCommands = { start?: string }
 
 export type ProjectTime = { created: number; updated: number; initialized?: number }
 
-export type ProjectDirectory = { directory: string; strategy?: string }
+export type ProjectCopyGitWorktreeMetadata = { type: "git_worktree" }
+
+export type ProjectCopyJjWorkspaceMetadata = {
+  type: "jj_workspace"
+  workspace: string
+  base?: string
+  changeID?: string
+  commitID?: string
+}
 
 export type FormMetadata = { [x: string]: JsonValue }
 
@@ -363,8 +371,6 @@ export type ReferenceGitSource = {
   description?: string
   hidden?: boolean
 }
-
-export type ProjectCopyCopy = { directory: string }
 
 export type VcsBranch = { current?: string; default?: string }
 
@@ -1359,7 +1365,7 @@ export type Project = {
   sandboxes: Array<string>
 }
 
-export type ProjectDirectories = Array<ProjectDirectory>
+export type ProjectCopyMetadata = ProjectCopyGitWorktreeMetadata | ProjectCopyJjWorkspaceMetadata
 
 export type FormAnswer = { [x: string]: FormValue }
 
@@ -1652,6 +1658,10 @@ export type FormField =
   | FormMultiselectField
   | FormExternalField
 
+export type ProjectDirectory = { directory: string; strategy?: string; metadata?: ProjectCopyMetadata }
+
+export type ProjectCopyCopy = { directory: string; strategy: string; metadata: ProjectCopyMetadata }
+
 export type FormState = { status: "pending" } | { status: "answered"; answer: FormAnswer } | { status: "cancelled" }
 
 export type FormReplied = {
@@ -1898,6 +1908,8 @@ export type SessionMessageAssistantTool = {
 }
 
 export type FormFields = [FormField, ...Array<FormField>]
+
+export type ProjectDirectories = Array<ProjectDirectory>
 
 export type FormFields3 = [FormField1, ...Array<FormField1>]
 
@@ -5560,9 +5572,30 @@ export type ProjectCopyCreateInput = {
   readonly location?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
   }["location"]
-  readonly strategy: { readonly strategy: string; readonly directory: string; readonly name?: string }["strategy"]
-  readonly directory: { readonly strategy: string; readonly directory: string; readonly name?: string }["directory"]
-  readonly name?: { readonly strategy: string; readonly directory: string; readonly name?: string }["name"]
+  readonly strategy: {
+    readonly strategy: string
+    readonly directory: string
+    readonly name?: string
+    readonly base?: string
+  }["strategy"]
+  readonly directory: {
+    readonly strategy: string
+    readonly directory: string
+    readonly name?: string
+    readonly base?: string
+  }["directory"]
+  readonly name?: {
+    readonly strategy: string
+    readonly directory: string
+    readonly name?: string
+    readonly base?: string
+  }["name"]
+  readonly base?: {
+    readonly strategy: string
+    readonly directory: string
+    readonly name?: string
+    readonly base?: string
+  }["base"]
 }
 
 export type ProjectCopyCreateOutput = ProjectCopyCopy

@@ -14,6 +14,7 @@ export const CreateInput = Schema.Struct({
   sourceDirectory: AbsolutePath,
   directory: AbsolutePath,
   name: optional(Schema.String),
+  base: optional(Schema.String),
 }).annotate({ identifier: "ProjectCopy.CreateInput" })
 export interface CreateInput extends Schema.Schema.Type<typeof CreateInput> {}
 
@@ -24,7 +25,28 @@ export const RemoveInput = Schema.Struct({
 }).annotate({ identifier: "ProjectCopy.RemoveInput" })
 export interface RemoveInput extends Schema.Schema.Type<typeof RemoveInput> {}
 
+export const GitWorktreeMetadata = Schema.Struct({
+  type: Schema.Literal("git_worktree"),
+}).annotate({ identifier: "ProjectCopy.GitWorktreeMetadata" })
+export interface GitWorktreeMetadata extends Schema.Schema.Type<typeof GitWorktreeMetadata> {}
+
+export const JjWorkspaceMetadata = Schema.Struct({
+  type: Schema.Literal("jj_workspace"),
+  workspace: Schema.String,
+  base: optional(Schema.String),
+  changeID: optional(Schema.String),
+  commitID: optional(Schema.String),
+}).annotate({ identifier: "ProjectCopy.JjWorkspaceMetadata" })
+export interface JjWorkspaceMetadata extends Schema.Schema.Type<typeof JjWorkspaceMetadata> {}
+
+export const Metadata = Schema.Union([GitWorktreeMetadata, JjWorkspaceMetadata]).annotate({
+  identifier: "ProjectCopy.Metadata",
+})
+export type Metadata = typeof Metadata.Type
+
 export const Copy = Schema.Struct({
   directory: AbsolutePath,
+  strategy: StrategyID,
+  metadata: Metadata,
 }).annotate({ identifier: "ProjectCopy.Copy" })
 export interface Copy extends Schema.Schema.Type<typeof Copy> {}

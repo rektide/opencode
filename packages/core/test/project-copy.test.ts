@@ -26,6 +26,7 @@ function abs(input: string) {
 }
 
 const gitWorktree = ProjectCopy.StrategyID.make("git_worktree")
+const jjWorkspace = ProjectCopy.StrategyID.make("jj_workspace")
 
 async function initRepo(directory: string) {
   await $`git init`.cwd(directory).quiet()
@@ -48,7 +49,35 @@ function setup() {
     const { db } = yield* Database.Service
     yield* db
       .insert(ProjectTable)
-      .values({ id: projectID, worktree: sourceDirectory, sandboxes: [], time_created: 1, time_updated: 1 })
+      .values({ id: projectID, worktree: sourceDirectory, vcs: "git", sandboxes: [], time_created: 1, time_updated: 1 })
+      .run()
+      .pipe(Effect.orDie)
+    yield* db
+      .insert(ProjectDirectoryTable)
+      .values({ project_id: projectID, directory: sourceDirectory })
+      .run()
+      .pipe(Effect.orDie)
+    return { root, sourceDirectory, projectID, db }
+  })
+}
+
+function setupJj() {
+  return Effect.gen(function* () {
+    const root = yield* Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+    )
+    yield* Effect.promise(async () => {
+      await $`jj git init`.cwd(root.path).quiet()
+      await Bun.write(path.join(root.path, "base.txt"), "base\n")
+      await $`jj commit -m initial`.cwd(root.path).quiet()
+    })
+    const sourceDirectory = abs(yield* Effect.promise(() => fs.realpath(root.path)))
+    const projectID = Project.ID.make("jj-copy-project")
+    const { db } = yield* Database.Service
+    yield* db
+      .insert(ProjectTable)
+      .values({ id: projectID, worktree: sourceDirectory, vcs: "jj", sandboxes: [], time_created: 1, time_updated: 1 })
       .run()
       .pipe(Effect.orDie)
     yield* db
@@ -138,6 +167,148 @@ describe("ProjectCopy", () => {
 
       expect(yield* stored(input.projectID)).toEqual([{ directory: input.sourceDirectory, strategy: null }])
       expect(yield* Effect.promise(() => Bun.file(target).exists())).toBe(false)
+    }),
+  )
+
+  const itJj = Bun.which("jj") ? it : { live: it.live.skip }
+
+  itJj.live("creates a JJ workspace from an explicit immutable base and persists its identity", () =>
+    Effect.gen(function* () {
+      const input = yield* setupJj()
+      const copy = yield* ProjectCopy.Service
+      const directories = yield* ProjectDirectories.Service
+      const parent = abs(`${input.root.path}-jj-created`)
+      yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(parent, { recursive: true, force: true })))
+      const base = (yield* Effect.promise(() => $`jj log --no-graph -r @- -T commit_id`.cwd(input.root.path).text())).trim()
+
+      const created = yield* copy.create({
+        projectID: input.projectID,
+        strategy: jjWorkspace,
+        sourceDirectory: input.sourceDirectory,
+        directory: parent,
+        name: "copy",
+        base: "@-",
+      })
+
+      expect(created.strategy).toBe(jjWorkspace)
+      expect(created.metadata.type).toBe("jj_workspace")
+      if (created.metadata.type !== "jj_workspace") return
+      expect(created.metadata.base).toBe(base)
+      expect(created.metadata.workspace).toStartWith("opencode-")
+      expect((yield* directories.get({ projectID: input.projectID, directory: created.directory }))?.metadata).toEqual(
+        created.metadata,
+      )
+      expect(
+        yield* Effect.promise(() => $`jj workspace list -T 'name ++ "\\n"'`.cwd(input.root.path).text()),
+      ).toContain(created.metadata.workspace)
+
+      yield* copy.refresh({ projectID: input.projectID })
+      expect((yield* directories.get({ projectID: input.projectID, directory: created.directory }))?.metadata).toEqual(
+        created.metadata,
+      )
+
+      yield* copy.remove({ projectID: input.projectID, directory: created.directory, force: false })
+      expect(yield* Effect.promise(() => Bun.file(created.directory).exists())).toBe(false)
+      expect(
+        yield* Effect.promise(() => $`jj workspace list -T 'name ++ "\\n"'`.cwd(input.root.path).text()),
+      ).not.toContain(created.metadata.workspace)
+    }),
+  )
+
+  itJj.live("requires force to remove committed JJ work after the recorded base", () =>
+    Effect.gen(function* () {
+      const input = yield* setupJj()
+      const copy = yield* ProjectCopy.Service
+      const parent = abs(`${input.root.path}-jj-committed`)
+      yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(parent, { recursive: true, force: true })))
+      const created = yield* copy.create({
+        projectID: input.projectID,
+        strategy: jjWorkspace,
+        sourceDirectory: input.sourceDirectory,
+        directory: parent,
+        name: "copy",
+      })
+      yield* Effect.promise(async () => {
+        await Bun.write(path.join(created.directory, "committed.txt"), "valuable\n")
+        await $`jj commit -m valuable`.cwd(created.directory).quiet()
+      })
+
+      const error = yield* copy
+        .remove({ projectID: input.projectID, directory: created.directory, force: false })
+        .pipe(Effect.flip)
+
+      expect(error).toBeInstanceOf(ProjectCopy.JjWorkspaceError)
+      if (error instanceof ProjectCopy.JjWorkspaceError) expect(error.forceRequired).toBe(true)
+      yield* copy.remove({ projectID: input.projectID, directory: created.directory, force: true })
+    }),
+  )
+
+  itJj.live("rejects a JJ base that resolves to multiple commits", () =>
+    Effect.gen(function* () {
+      const input = yield* setupJj()
+      const copy = yield* ProjectCopy.Service
+      const parent = abs(`${input.root.path}-jj-ambiguous`)
+      yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(parent, { recursive: true, force: true })))
+
+      const error = yield* copy
+        .create({
+          projectID: input.projectID,
+          strategy: jjWorkspace,
+          sourceDirectory: input.sourceDirectory,
+          directory: parent,
+          name: "copy",
+          base: "all()",
+        })
+        .pipe(Effect.flip)
+
+      expect(error).toBeInstanceOf(ProjectCopy.JjWorkspaceError)
+      expect(yield* Effect.promise(() => Bun.file(path.join(parent, "copy")).exists())).toBe(false)
+    }),
+  )
+
+  itJj.live("requires force to remove a changed JJ workspace", () =>
+    Effect.gen(function* () {
+      const input = yield* setupJj()
+      const copy = yield* ProjectCopy.Service
+      const parent = abs(`${input.root.path}-jj-dirty`)
+      yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(parent, { recursive: true, force: true })))
+      const created = yield* copy.create({
+        projectID: input.projectID,
+        strategy: jjWorkspace,
+        sourceDirectory: input.sourceDirectory,
+        directory: parent,
+        name: "copy",
+      })
+      yield* Effect.promise(() => Bun.write(path.join(created.directory, "dirty.txt"), "dirty\n"))
+
+      const error = yield* copy
+        .remove({ projectID: input.projectID, directory: created.directory, force: false })
+        .pipe(Effect.flip)
+
+      expect(error).toBeInstanceOf(ProjectCopy.JjWorkspaceError)
+      if (error instanceof ProjectCopy.JjWorkspaceError) expect(error.forceRequired).toBe(true)
+      yield* copy.remove({ projectID: input.projectID, directory: created.directory, force: true })
+      expect(yield* Effect.promise(() => Bun.file(created.directory).exists())).toBe(false)
+    }),
+  )
+
+  itJj.live("refresh discovers an externally created JJ workspace", () =>
+    Effect.gen(function* () {
+      const input = yield* setupJj()
+      const copy = yield* ProjectCopy.Service
+      const directories = yield* ProjectDirectories.Service
+      const target = abs(`${input.root.path}-jj-external`)
+      yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(target, { recursive: true, force: true })))
+      yield* Effect.promise(() => $`jj workspace add --name external-copy -r @- ${target}`.cwd(input.root.path).quiet())
+
+      const result = yield* copy.refresh({ projectID: input.projectID })
+      const discovered = abs(yield* Effect.promise(() => fs.realpath(target)))
+      const stored = yield* directories.get({ projectID: input.projectID, directory: discovered })
+
+      expect(result.updated).toContain(discovered)
+      expect(stored?.strategy).toBe(jjWorkspace)
+      expect(stored?.metadata).toMatchObject({ type: "jj_workspace", workspace: "external-copy" })
+      yield* copy.remove({ projectID: input.projectID, directory: discovered, force: true })
     }),
   )
 

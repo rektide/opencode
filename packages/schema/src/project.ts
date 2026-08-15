@@ -4,6 +4,7 @@ import { Schema } from "effect"
 import { ephemeral, inventory } from "./event.js"
 import { AbsolutePath, NonNegativeInt, optional } from "./schema.js"
 import { ProjectID } from "./project-id.js"
+import { ProjectCopy } from "./project-copy.js"
 
 export const ID = ProjectID
 export type ID = typeof ID.Type
@@ -19,6 +20,7 @@ export interface Current extends Schema.Schema.Type<typeof Current> {}
 export const Directory = Schema.Struct({
   directory: AbsolutePath,
   strategy: optional(Schema.String),
+  metadata: optional(ProjectCopy.Metadata),
 }).annotate({ identifier: "Project.Directory" })
 export interface Directory extends Schema.Schema.Type<typeof Directory> {}
 export const DirectoriesInput = Schema.Struct({

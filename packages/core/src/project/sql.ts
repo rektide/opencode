@@ -2,6 +2,7 @@ import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core"
 import { absoluteArrayColumn, absoluteColumn } from "../database/path"
 import { Timestamps } from "../database/schema.sql"
 import { ProjectSchema } from "./schema"
+import { ProjectCopy } from "@opencode-ai/schema/project-copy"
 
 export const ProjectTable = sqliteTable("project", {
   id: text().$type<ProjectSchema.ID>().primaryKey(),
@@ -27,6 +28,7 @@ export const ProjectDirectoryTable = sqliteTable(
     directory: absoluteColumn().notNull(),
     type: text().$type<"main" | "root" | "git_worktree">(),
     strategy: text(),
+    metadata: text({ mode: "json" }).$type<ProjectCopy.Metadata>(),
     time_created: integer()
       .notNull()
       .$default(() => Date.now()),
