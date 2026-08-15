@@ -374,6 +374,17 @@ export type ReferenceGitSource = {
 
 export type VcsBranch = { current?: string; default?: string }
 
+export type VcsWorkingCopy = {
+  label?: string
+  workspace?: string
+  changeID?: string
+  commitID?: string
+  bookmarks: Array<string>
+  description?: string
+  conflicted: boolean
+  empty: boolean
+}
+
 export type VcsFileStatus = {
   file: string
   additions: number
@@ -1516,7 +1527,7 @@ export type SessionStatus2 = {
 
 export type ReferenceSource = ReferenceLocalSource | ReferenceGitSource
 
-export type VcsInfo = { branch: VcsBranch }
+export type VcsInfo = { branch: VcsBranch; workingCopy?: VcsWorkingCopy }
 
 export type PermissionRuleset = Array<PermissionRule>
 

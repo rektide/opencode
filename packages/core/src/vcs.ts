@@ -73,6 +73,9 @@ const layer = Layer.effect(
 
     return Service.of({
       info: Effect.fn("Vcs.info")(function* () {
+        if (vcs?.type === "jj" && impl) {
+          state.info = yield* impl.info()
+        }
         return state.info
       }),
       status: Effect.fn("Vcs.status")(function* () {

@@ -47,7 +47,8 @@ export function make(proc: AppProcess.Interface, input: { directory: string; wor
 
   return {
     info: Effect.fn("VcsJj.info")(function* () {
-      return { branch: {} } satisfies Info
+      const workingCopy = yield* jj.info()
+      return { branch: {}, workingCopy } satisfies Info
     }),
     status: Effect.fn("VcsJj.status")(function* () {
       return (yield* changes({ type: "working" })).map(
@@ -154,5 +155,43 @@ function makeJj(proc: AppProcess.Interface, worktree: string) {
     return commit
   })
 
-  return { items, conflicts, patch, trunk }
+  const info = Effect.fn("VcsJj.workingCopy")(function* () {
+    const [identity, workspaces] = yield* Effect.all(
+      [
+        run([
+          "log",
+          "--no-graph",
+          "-r",
+          "@",
+          "-T",
+          'change_id ++ "\\0" ++ commit_id ++ "\\0" ++ local_bookmarks.map(|bookmark| bookmark.name()).join("\\x1f") ++ "\\0" ++ description.first_line() ++ "\\0" ++ conflict ++ "\\0" ++ empty ++ "\\0"',
+        ]),
+        run(["workspace", "list", "-T", 'name ++ "\\0" ++ root ++ "\\0"']),
+      ],
+      { concurrency: 2 },
+    )
+    if (identity.exitCode !== 0 || workspaces.exitCode !== 0) return undefined
+    const fields = identity.text.split("\0")
+    const changeID = fields[0]?.trim()
+    const commitID = fields[1]?.trim()
+    if (!changeID || !commitID) return undefined
+    const bookmarks = (fields[2] ?? "").split("\x1f").filter(Boolean).toSorted()
+    const workspaceFields = workspaces.text.split("\0")
+    const workspace = Array.from({ length: Math.floor(workspaceFields.length / 2) }, (_, index) => ({
+      name: workspaceFields[index * 2],
+      root: workspaceFields[index * 2 + 1],
+    })).find((item) => item.name && path.resolve(item.root) === path.resolve(worktree))?.name
+    return {
+      label: bookmarks[0] ?? changeID.slice(0, 12),
+      workspace,
+      changeID,
+      commitID,
+      bookmarks,
+      description: fields[3] || undefined,
+      conflicted: fields[4] === "true",
+      empty: fields[5] === "true",
+    }
+  })
+
+  return { items, conflicts, patch, trunk, info }
 }

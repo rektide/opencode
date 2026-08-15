@@ -59,7 +59,15 @@ describeJj("Vcs Jujutsu", () => {
         })
         const vcs = yield* Vcs.Service
 
-        expect(yield* vcs.info()).toEqual({ branch: {} })
+        const info = yield* vcs.info()
+        expect(info.branch).toEqual({})
+        expect(info.workingCopy).toMatchObject({
+          workspace: "default",
+          bookmarks: [],
+          conflicted: false,
+          empty: false,
+        })
+        expect(info.workingCopy?.label).toBe(info.workingCopy?.changeID?.slice(0, 12))
         expect(yield* vcs.status()).toEqual([
           { file: "gone.txt", additions: 0, deletions: 1, status: "deleted" },
           { file: "keep.txt", additions: 1, deletions: 1, status: "modified" },
@@ -68,6 +76,21 @@ describeJj("Vcs Jujutsu", () => {
         const diff = yield* vcs.diff("working")
         expect(diff[1].patch).toContain("+three")
         expect(diff[2].patch).toContain("+hello")
+      }),
+    ),
+  )
+
+  it.live("uses exact local bookmarks as working-copy labels", () =>
+    withJj((directory) =>
+      Effect.gen(function* () {
+        yield* Effect.promise(async () => {
+          await fs.writeFile(path.join(directory, "file.txt"), "one\n")
+          await $`jj bookmark create feature -r @`.cwd(directory).quiet()
+        })
+        const info = yield* (yield* Vcs.Service).info()
+
+        expect(info.workingCopy?.bookmarks).toEqual(["feature"])
+        expect(info.workingCopy?.label).toBe("feature")
       }),
     ),
   )
