@@ -1931,6 +1931,7 @@ export type WorktreeCreateInput = {
   readonly branch?: string | undefined
   readonly directory: AbsolutePath
   readonly name?: string | undefined
+  readonly base?: string | undefined
 }
 export type WorktreeCreateOutput = Worktree.Info
 export type WorktreeCreateOperation<E = never> = (input: WorktreeCreateInput) => Effect.Effect<WorktreeCreateOutput, E>
