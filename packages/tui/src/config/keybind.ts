@@ -105,7 +105,7 @@ export const Definitions = {
   "session.tab.previous_unread": keybind("alt+shift+up", "Switch to previous unread session tab"),
   "session.tab.close": keybind("<leader>w", "Close current session tab"),
   "session.tab.reopen": keybind("ctrl+shift+t", "Reopen last closed session tab"),
-  "session.review.next": keybind("none", "Go to next session in the review list"),
+  "session.review.next": keybind("g", "Go to next session in the review list"),
   "session.timeline": keybind("<leader>g", "Show session timeline"),
   "session.fork": keybind("none", "Fork session from message"),
   "session.rename": keybind("ctrl+r", "Rename session"),
