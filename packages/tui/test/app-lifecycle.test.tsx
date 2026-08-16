@@ -3,6 +3,7 @@ import { createTestRenderer } from "@opentui/core/testing"
 import { Effect, FileSystem } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { Global } from "@opencode-ai/util/global"
+import { run } from "../src/app"
 import { createEventStream, createFetch, directory, json } from "./fixture/tui-client"
 
 test("SIGHUP clears title and disposes scoped resources once", async () => {
@@ -23,10 +24,9 @@ test("SIGHUP clears title and disposes scoped resources once", async () => {
   const calls = createFetch(undefined, events)
   const server = Bun.serve({ port: 0, fetch: (request) => calls.fetch(request) })
   try {
-    const { run } = await import("../src/app")
     const task = Effect.runPromise(
       run({
-        app: { name: "test", version: "test", channel: "test" },
+        app: { name: "test", version: "test", channel: "test-sighup" },
         server: { endpoint: { url: server.url.toString() } },
         config: { get: async () => ({}), update: async () => ({}) },
         packages: { resolve: async () => undefined },
@@ -99,10 +99,9 @@ test("session lifecycle updates the terminal title and prints the epilogue after
   }) as typeof process.stdout.write
 
   try {
-    const { run } = await import("../src/app")
     const task = Effect.runPromise(
       run({
-        app: { name: "test", version: "test", channel: "test" },
+        app: { name: "test", version: "test", channel: "test-session-lifecycle" },
         server: { endpoint: { url: server.url.toString() } },
         config: { get: async () => ({}), update: async () => ({}) },
         packages: { resolve: async () => undefined },
@@ -173,10 +172,9 @@ test("session title generated while an untitled session is loading remains visib
   const server = Bun.serve({ port: 0, fetch: (request) => calls.fetch(request) })
 
   try {
-    const { run } = await import("../src/app")
     const task = Effect.runPromise(
       run({
-        app: { name: "test", version: "test", channel: "test" },
+        app: { name: "test", version: "test", channel: "test-generated-title" },
         server: { endpoint: { url: server.url.toString() } },
         config: { get: async () => ({}), update: async () => ({}) },
         packages: { resolve: async () => undefined },
@@ -243,9 +241,9 @@ test("session startup prompt is submitted exactly once", async () => {
     if (url.pathname === "/api/session") return json({ data: [session], cursor: {} })
     if (url.pathname === "/api/session/first") return json({ data: { ...session, id: "first", title: "First" } })
     if (url.pathname === "/api/session/dummy") return json({ data: session })
-    if (url.pathname === "/api/session/dummy/message") return json({ data: [], cursor: {} })
-    if (url.pathname === "/api/session/dummy/inbox") return json({ data: [] })
-    if (url.pathname === "/api/session/dummy/permission") return json({ data: [] })
+    if (/^\/api\/session\/(?:first|dummy)\/message$/.test(url.pathname)) return json({ data: [], cursor: {} })
+    if (/^\/api\/session\/(?:first|dummy)\/inbox$/.test(url.pathname)) return json({ data: [] })
+    if (/^\/api\/session\/(?:first|dummy)\/permission$/.test(url.pathname)) return json({ data: [] })
     if (url.pathname === "/api/agent")
       return json({
         location,
@@ -265,10 +263,9 @@ test("session startup prompt is submitted exactly once", async () => {
   const server = Bun.serve({ port: 0, fetch: (request) => calls.fetch(request) })
 
   try {
-    const { run } = await import("../src/app")
     const task = Effect.runPromise(
       run({
-        app: { name: "test", version: "test", channel: "test" },
+        app: { name: "test", version: "test", channel: "test-startup-prompt" },
         server: { endpoint: { url: server.url.toString() } },
         config: { get: async () => ({}), update: async () => ({}) },
         packages: { resolve: async () => undefined },
@@ -305,10 +302,9 @@ test("configured app bindings execute settings and permission commands", async (
   const server = Bun.serve({ port: 0, fetch: (request) => calls.fetch(request) })
 
   try {
-    const { run } = await import("../src/app")
     const task = Effect.runPromise(
       run({
-        app: { name: "test", version: "test", channel: "test" },
+        app: { name: "test", version: "test", channel: "test-app-bindings" },
         server: { endpoint: { url: server.url.toString() } },
         config: {
           get: async () => ({
