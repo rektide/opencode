@@ -582,7 +582,8 @@ function App(props: { pair?: DialogPairCredentials }) {
   // Update terminal window title based on current route and session
   createEffect(() => {
     const session = route.data.type === "session" ? data.session.get(route.data.sessionID) : undefined
-    if (session) active = { id: session.id, title: session.title }
+    if (session && active?.id !== session.id) active = { id: session.id, title: session.title }
+    if (session?.title && !isFallbackTitle(session.title)) active = { id: session.id, title: session.title }
     if (!terminalTitleEnabled()) return
 
     if (route.data.type === "home") {
@@ -591,7 +592,12 @@ function App(props: { pair?: DialogPairCredentials }) {
     }
 
     if (route.data.type === "session") {
-      const title = session?.title
+      const title =
+        session?.title && !isFallbackTitle(session.title)
+          ? session.title
+          : active?.id === route.data.sessionID
+            ? active.title
+            : undefined
       if (!title || isFallbackTitle(title)) {
         renderer.setTerminalTitle("OpenCode")
         return
