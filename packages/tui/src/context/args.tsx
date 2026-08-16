@@ -7,6 +7,12 @@ export interface Args {
   continue?: boolean
   sessionID?: string
   sessionIDs?: readonly string[]
+  sessionReview?: {
+    id: string
+    source: string
+    content?: string
+    sessionIDs?: readonly string[]
+  }
   fork?: boolean
   auto?: boolean
 }

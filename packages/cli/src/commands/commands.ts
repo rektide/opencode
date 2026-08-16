@@ -45,6 +45,10 @@ export const Commands = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCO
       Flag.withDescription("Session ID to open (repeatable)"),
       Flag.atMost(Number.MAX_SAFE_INTEGER),
     ),
+    sessionReview: Flag.string("session-review").pipe(
+      Flag.withDescription("Open an ordered session review list from a file"),
+      Flag.optional,
+    ),
     prompt: Flag.string("prompt").pipe(Flag.withDescription("Prompt to use"), Flag.optional),
   },
   commands: [

@@ -10,6 +10,7 @@ import { Updater } from "../../services/updater"
 import { UpdatePreflight } from "../../services/update-preflight"
 import { Npm } from "@opencode-ai/util/npm"
 import { OPENCODE_CHANNEL, OPENCODE_VERSION } from "../../version"
+import path from "node:path"
 
 export default Runtime.handler(Commands, (input) =>
   Effect.gen(function* () {
@@ -44,6 +45,14 @@ export default Runtime.handler(Commands, (input) =>
     const context = yield* Effect.context<FileSystem.FileSystem>()
     const runFork = Effect.runForkWith(context)
     const runPromise = Effect.runPromiseWith(context)
+    const sessionReviewPath = Option.getOrUndefined(input.sessionReview)
+    const sessionReview = sessionReviewPath
+      ? yield* Effect.tryPromise(async () => ({
+          id: path.resolve(sessionReviewPath),
+          source: sessionReviewPath,
+          content: await Bun.file(sessionReviewPath).text(),
+        }))
+      : undefined
     const service = server.service
     yield* run({
       app: {
@@ -63,6 +72,7 @@ export default Runtime.handler(Commands, (input) =>
       args: {
         continue: input.continue,
         sessionIDs: input.session,
+        sessionReview,
         prompt: Option.getOrUndefined(input.prompt),
         auto: input.auto || input.yolo || input.dangerouslySkipPermissions,
       },

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { NodeServices } from "@effect/platform-node"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import { Command } from "effect/unstable/cli"
 import { Commands } from "../src/commands/commands"
 
@@ -27,4 +27,19 @@ test("root session flag preserves zero and one value behavior", async () => {
   await run(["-s", "only"])
 
   expect(parsed).toEqual([[], ["only"]])
+})
+
+test("root session review flag accepts a preset file", async () => {
+  let review = ""
+  const command = Commands.spec.pipe(
+    Command.withHandler((input) => Effect.sync(() => (review = Option.getOrElse(input.sessionReview, () => "")))),
+  )
+
+  await Effect.runPromise(
+    Command.runWith(command, { version: "test" })(["--session-review", "reviews/today.txt"]).pipe(
+      Effect.provide(NodeServices.layer),
+    ),
+  )
+
+  expect(review).toBe("reviews/today.txt")
 })

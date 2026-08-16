@@ -70,7 +70,7 @@ import { DialogHelp } from "./ui/dialog-help"
 import { DialogAgent } from "./component/dialog-agent"
 import { DialogSessionList } from "./component/dialog-session-list"
 import { DialogOpen, DialogOpenKey, loadDialogOpen } from "./component/dialog-open"
-import { SessionTabs } from "./component/session-tabs"
+import { CompactSessionTitle, compactSessionTabs, SessionTabs } from "./component/session-tabs"
 import { sessionTabsFitVertically } from "./ui/layout"
 import { ThemeErrorToast } from "./component/theme-error-toast"
 import { createThemeSource, ThemeProvider, useTheme, useThemes } from "./context/theme"
@@ -98,8 +98,15 @@ import { win32DisableProcessedInput, win32FlushInputBuffer } from "./terminal-wi
 import { destroyRenderer } from "./util/renderer"
 import { cliErrorMessage, errorFormat } from "./util/error"
 import { AttentionProvider } from "./context/attention"
-import { StorageProvider } from "./context/storage"
+import { StorageProvider, useStorage } from "./context/storage"
 import { createTuiClipboard } from "./clipboard"
+import {
+  nextSessionReview,
+  parseSessionReview,
+  resolveSessionIDs,
+  resolveSessionReview,
+  selectSessionReviewCursor,
+} from "./context/session-review"
 
 registerOpencodeSpinner()
 
@@ -112,6 +119,7 @@ const sessionTabBindingCommands = [
   "session.tab.previous_unread",
   "session.tab.close",
   "session.tab.reopen",
+  "session.review.next",
   "session.tab.select.1",
   "session.tab.select.2",
   "session.tab.select.3",
@@ -204,8 +212,25 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
   const options = { baseUrl: input.server.endpoint.url, headers: Service.headers(input.server.endpoint) }
   const api = OpenCode.make(options)
   const requestedSessionIDs = input.args.sessionIDs ?? (input.args.sessionID ? [input.args.sessionID] : [])
-  yield* Effect.try(() => assertStartupSessionTabs(config.tabs.enabled, requestedSessionIDs))
-  const sessionIDs = yield* Effect.tryPromise(() => resolveStartupSessions(api, requestedSessionIDs))
+  const sessionIDs = input.args.sessionIDs
+    ? yield* Effect.tryPromise(() => resolveSessionIDs(api, requestedSessionIDs))
+    : requestedSessionIDs
+  const sessionReview = input.args.sessionReview
+    ? {
+        ...input.args.sessionReview,
+        sessionIDs: yield* Effect.tryPromise(() =>
+          resolveSessionReview(
+            api,
+            input.args.sessionReview!.source,
+            parseSessionReview(input.args.sessionReview!.content ?? ""),
+          ),
+        ),
+        content: undefined,
+      }
+    : undefined
+  yield* Effect.try(() =>
+    assertStartupSessionTabs(config.tabs.enabled, [...(sessionReview?.sessionIDs ?? []), ...sessionIDs]),
+  )
   const location = yield* Effect.tryPromise(() => api.file.list({ location: { directory: process.cwd() } })).pipe(
     Effect.map((response) => response.location),
     Effect.catch(() => Effect.tryPromise(() => api.location.get())),
@@ -356,7 +381,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                 }}
                               >
                                 <ClipboardProvider value={clipboard}>
-                                  <ArgsProvider {...input.args} sessionIDs={sessionIDs}>
+                                  <ArgsProvider {...input.args} sessionIDs={sessionIDs} sessionReview={sessionReview}>
                                     <ConfigProvider
                                       config={config}
                                       service={input.config}
@@ -456,24 +481,6 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
   })
 })
 
-export async function resolveStartupSessions(api: ReturnType<typeof OpenCode.make>, sessionIDs: readonly string[]) {
-  const sessions = new Map<string, SessionInfo>()
-  const roots: string[] = []
-  for (const sessionID of sessionIDs) {
-    let session = sessions.get(sessionID) ?? (await api.session.get({ sessionID }))
-    sessions.set(session.id, session)
-    const seen = new Set([session.id])
-    while (session.parentID && !seen.has(session.parentID)) {
-      seen.add(session.parentID)
-      const parentID = session.parentID
-      session = sessions.get(parentID) ?? (await api.session.get({ sessionID: parentID }))
-      sessions.set(session.id, session)
-    }
-    if (!roots.includes(session.id)) roots.push(session.id)
-  }
-  return roots
-}
-
 export function assertStartupSessionTabs(enabled: boolean, sessionIDs: readonly string[]) {
   if (!enabled && sessionIDs.length > 1) throw new Error("Multiple --session values require tabs to be enabled")
 }
@@ -503,6 +510,10 @@ function App(props: { pair?: DialogPairCredentials }) {
   const promptRef = usePromptRef()
   const plugins = usePlugin()
   const clipboard = useClipboard()
+  const [sessionReviewState, updateSessionReviewState] = useStorage().store<{ presets: Record<string, string> }>(
+    "session-review",
+    { initial: { presets: {} } },
+  )
   let openingOpen: Promise<SessionInfo[]> | undefined
   // Toast once when an MCP server enters a failed or needs-auth state so the user knows to act,
   // without having to open the status panel. Tracking the last alerted status avoids re-toasting
@@ -610,15 +621,37 @@ function App(props: { pair?: DialogPairCredentials }) {
           })
         local.model.set({ providerID, modelID }, { recent: true })
       }
-      if (args.sessionIDs?.length && !args.fork) {
-        sessionTabs.open(args.sessionIDs)
+      const reviewSessionIDs = args.sessionReview?.sessionIDs ?? []
+      const startupSessionIDs = [...reviewSessionIDs, ...(args.sessionIDs ?? [])].filter(
+        (sessionID, index, all) => all.indexOf(sessionID) === index,
+      )
+      if (startupSessionIDs.length && !args.fork) {
+        sessionTabs.open(startupSessionIDs)
+        const selected = args.sessionReview
+          ? selectSessionReviewCursor(
+              reviewSessionIDs,
+              args.sessionIDs ?? [],
+              sessionReviewState.presets[args.sessionReview.id],
+            )
+          : args.sessionIDs?.at(-1)
+        if (!selected) return
         route.navigate({
           type: "session",
-          sessionID: args.sessionIDs.at(-1)!,
+          sessionID: selected,
           prompt: startupPrompt,
         })
       }
     })
+  })
+
+  createEffect(() => {
+    const review = args.sessionReview
+    if (!review?.sessionIDs?.length || route.data.type !== "session") return
+    const sessionID = data.session.root(route.data.sessionID)
+    if (!review.sessionIDs.includes(sessionID) || sessionReviewState.presets[review.id] === sessionID) return
+    void updateSessionReviewState((draft) => {
+      draft.presets[review.id] = sessionID
+    }).catch((error) => console.error("Failed to persist session review progress", error))
   })
 
   let continued = false
@@ -726,6 +759,24 @@ function App(props: { pair?: DialogPairCredentials }) {
         enabled: () => !sessionTabs.enabled(),
         run: () => local.session.quickSwitch(i + 1),
       })),
+      {
+        name: "session.review.next",
+        title: "Next review session",
+        category: "Session",
+        palette: undefined,
+        enabled: () => Boolean(args.sessionReview?.sessionIDs?.length),
+        run: () => {
+          const review = args.sessionReview
+          if (!review?.sessionIDs?.length) return
+          const current = route.data.type === "session" ? data.session.root(route.data.sessionID) : undefined
+          const next = nextSessionReview(review.sessionIDs, current)
+          if (next) {
+            route.navigate({ type: "session", sessionID: next })
+            return
+          }
+          toast.show({ variant: "info", message: "Already at the last review session" })
+        },
+      },
       {
         name: "session.tab.next",
         title: "Next tab",
@@ -1263,7 +1314,9 @@ function App(props: { pair?: DialogPairCredentials }) {
           <Show when={plugins.ready()}>
             <box flexGrow={1} minHeight={0} flexDirection="column">
               <Show when={tabsVisible() && !tabsVertical()}>
-                <SessionTabs />
+                <Show when={compactSessionTabs(dimensions().width)} fallback={<SessionTabs />}>
+                  <CompactSessionTitle />
+                </Show>
               </Show>
               <Switch>
                 <Match when={route.data.type === "home"}>

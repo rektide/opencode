@@ -25,6 +25,7 @@ import {
   sessionTabShortcutLabel,
   seedSessionTabMotion,
   sessionTabOverflowWidth,
+  SESSION_TAB_MIN_WIDTH,
   type SessionTab,
   type SessionTabUnread,
 } from "../context/session-tabs-model"
@@ -71,6 +72,22 @@ export type SessionTabsController = Pick<ContextController, "tabs" | "current" |
   add?: () => void
   detail?: (sessionID: string) => string | undefined
   status(sessionID: string): SessionTabsStatus
+}
+
+export function CompactSessionTitle(props: { controller?: SessionTabsController; width?: number }) {
+  const tabs = props.controller ?? useSessionTabs()
+  const dimensions = useTerminalDimensions()
+  const active = createMemo(() => tabs.tabs().find((tab) => tab.sessionID === tabs.current()))
+  const width = () => Math.max(1, props.width ?? dimensions().width)
+  return (
+    <text width={width()} wrapMode="none" selectable={false}>
+      {Locale.takeWidth(active()?.title ?? "Untitled session", width())}
+    </text>
+  )
+}
+
+export function compactSessionTabs(width: number) {
+  return width < SESSION_TAB_MIN_WIDTH
 }
 const NEW_SESSION_TAB: SessionTab = { sessionID: "new", title: NEW_SESSION_TAB_TITLE }
 const glowTextColor = (base: RGBA, glow: RGBA, index: number, width: number) =>
