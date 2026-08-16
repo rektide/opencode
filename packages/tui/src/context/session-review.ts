@@ -9,7 +9,7 @@ export function parseSessionReview(content: string) {
   return content.split(/\r?\n/).flatMap((value, index) => {
     const line = value.trim()
     if (!line || line.startsWith("#")) return []
-    return [{ reference: line.split(/\s+/, 1)[0]!, line: index + 1 }]
+    return [{ reference: line.split(/\s+/, 1)[0], line: index + 1 }]
   })
 }
 
@@ -19,21 +19,18 @@ export async function resolveSessionReview(
   entries: readonly SessionReviewEntry[],
 ) {
   if (entries.length === 0) throw new Error(`${source}: review list contains no sessions`)
-  const sessions = new Map<string, SessionInfo>()
-  let listed: SessionInfo[] | undefined
+  const listed = await listSessions(api)
+  const sessions = new Map(listed.map((session) => [session.id, session]))
   const resolved: SessionInfo[] = []
   for (const entry of entries) {
-    const exact = sessions.get(entry.reference) ?? (await api.session.get({ sessionID: entry.reference }).catch(() => undefined))
+    const exact = sessions.get(entry.reference)
     if (exact) {
-      sessions.set(exact.id, exact)
       resolved.push(exact)
       continue
     }
-    if (!listed) listed = await listSessions(api)
-    listed.forEach((session) => sessions.set(session.id, session))
     const matches = listed.filter((session) => session.id.startsWith(entry.reference))
     if (matches.length === 1) {
-      resolved.push(matches[0]!)
+      resolved.push(matches[0])
       continue
     }
     const reason = matches.length === 0 ? "unknown session" : `ambiguous prefix (${matches.map((item) => item.id).join(", ")})`
