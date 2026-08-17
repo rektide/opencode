@@ -1,0 +1,16 @@
+project	method	source_exported	source_db	issues
+opencode-transcripter	sqlite-export	2026-08-17	~/src/opencode-transcripter/.beads/beads.db	60
+opencoattails	bd-export-1.0.3	2026-08-17	~/src/opencoattails/.beads/ (dolt embedded)	58
+opencode-multiview	sqlite-export	2026-08-17	~/src/opencode-multiview/.beads/beads.db	34
+opencode-session-rs	bd-export-1.0.3	2026-08-17	~/src/opencode-session-rs/.beads/	30
+opencode-atuin-hooks	bd-export-1.0.3	2026-08-17	~/src/opencode-atuin-hooks/.beads/ (dolt embedded)	14
+tmux-opencode-split	sqlite-export	2026-08-17	~/src/tmux-opencode-split/.beads/beads.db	14
+opencode-session-watcher	sqlite-export	2026-08-17	~/src/opencode-session-watcher/.beads/beads.db	12
+gunshi-opencode-plugin	bd-export-1.0.3	2026-08-17	~/src/gunshi-opencode-plugin/.beads/	11
+opencodance	bd-export-1.0.3	2026-08-17	~/src/opencodance/.beads/	5
+opencode-session-fab	bd-export-1.0.3	2026-08-17	~/src/opencode-session-fab/.beads/ (dolt embedded)	1
+opencode-zeroconf	verified-empty	2026-08-17	~/src/opencode-zeroconf/.beads/beads.db (sqlite, 0 rows)	0
+opencode-beads-bad	verified-empty	2026-08-17	~/src/opencode-beads-bad/.beads/beads.db (sqlite, 0 rows)	0
+openretitle	bd-export-1.0.3	2026-08-17	~/src/openretitle/.beads/	0
+opencondenser	bd-export-1.0.3	2026-08-17	~/src/opencondenser/.beads/	0
+opencodeth	bd-export-1.0.3	2026-08-17	~/src/opencodeth/.beads/	0
