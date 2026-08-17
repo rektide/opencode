@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "gop",
+  "project_id": "cd7aae21-4b7c-4319-ac9a-ea8b1f2b8b98"
+}
