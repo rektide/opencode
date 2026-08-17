@@ -117,6 +117,37 @@ test("evicts an unresponsive service through a graceful stop request", async () 
   process.kill(replacement.pid, "SIGTERM")
 }, 20_000)
 
+test("a briefly unresponsive registered service recovers instead of being evicted", async () => {
+  const directory = await temp()
+  const registration = join(directory, "service.json")
+  const existing = spawn(registration, "stall")
+  await waitForFile(registration)
+  const original = await Bun.file(registration).json()
+
+  // command: [] makes any contender spawn fail the ensure, proving the strike
+  // window holds contenders back while the incumbent is merely unresponsive.
+  const result = run(
+    Service.ensure({
+      file: registration,
+      version: "test",
+      command: [],
+      probeTimeoutSeconds: 0.5,
+      evictionStrikes: 100,
+    }),
+  )
+  await Bun.sleep(2_000)
+  await writeFile(registration + ".release", "")
+
+  const endpoint = await result
+  try {
+    expect(endpoint.url).toBe(original.url)
+    expect(existing.exitCode).toBe(null)
+    expect(await health(endpoint.url)).toEqual({ healthy: true, version: "test", pid: original.pid })
+  } finally {
+    process.kill(original.pid, "SIGTERM")
+  }
+}, 20_000)
+
 test("requests graceful stop of the exact service instance", async () => {
   const directory = await temp()
   const registration = join(directory, "service.json")

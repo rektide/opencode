@@ -53,6 +53,10 @@ const server = Bun.serve({
       await appendFile(registration + ".requests", process.pid + "\n")
       return new Promise<Response>(() => {})
     }
+    if (mode === "stall") {
+      while (!(await Bun.file(registration + ".release").exists())) await Bun.sleep(5)
+      return Response.json({ healthy: true, version, pid: process.pid })
+    }
     if (mode === "modern" && requests === 1) {
       await writeFile(registration + ".first-request", "")
       while (!(await Bun.file(registration + ".release").exists())) await Bun.sleep(5)

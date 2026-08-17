@@ -112,8 +112,10 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
       }
       finished.forEach((item) => contenders.delete(item))
       if (failure !== undefined && contenders.size === 0) throw failure
-      // Keep one candidate plus one lock probe so a pre-lock stall cannot block recovery.
-      if (contenders.size < 2 && Date.now() - lastSpawn >= spawnDelay) {
+      // Keep one candidate plus one lock probe so a pre-lock stall cannot block
+      // recovery. A merely unresponsive incumbent is left alone: strikes
+      // accumulate toward eviction instead of racing a replacement for its port.
+      if (contenders.size < 2 && !registration.timedOut && Date.now() - lastSpawn >= spawnDelay) {
         announce("missing")
         contenders.add(spawnContender())
         lastSpawn = Date.now()
