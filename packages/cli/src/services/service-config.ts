@@ -101,12 +101,32 @@ const paths = Effect.gen(function* () {
 export const options = Effect.fnUntraced(function* (input: { readonly checkVersion?: boolean } = {}) {
   const { file, legacyRegistrationFiles } = yield* paths
   yield* Effect.forEach(legacyRegistrationFiles, (legacy) => migrateRegistration(legacy, file))
+  const probeTimeoutSeconds = seconds("OPENCODE_SERVICE_PROBE_TIMEOUT")
+  const evictionStrikes = positiveInteger("OPENCODE_SERVICE_EVICTION_STRIKES")
+  const killGraceSeconds = seconds("OPENCODE_SERVICE_KILL_GRACE")
   return {
     file,
     version: input.checkVersion ? OPENCODE_VERSION : undefined,
     command: [...selfCommand(), "serve", "--service"],
+    ...(probeTimeoutSeconds !== undefined ? { probeTimeoutSeconds } : {}),
+    ...(evictionStrikes !== undefined ? { evictionStrikes } : {}),
+    ...(killGraceSeconds !== undefined ? { killGraceSeconds } : {}),
   }
 })
+
+// Patience tuning for the background service health probes, in seconds (and
+// one strike count). Defaults preserve historical behavior; set
+// OPENCODE_SERVICE_EVICTION_STRIKES / _PROBE_TIMEOUT / _KILL_GRACE to tolerate
+// slow-but-alive servers instead of evicting them.
+function seconds(name: string) {
+  const value = Number(process.env[name])
+  return process.env[name] !== undefined && Number.isFinite(value) && value > 0 ? value : undefined
+}
+
+function positiveInteger(name: string) {
+  const value = Number(process.env[name])
+  return process.env[name] !== undefined && Number.isInteger(value) && value > 0 ? value : undefined
+}
 
 export const read = Effect.fn("cli.service-config.read")(function* () {
   const { fs, configFile, legacyConfigFile } = yield* paths
