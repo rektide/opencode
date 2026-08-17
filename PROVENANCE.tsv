@@ -14,3 +14,5 @@ opencode-beads-bad	verified-empty	2026-08-17	~/src/opencode-beads-bad/.beads/bea
 openretitle	bd-export-1.0.3	2026-08-17	~/src/openretitle/.beads/	0
 opencondenser	bd-export-1.0.3	2026-08-17	~/src/opencondenser/.beads/	0
 opencodeth	bd-export-1.0.3	2026-08-17	~/src/opencodeth/.beads/	0
+opencode (main checkout)	verified-empty	2026-08-17	~/a/a/opencode/.beads (embedded dolt, initialized 2026-08-17, bd list: no issues)	0
+opencode-retitle (workspace)	verified-empty	2026-08-17	~/src/opencode-retitle/.beads (embedded dolt "otit", bd list: no issues; backup .darc confirms empty init)	0

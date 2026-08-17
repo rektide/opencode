@@ -30,8 +30,31 @@ Two schema generations exist:
 
 Verified-empty databases are recorded as an empty `issues.jsonl`.
 
-Not captured (no `.beads` or no database): `~/a/a/opencode/.beads` (created
-2026-08-17, still empty), `opencode-beads-context`, `opencode-plugin-export`.
+## Tickets in opencode checkouts themselves
+
+Audited 2026-08-17: **no beads tickets were ever created inside an opencode
+checkout or workspace.** Every farm workspace of the shared jj repo
+(`~/src/opencode-jj-vcs`, `opencode-limit`, `opencode-term`, `opencode-variant`,
+`opencode-compact-maker`, `opencode-provider-metrics`, `opencode-write-commit`,
+`opencode-session-*`, `opencode-anim-rate`, `opencode-tab-history`, and the
+rest), plus `~/a/a/{dev,v1,v2}` and `/usr/local/src/opencode-git`, has no
+`.beads` directory at all. Two trackers were initialized but never used:
+
+| checkout | status |
+|---|---|
+| `~/a/a/opencode` (main archive checkout) | `.beads` created 2026-08-17, empty |
+| `~/src/opencode-retitle` (farm workspace) | `.beads` (embedded dolt "otit") initialized 2026-07-23, empty; `.darc` backup confirms empty init |
+
+Both are recorded as `projects/opencode/issues.jsonl` and
+`projects/opencode-retitle/issues.jsonl`.
+
+All real tickets therefore live in the adjacent standalone projects
+(`projects/*` here) — these are opencode *ecosystem* software
+(session tools, plugins, TUI experiments), not work inside opencode itself.
+
+Work inside opencode checkouts was tracked by other artifacts, not beads:
+`plans/`, `specs/`, `.design/` waves, `.test-agent/` scratch. Those are
+design documents, intentionally out of scope for this repo.
 
 ## Planned: derived and merged copies
 
