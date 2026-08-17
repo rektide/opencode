@@ -2,7 +2,16 @@ import { readFile } from "node:fs/promises"
 import { spawn, type ChildProcess } from "node:child_process"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import type { DiscoverOptions, Endpoint, Info, EnsureOptions, StopOptions } from "../service.js"
+import {
+  defaultEvictionStrikes,
+  defaultKillGraceSeconds,
+  defaultProbeTimeoutSeconds,
+  type DiscoverOptions,
+  type Endpoint,
+  type Info,
+  type EnsureOptions,
+  type StopOptions,
+} from "../service.js"
 import type { ServiceHealth, ServiceStopResponse } from "./generated/types.js"
 
 export * from "../service.js"
@@ -24,7 +33,9 @@ export async function discover(options: DiscoverOptions = {}) {
 }
 
 async function discoverLocal(options: DiscoverOptions) {
-  const found = (await registered(options.file)).service
+  const found = (
+    await registered(options.file, false, options.probeTimeoutSeconds ?? defaultProbeTimeoutSeconds)
+  ).service
   if (found?.state !== "ready") return undefined
   if (options.version !== undefined && found.version !== options.version) return undefined
   return found
@@ -32,7 +43,12 @@ async function discoverLocal(options: DiscoverOptions) {
 
 /** Ensure a healthy, compatible local service is running. */
 export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
-  const deadline = Date.now() + 120_000
+  const probeTimeoutSeconds = options.probeTimeoutSeconds ?? defaultProbeTimeoutSeconds
+  const evictionStrikes = options.evictionStrikes ?? defaultEvictionStrikes
+  const killGraceSeconds = options.killGraceSeconds ?? defaultKillGraceSeconds
+  const deadline =
+    Date.now() +
+    Math.max(120_000, evictionStrikes * (probeTimeoutSeconds + 1) * 1000 + killGraceSeconds * 1000 + 60_000)
   const contenders = new Set<Contender>()
   let timeouts: { readonly info: Info; readonly count: number } | undefined
   let announced = false
@@ -62,15 +78,15 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
 
   while (true) {
     if (Date.now() >= deadline) throw new Error("Timed out waiting for the background service to start")
-    const registration = await registered(options.file, true)
+    const registration = await registered(options.file, true, probeTimeoutSeconds)
     if (registration.timedOut && registration.info !== undefined) {
       timeouts = {
         info: registration.info,
         count: timeouts !== undefined && same(timeouts.info, registration.info) ? timeouts.count + 1 : 1,
       }
-      if (timeouts.count >= 3) {
+      if (timeouts.count >= evictionStrikes) {
         announce("missing")
-        await evict(registration.info, options)
+        await evict(registration.info, { file: options.file, killGraceSeconds })
         timeouts = undefined
         lastSpawn = Date.now() - spawnDelay
       }
@@ -157,11 +173,11 @@ type LocalService = {
   readonly legacy: boolean
 }
 
-async function probe(info: Info, allowLegacy = false): Promise<LocalService | undefined> {
-  return (await probeResult(info, allowLegacy)).service
+async function probe(info: Info, allowLegacy: boolean, timeoutSeconds: number): Promise<LocalService | undefined> {
+  return (await probeResult(info, allowLegacy, timeoutSeconds)).service
 }
 
-async function probeResult(info: Info, allowLegacy = false) {
+async function probeResult(info: Info, allowLegacy: boolean, timeoutSeconds: number) {
   const endpoint = {
     url: info.url,
     auth:
@@ -169,7 +185,7 @@ async function probeResult(info: Info, allowLegacy = false) {
         ? undefined
         : { type: "basic" as const, username: "opencode", password: info.password },
   } satisfies Endpoint
-  const signal = AbortSignal.timeout(2_000)
+  const signal = AbortSignal.timeout(timeoutSeconds * 1000)
   const result = await fetch(new URL("/api/health", info.url), {
     headers: headers(endpoint),
     signal,
@@ -206,10 +222,10 @@ async function probeResult(info: Info, allowLegacy = false) {
   }
 }
 
-async function registered(file?: string, allowLegacy = false) {
+async function registered(file?: string, allowLegacy = false, timeoutSeconds = defaultProbeTimeoutSeconds) {
   const info = await read(file)
   if (info === undefined) return { info: undefined, service: undefined, timedOut: false }
-  return { info, ...(await probeResult(info, allowLegacy)) }
+  return { info, ...(await probeResult(info, allowLegacy, timeoutSeconds)) }
 }
 
 async function find(options: { readonly file?: string }) {
@@ -231,10 +247,12 @@ function stopped(pid: number) {
   }
 }
 
-async function waitUntilStopped(pid: number) {
-  for (let attempt = 0; attempt <= 100; attempt++) {
+// 50ms liveness polling bounded by the kill grace window.
+async function waitUntilStopped(pid: number, graceSeconds = defaultKillGraceSeconds) {
+  const attempts = Math.max(1, Math.round(graceSeconds * 20))
+  for (let attempt = 0; attempt <= attempts; attempt++) {
     if (stopped(pid)) return true
-    if (attempt < 100) await delay(50)
+    if (attempt < attempts) await delay(50)
   }
   return false
 }
@@ -243,19 +261,22 @@ function same(left: Info, right: Info) {
   return left.id === right.id && left.version === right.version && left.url === right.url && left.pid === right.pid
 }
 
-async function evict(info: Info, options: { readonly file?: string }) {
+async function evict(info: Info, options: { readonly file?: string; readonly killGraceSeconds?: number }) {
   const current = await read(options.file)
   if (current === undefined || !same(current, info)) return
   signal(info.pid, "SIGTERM")
-  if (await waitUntilStopped(info.pid)) return
+  const graceSeconds = options.killGraceSeconds ?? defaultKillGraceSeconds
+  if (await waitUntilStopped(info.pid, graceSeconds)) return
 
   const latest = await read(options.file)
   if (latest === undefined || !same(latest, info)) return
   signal(info.pid, "SIGKILL")
-  if (!(await waitUntilStopped(info.pid))) throw new Error(`Server process ${info.pid} is still running`)
+  if (!(await waitUntilStopped(info.pid, graceSeconds)))
+    throw new Error(`Server process ${info.pid} is still running`)
 }
 
-async function kill(service: LocalService, options: { readonly file?: string }) {
+async function kill(service: LocalService, options: { readonly file?: string; readonly killGraceSeconds?: number }) {
+  const graceSeconds = options.killGraceSeconds ?? defaultKillGraceSeconds
   const requested = await requestStop(service)
   if (requested === "rejected") return
   if (requested === "unsupported") {
@@ -263,12 +284,12 @@ async function kill(service: LocalService, options: { readonly file?: string }) 
     if (current === undefined || !same(current.info, service.info)) return
     signal(service.info.pid, "SIGTERM")
   }
-  if (await waitUntilStopped(service.info.pid)) return
+  if (await waitUntilStopped(service.info.pid, graceSeconds)) return
 
   const latest = await find(options)
   if (latest === undefined || !same(latest.info, service.info)) return
   signal(service.info.pid, "SIGKILL")
-  if (!(await waitUntilStopped(service.info.pid)))
+  if (!(await waitUntilStopped(service.info.pid, graceSeconds)))
     throw new Error(`Server process ${service.info.pid} is still running`)
 }
 

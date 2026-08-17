@@ -19,6 +19,8 @@ export type DiscoverOptions = {
   readonly file?: string
   /** Required service version. */
   readonly version?: string
+  /** Health probe timeout in seconds. Defaults to 2. */
+  readonly probeTimeoutSeconds?: number
 }
 
 /** Reason ensuring the service requires a new process. */
@@ -30,13 +32,30 @@ export type EnsureOptions = DiscoverOptions & {
   readonly command?: ReadonlyArray<string>
   /** Called once before spawning a new service process. */
   readonly onStart?: (reason: EnsureReason, previousVersion?: string) => void
+  /**
+   * Consecutive probe timeouts before an unresponsive registered service is evicted.
+   * Each strike costs one probe timeout plus one second of poll spacing. Defaults to 3;
+   * raise it to tolerate slow-but-alive servers (e.g. 100 for roughly a five minute window).
+   */
+  readonly evictionStrikes?: number
+  /** Grace between stop request or SIGTERM and SIGKILL, in seconds. Defaults to 5. */
+  readonly killGraceSeconds?: number
 }
 
 /** Options used to stop the local OpenCode service. */
 export type StopOptions = {
   /** Absolute registration file path. Defaults to the XDG state directory. */
   readonly file?: string
+  /** Grace between stop request or SIGTERM and SIGKILL, in seconds. Defaults to 5. */
+  readonly killGraceSeconds?: number
 }
+
+/** Default timeout for a single service health probe, in seconds. */
+export const defaultProbeTimeoutSeconds = 2
+/** Default consecutive probe timeouts before evicting an unresponsive registered service. */
+export const defaultEvictionStrikes = 3
+/** Default grace between stop request or SIGTERM and SIGKILL, in seconds. */
+export const defaultKillGraceSeconds = 5
 
 /** Contents of the local service registration file. */
 export type Info = {

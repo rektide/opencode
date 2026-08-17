@@ -3,7 +3,15 @@ import { Effect, FileSystem, Option, Schedule, Schema } from "effect"
 import { spawn, type ChildProcess } from "node:child_process"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import type { DiscoverOptions, Endpoint, EnsureOptions, StopOptions } from "../service.js"
+import {
+  defaultEvictionStrikes,
+  defaultKillGraceSeconds,
+  defaultProbeTimeoutSeconds,
+  type DiscoverOptions,
+  type Endpoint,
+  type EnsureOptions,
+  type StopOptions,
+} from "../service.js"
 
 export * from "../service.js"
 /** Contents of the local service registration file. */
@@ -34,14 +42,18 @@ export const incumbent = Effect.fn("service.incumbent")(function* (
   options: DiscoverOptions & { readonly url: string },
 ) {
   const info = yield* read(options.file)
-  const found = info === undefined ? undefined : yield* probe({ ...info, url: options.url })
+  const found =
+    info === undefined
+      ? undefined
+      : yield* probe({ ...info, url: options.url }, false, options.probeTimeoutSeconds ?? defaultProbeTimeoutSeconds)
   if (found === undefined || found.legacy) return undefined
   if (options.version !== undefined && found.version !== options.version) return undefined
   return { endpoint: found.endpoint, state: found.state }
 })
 
 const discoverLocal = Effect.fnUntraced(function* (options: DiscoverOptions) {
-  const found = (yield* registered(options.file)).service
+  const found = (yield* registered(options.file, false, options.probeTimeoutSeconds ?? defaultProbeTimeoutSeconds))
+    .service
   if (found?.state !== "ready") return undefined
   if (options.version !== undefined && found.version !== options.version) return undefined
   return found
@@ -49,9 +61,16 @@ const discoverLocal = Effect.fnUntraced(function* (options: DiscoverOptions) {
 
 // Idempotent ensure-running: reuses a healthy compatible server, replaces a
 // version-mismatched one, and otherwise spawns small contenders until a server
-// becomes discoverable. A contender is never killed merely for slow startup.
+// becomes discoverable. A contender is never killed merely for slow startup,
+// and eviction patience is configurable through the strike window options.
 /** Ensure a healthy, compatible local service is running. */
 export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOptions = {}) {
+  const probeTimeoutSeconds = options.probeTimeoutSeconds ?? defaultProbeTimeoutSeconds
+  const evictionStrikes = options.evictionStrikes ?? defaultEvictionStrikes
+  const killGraceSeconds = options.killGraceSeconds ?? defaultKillGraceSeconds
+  const deadline =
+    Date.now() +
+    Math.max(120_000, evictionStrikes * (probeTimeoutSeconds + 1) * 1000 + killGraceSeconds * 1000 + 60_000)
   const contenders = new Set<Contender>()
   let timeouts: { readonly info: Info; readonly count: number } | undefined
   let announced = false
@@ -80,7 +99,9 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
     })
   })
   const found = yield* Effect.gen(function* () {
-    const registration = yield* registered(options.file, true)
+    if (Date.now() >= deadline)
+      return yield* Effect.fail(new Error("Timed out waiting for the background service to start"))
+    const registration = yield* registered(options.file, true, probeTimeoutSeconds)
     const info = registration.info
     const service = registration.service
     if (registration.timedOut && info !== undefined) {
@@ -88,9 +109,9 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
         info,
         count: timeouts !== undefined && same(timeouts.info, info) ? timeouts.count + 1 : 1,
       }
-      if (timeouts.count >= 3) {
+      if (timeouts.count >= evictionStrikes) {
         yield* announce("missing")
-        yield* evict(info, options)
+        yield* evict(info, { file: options.file, killGraceSeconds })
         timeouts = undefined
         lastSpawn = Date.now() - spawnDelay
       }
@@ -125,7 +146,7 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
   }).pipe(
     Effect.repeat({
       until: Option.isSome,
-      schedule: Schedule.max([Schedule.spaced("1 second"), Schedule.recurs(120)]),
+      schedule: Schedule.spaced("1 second"),
     }),
   )
   if (Option.isNone(found))
@@ -194,11 +215,11 @@ type LocalService = {
   readonly legacy: boolean
 }
 
-const probe = Effect.fnUntraced(function* (info: Info, allowLegacy = false) {
-  return (yield* probeResult(info, allowLegacy)).service
+const probe = Effect.fnUntraced(function* (info: Info, allowLegacy: boolean, timeoutSeconds: number) {
+  return (yield* probeResult(info, allowLegacy, timeoutSeconds)).service
 })
 
-const probeResult = Effect.fnUntraced(function* (info: Info, allowLegacy = false) {
+const probeResult = Effect.fnUntraced(function* (info: Info, allowLegacy: boolean, timeoutSeconds: number) {
   const endpoint = {
     url: info.url,
     auth:
@@ -206,7 +227,7 @@ const probeResult = Effect.fnUntraced(function* (info: Info, allowLegacy = false
         ? undefined
         : { type: "basic" as const, username: "opencode", password: info.password },
   } satisfies Endpoint
-  const signal = AbortSignal.timeout(2_000)
+  const signal = AbortSignal.timeout(timeoutSeconds * 1000)
   const result = yield* Effect.promise(() =>
     fetch(new URL("/api/health", info.url), {
       headers: headers(endpoint),
@@ -249,21 +270,21 @@ const probeResult = Effect.fnUntraced(function* (info: Info, allowLegacy = false
   }
 })
 
-const registered = Effect.fnUntraced(function* (file?: string, allowLegacy = false) {
+const registered = Effect.fnUntraced(function* (file: string | undefined, allowLegacy: boolean, timeoutSeconds: number) {
   const info = yield* read(file)
   if (info === undefined) return { info: undefined, service: undefined, timedOut: false }
-  return { info, ...(yield* probeResult(info, allowLegacy)) }
+  return { info, ...(yield* probeResult(info, allowLegacy, timeoutSeconds)) }
 })
 
 // Health-checked lookup without the version gate: lifecycle operations must be
 // able to see (and replace or stop) a server from a different version.
 const find = Effect.fnUntraced(function* (options: { readonly file?: string }) {
-  return (yield* registered(options.file, true)).service
+  return (yield* registered(options.file, true, defaultProbeTimeoutSeconds)).service
 })
 
-// 50ms cadence bounded at ~5s, shared by stop escalation and each ensure
-// discovery window.
-const poll = Schedule.max([Schedule.spaced("50 millis"), Schedule.recurs(100)])
+// 50ms liveness polling bounded by the kill grace window.
+const grace = (seconds: number) =>
+  Schedule.max([Schedule.spaced("50 millis"), Schedule.recurs(Math.max(1, Math.round(seconds * 20)))])
 
 const signal = (pid: number, name: NodeJS.Signals) =>
   Effect.try({ try: () => process.kill(pid, name), catch: (cause) => cause }).pipe(Effect.ignore)
@@ -280,20 +301,25 @@ function same(left: Info, right: Info) {
   return left.id === right.id && left.version === right.version && left.url === right.url && left.pid === right.pid
 }
 
-const evict = Effect.fnUntraced(function* (info: Info, options: { readonly file?: string }) {
+const evict = Effect.fnUntraced(function* (info: Info, options: { readonly file?: string; readonly killGraceSeconds?: number }) {
   const current = yield* read(options.file)
   if (current === undefined || !same(current, info)) return
   yield* signal(info.pid, "SIGTERM")
-  const done = yield* stopped(info.pid).pipe(Effect.retry(poll), Effect.option)
+  const graceSchedule = grace(options.killGraceSeconds ?? defaultKillGraceSeconds)
+  const done = yield* stopped(info.pid).pipe(Effect.retry(graceSchedule), Effect.option)
   if (Option.isSome(done)) return
 
   const latest = yield* read(options.file)
   if (latest === undefined || !same(latest, info)) return
   yield* signal(info.pid, "SIGKILL")
-  yield* stopped(info.pid).pipe(Effect.retry(poll))
+  yield* stopped(info.pid).pipe(Effect.retry(graceSchedule))
 })
 
-const kill = Effect.fnUntraced(function* (service: LocalService, options: { readonly file?: string }) {
+const kill = Effect.fnUntraced(function* (
+  service: LocalService,
+  options: { readonly file?: string; readonly killGraceSeconds?: number },
+) {
+  const graceSchedule = grace(options.killGraceSeconds ?? defaultKillGraceSeconds)
   const requested = yield* requestStop(service)
   if (requested === "rejected") return
   if (requested === "unsupported") {
@@ -303,13 +329,13 @@ const kill = Effect.fnUntraced(function* (service: LocalService, options: { read
     if (current === undefined || !same(current.info, service.info)) return
     yield* signal(service.info.pid, "SIGTERM")
   }
-  const done = yield* stopped(service.info.pid).pipe(Effect.retry(poll), Effect.option)
+  const done = yield* stopped(service.info.pid).pipe(Effect.retry(graceSchedule), Effect.option)
   if (Option.isSome(done)) return
 
   const latest = yield* find(options)
   if (latest === undefined || !same(latest.info, service.info)) return
   yield* signal(service.info.pid, "SIGKILL")
-  yield* stopped(service.info.pid).pipe(Effect.retry(poll))
+  yield* stopped(service.info.pid).pipe(Effect.retry(graceSchedule))
 })
 
 const decodeStopResponse = Schema.decodeUnknownOption(ServiceStatus.StopResponse)
