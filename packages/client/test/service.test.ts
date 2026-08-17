@@ -94,6 +94,29 @@ test("evicts an unresponsive registered service before starting its replacement"
   process.kill(replacement.pid, "SIGTERM")
 }, 20_000)
 
+test("evicts an unresponsive service through a graceful stop request", async () => {
+  const directory = await temp()
+  const registration = join(directory, "service.json")
+  const existing = spawn(registration, "hanging-graceful")
+  await waitForFile(registration)
+  const original = await Bun.file(registration).json()
+
+  const endpoint = await run(
+    Service.ensure({
+      file: registration,
+      version: "test",
+      command: [process.execPath, fixture, registration, "delayed", "10"],
+    }),
+  )
+  const replacement = await Bun.file(registration).json()
+
+  expect(await Bun.file(registration + ".stop").json()).toEqual({ instanceID: original.id })
+  expect(await existing.exited).toBe(0)
+  expect(replacement.pid).not.toBe(original.pid)
+  expect(endpoint.url).toBe(replacement.url)
+  process.kill(replacement.pid, "SIGTERM")
+}, 20_000)
+
 test("requests graceful stop of the exact service instance", async () => {
   const directory = await temp()
   const registration = join(directory, "service.json")

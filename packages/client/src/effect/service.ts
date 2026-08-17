@@ -111,7 +111,7 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
       }
       if (timeouts.count >= evictionStrikes) {
         yield* announce("missing")
-        yield* evict(info, { file: options.file, killGraceSeconds })
+        yield* evict(info, { file: options.file, killGraceSeconds, probeTimeoutSeconds })
         timeouts = undefined
         lastSpawn = Date.now() - spawnDelay
       }
@@ -215,18 +215,22 @@ type LocalService = {
   readonly legacy: boolean
 }
 
-const probe = Effect.fnUntraced(function* (info: Info, allowLegacy: boolean, timeoutSeconds: number) {
-  return (yield* probeResult(info, allowLegacy, timeoutSeconds)).service
-})
-
-const probeResult = Effect.fnUntraced(function* (info: Info, allowLegacy: boolean, timeoutSeconds: number) {
-  const endpoint = {
+function endpointOf(info: Info): Endpoint {
+  return {
     url: info.url,
     auth:
       info.password === undefined
         ? undefined
         : { type: "basic" as const, username: "opencode", password: info.password },
-  } satisfies Endpoint
+  }
+}
+
+const probe = Effect.fnUntraced(function* (info: Info, allowLegacy: boolean, timeoutSeconds: number) {
+  return (yield* probeResult(info, allowLegacy, timeoutSeconds)).service
+})
+
+const probeResult = Effect.fnUntraced(function* (info: Info, allowLegacy: boolean, timeoutSeconds: number) {
+  const endpoint = endpointOf(info)
   const signal = AbortSignal.timeout(timeoutSeconds * 1000)
   const result = yield* Effect.promise(() =>
     fetch(new URL("/api/health", info.url), {
@@ -301,11 +305,18 @@ function same(left: Info, right: Info) {
   return left.id === right.id && left.version === right.version && left.url === right.url && left.pid === right.pid
 }
 
-const evict = Effect.fnUntraced(function* (info: Info, options: { readonly file?: string; readonly killGraceSeconds?: number }) {
+const evict = Effect.fnUntraced(function* (
+  info: Info,
+  options: { readonly file?: string; readonly killGraceSeconds: number; readonly probeTimeoutSeconds: number },
+) {
   const current = yield* read(options.file)
   if (current === undefined || !same(current, info)) return
-  yield* signal(info.pid, "SIGTERM")
-  const graceSchedule = grace(options.killGraceSeconds ?? defaultKillGraceSeconds)
+  // Prefer an authenticated graceful stop so active sessions suspend before
+  // any signal escalation.
+  const requested = yield* requestStop({ info, endpoint: endpointOf(info) }, options.probeTimeoutSeconds)
+  if (requested === "rejected") return
+  if (requested === "unsupported") yield* signal(info.pid, "SIGTERM")
+  const graceSchedule = grace(options.killGraceSeconds)
   const done = yield* stopped(info.pid).pipe(Effect.retry(graceSchedule), Effect.option)
   if (Option.isSome(done)) return
 
@@ -340,14 +351,17 @@ const kill = Effect.fnUntraced(function* (
 
 const decodeStopResponse = Schema.decodeUnknownOption(ServiceStatus.StopResponse)
 
-const requestStop = Effect.fnUntraced(function* (service: LocalService) {
-  if (service.info.id === undefined || service.legacy) return "unsupported" as const
+const requestStop = Effect.fnUntraced(function* (
+  service: { readonly info: Info; readonly endpoint: Endpoint; readonly legacy?: boolean },
+  timeoutSeconds = defaultProbeTimeoutSeconds,
+) {
+  if (service.info.id === undefined || service.legacy === true) return "unsupported" as const
   const response = yield* Effect.tryPromise(() =>
     fetch(new URL("/api/service/stop", service.info.url), {
       method: "POST",
       headers: { ...headers(service.endpoint), "content-type": "application/json" },
       body: JSON.stringify({ instanceID: service.info.id }),
-      signal: AbortSignal.timeout(2_000),
+      signal: AbortSignal.timeout(timeoutSeconds * 1000),
     }),
   ).pipe(Effect.option, Effect.map(Option.getOrUndefined))
   if (response === undefined || response.status === 404 || response.status === 405) return "unsupported" as const

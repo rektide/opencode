@@ -86,7 +86,7 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
       }
       if (timeouts.count >= evictionStrikes) {
         announce("missing")
-        await evict(registration.info, { file: options.file, killGraceSeconds })
+        await evict(registration.info, { file: options.file, killGraceSeconds, probeTimeoutSeconds })
         timeouts = undefined
         lastSpawn = Date.now() - spawnDelay
       }
@@ -173,18 +173,22 @@ type LocalService = {
   readonly legacy: boolean
 }
 
-async function probe(info: Info, allowLegacy: boolean, timeoutSeconds: number): Promise<LocalService | undefined> {
-  return (await probeResult(info, allowLegacy, timeoutSeconds)).service
-}
-
-async function probeResult(info: Info, allowLegacy: boolean, timeoutSeconds: number) {
-  const endpoint = {
+function endpointOf(info: Info): Endpoint {
+  return {
     url: info.url,
     auth:
       info.password === undefined
         ? undefined
         : { type: "basic" as const, username: "opencode", password: info.password },
-  } satisfies Endpoint
+  }
+}
+
+async function probe(info: Info, allowLegacy: boolean, timeoutSeconds: number): Promise<LocalService | undefined> {
+  return (await probeResult(info, allowLegacy, timeoutSeconds)).service
+}
+
+async function probeResult(info: Info, allowLegacy: boolean, timeoutSeconds: number) {
+  const endpoint = endpointOf(info)
   const signal = AbortSignal.timeout(timeoutSeconds * 1000)
   const result = await fetch(new URL("/api/health", info.url), {
     headers: headers(endpoint),
@@ -261,17 +265,24 @@ function same(left: Info, right: Info) {
   return left.id === right.id && left.version === right.version && left.url === right.url && left.pid === right.pid
 }
 
-async function evict(info: Info, options: { readonly file?: string; readonly killGraceSeconds?: number }) {
+async function evict(info: Info, options: {
+  readonly file?: string
+  readonly killGraceSeconds: number
+  readonly probeTimeoutSeconds: number
+}) {
   const current = await read(options.file)
   if (current === undefined || !same(current, info)) return
-  signal(info.pid, "SIGTERM")
-  const graceSeconds = options.killGraceSeconds ?? defaultKillGraceSeconds
-  if (await waitUntilStopped(info.pid, graceSeconds)) return
+  // Prefer an authenticated graceful stop so active sessions suspend before
+  // any signal escalation.
+  const requested = await requestStop({ info, endpoint: endpointOf(info) }, options.probeTimeoutSeconds)
+  if (requested === "rejected") return
+  if (requested === "unsupported") signal(info.pid, "SIGTERM")
+  if (await waitUntilStopped(info.pid, options.killGraceSeconds)) return
 
   const latest = await read(options.file)
   if (latest === undefined || !same(latest, info)) return
   signal(info.pid, "SIGKILL")
-  if (!(await waitUntilStopped(info.pid, graceSeconds)))
+  if (!(await waitUntilStopped(info.pid, options.killGraceSeconds)))
     throw new Error(`Server process ${info.pid} is still running`)
 }
 
@@ -293,13 +304,16 @@ async function kill(service: LocalService, options: { readonly file?: string; re
     throw new Error(`Server process ${service.info.pid} is still running`)
 }
 
-async function requestStop(service: LocalService) {
-  if (service.info.id === undefined || service.legacy) return "unsupported" as const
+async function requestStop(
+  service: { readonly info: Info; readonly endpoint: Endpoint; readonly legacy?: boolean },
+  timeoutSeconds = defaultProbeTimeoutSeconds,
+) {
+  if (service.info.id === undefined || service.legacy === true) return "unsupported" as const
   const response = await fetch(new URL("/api/service/stop", service.info.url), {
     method: "POST",
     headers: { ...headers(service.endpoint), "content-type": "application/json" },
     body: JSON.stringify({ instanceID: service.info.id }),
-    signal: AbortSignal.timeout(2_000),
+    signal: AbortSignal.timeout(timeoutSeconds * 1000),
   }).catch(() => undefined)
   if (response === undefined || response.status === 404 || response.status === 405) return "unsupported" as const
   const body = (await response.json().catch(() => undefined)) as ServiceStopResponse | undefined

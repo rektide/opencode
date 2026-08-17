@@ -40,9 +40,16 @@ const server = Bun.serve({
       setTimeout(shutdown, 25)
       return Response.json({ accepted: true })
     }
+    if (pathname === "/api/service/stop" && mode === "hanging-graceful") {
+      const body = await request.json()
+      if (typeof body !== "object" || body === null || body.instanceID !== id) return Response.json({ accepted: false })
+      await writeFile(registration + ".stop", JSON.stringify(body))
+      setTimeout(shutdown, 25)
+      return Response.json({ accepted: true })
+    }
     if (pathname !== "/api/health") return new Response(null, { status: 404 })
     requests += 1
-    if (mode === "hanging") {
+    if (mode === "hanging" || mode === "hanging-graceful") {
       await appendFile(registration + ".requests", process.pid + "\n")
       return new Promise<Response>(() => {})
     }
