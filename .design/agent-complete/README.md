@@ -147,3 +147,46 @@ upstream — it composes with any accepted stack.
   is acceptable, but a guard could degrade to inert.
 - Keyboard path: is there a future where transcript rows (notices included)
   are keyboard-selectable, so Enter opens the child the way click does?
+
+# Implementation — 2026-08-18
+
+Implemented on `v2@origin` `02f3f3cb` as commit `e500506e`
+(`feat(tui): make subagent completion notices clickable`), bookmark
+`agent-complete`. The workspace's earlier docs commit was rebased off the
+unrelated service-reap ancestry first, so the feature line is exactly
+upstream + design + implementation.
+
+## What landed
+
+- `SessionNoticeMessageV2` keeps the message parsing (source/state/actor/
+  description/childID) and delegates the interactive completion branch to a
+  new exported `CompletionNoticeRow`, which takes `width` as a prop instead
+  of reading the session-local context — the extraction exists so the row is
+  renderable under just `RouteProvider` + `ConfigProvider` + `ThemeProvider`
+  in tests.
+- `CompletionNoticeRow` renders through `InlineToolRow` (design shape B): the
+  `↳`/`!` marker moves from the heading text into the icon column, aligning
+  completion notices with the launch row's geometry; suffix truncation
+  subtracts the icon column explicitly. Hover brightens the heading to
+  `theme.text.default` only when a `childID` is present; mouse-up ignores
+  active text selections and navigates `route.navigate({ type: "session",
+  sessionID: childID })`. `completed`, `error`, and `cancelled` all navigate;
+  shell notices (no `childID`) render identically but stay inert.
+- No core, protocol, or schema changes, as designed — core already persists
+  `metadata: { source: "subagent", childID, agent, state }`
+  (`packages/core/src/tool/plugin/subagent.ts:90`).
+
+## Verification
+
+- New `packages/tui/test/cli/tui/completion-notice.test.tsx` (3 tests, all
+  pass): click-to-navigate for `completed`; the same for `error` and
+  `cancelled`; inertness without a `childID`. Uses `testRender` +
+  `mockMouse.click` with a `RouteProbe` observing route changes, following
+  `session-tabs-mouse.test.tsx`'s harness.
+- `packages/tui/test/cli/tui/inline-tool-wrap-snapshot.test.tsx` still passes
+  (15 tests across both files), including the reminder-alignment snapshot.
+- `bun typecheck` clean from `packages/tui`; oxlint reports only the 30
+  pre-existing warnings in the touched files.
+- Not yet done: the interactive `bun run dev:live` pass with a real
+  background subagent. The mouse-path coverage is from the test harness, so
+  this remains the one manual check before promoting to `working`.
