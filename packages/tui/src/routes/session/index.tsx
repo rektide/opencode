@@ -120,7 +120,7 @@ const TRANSCRIPT_TAIL_ROWS = 40
 const TRANSCRIPT_BACKFILL_CHUNK = 60
 type PendingAction = "steer" | "queue" | "cancel"
 
-const context = createContext<{
+export const SessionContext = createContext<{
   width: number
   sessionID: string
   thinkingMode: () => ThinkingMode
@@ -135,7 +135,7 @@ const context = createContext<{
 }>()
 
 function use() {
-  const ctx = useContext(context)
+  const ctx = useContext(SessionContext)
   if (!ctx) throw new Error("useContext must be used within a Session component")
   return ctx
 }
@@ -1122,7 +1122,7 @@ export function Session(props: { verticalTabsWidth: number }) {
   )
 
   return (
-    <context.Provider
+    <SessionContext.Provider
       value={{
         get width() {
           return contentWidth()
@@ -1296,7 +1296,7 @@ export function Session(props: { verticalTabsWidth: number }) {
           </Switch>
         </Show>
       </box>
-    </context.Provider>
+    </SessionContext.Provider>
   )
 }
 
@@ -1872,13 +1872,17 @@ function SessionSwitchMessageV2(props: { message: SessionMessageInfo }) {
   )
 }
 
-function SessionNoticeMessageV2(props: { message: SessionMessageInfo }) {
+export function SessionNoticeMessageV2(props: { message: SessionMessageInfo }) {
   const ctx = use()
   const theme = useTheme()
+  const renderer = useRenderer()
+  const route = useRoute()
+  const [hover, setHover] = createSignal(false)
   const metadata = () => (props.message.type === "synthetic" ? props.message.metadata : undefined)
   const source = () => stringValue(metadata()?.source)
   const completion = () => source() === "subagent" || source() === "shell"
   const state = () => stringValue(metadata()?.state)
+  const childID = () => stringValue(metadata()?.childID)
   const actor = () => (source() === "shell" ? "Shell" : Locale.titlecase(stringValue(metadata()?.agent) ?? "Subagent"))
   const text = () => {
     if (props.message.type === "system") return props.message.description ?? "Instructions updated"
@@ -1886,6 +1890,23 @@ function SessionNoticeMessageV2(props: { message: SessionMessageInfo }) {
     return ""
   }
   const description = () => (source() === "shell" ? text().replace(/\s+/g, " ").trim() : text())
+  const status = () => {
+    if (state() === "completed") return "finished"
+    if (state() === "error") return "failed"
+    return state() ?? "finished"
+  }
+  const heading = () => `${actor()} ${status()}`
+  const suffix = () =>
+    Locale.truncateWidth(
+      ` · ${description()}`,
+      Math.max(0, ctx.width - 3 - INLINE_TOOL_ICON_WIDTH - stringWidth(heading())),
+    )
+  const color = () => {
+    if (state() === "error") return theme.text.feedback.error.default
+    if (state() === "cancelled") return theme.text.feedback.warning.default
+    return theme.text.feedback.info.default
+  }
+  const headingColor = () => (childID() && hover() ? theme.text.default : color())
   return (
     <Show
       when={completion()}
@@ -1895,62 +1916,24 @@ function SessionNoticeMessageV2(props: { message: SessionMessageInfo }) {
         </InlineToolRow>
       }
     >
-      <CompletionNoticeRow
-        width={ctx.width}
-        actor={actor()}
-        state={state()}
-        description={description()}
-        childID={stringValue(metadata()?.childID)}
-      />
+      <InlineToolRow
+        icon={state() === "completed" ? "↳" : "!"}
+        iconColor={headingColor()}
+        color={headingColor()}
+        pending="Notice"
+        complete={true}
+        onMouseOver={() => childID() && setHover(true)}
+        onMouseOut={() => setHover(false)}
+        onMouseUp={() => {
+          if (renderer.getSelection()?.getSelectedText()) return
+          const id = childID()
+          if (id) route.navigate({ type: "session", sessionID: id })
+        }}
+      >
+        <span style={{ fg: headingColor() }}>{heading()}</span>
+        <span style={{ fg: theme.text.subdued }}>{suffix()}</span>
+      </InlineToolRow>
     </Show>
-  )
-}
-
-export function CompletionNoticeRow(props: {
-  width: number
-  actor: string
-  state?: string
-  description: string
-  childID?: string
-}) {
-  const theme = useTheme()
-  const renderer = useRenderer()
-  const route = useRoute()
-  const [hover, setHover] = createSignal(false)
-  const status = () => {
-    if (props.state === "completed") return "finished"
-    if (props.state === "error") return "failed"
-    return props.state ?? "finished"
-  }
-  const heading = () => `${props.actor} ${status()}`
-  const suffix = () =>
-    Locale.truncateWidth(
-      ` · ${props.description}`,
-      Math.max(0, props.width - 3 - INLINE_TOOL_ICON_WIDTH - stringWidth(heading())),
-    )
-  const color = () => {
-    if (props.state === "error") return theme.text.feedback.error.default
-    if (props.state === "cancelled") return theme.text.feedback.warning.default
-    return theme.text.feedback.info.default
-  }
-  const headingColor = () => (props.childID && hover() ? theme.text.default : color())
-  return (
-    <InlineToolRow
-      icon={props.state === "completed" ? "↳" : "!"}
-      iconColor={headingColor()}
-      color={headingColor()}
-      pending="Notice"
-      complete={true}
-      onMouseOver={() => props.childID && setHover(true)}
-      onMouseOut={() => setHover(false)}
-      onMouseUp={() => {
-        if (renderer.getSelection()?.getSelectedText()) return
-        if (props.childID) route.navigate({ type: "session", sessionID: props.childID })
-      }}
-    >
-      <span style={{ fg: headingColor() }}>{heading()}</span>
-      <span style={{ fg: theme.text.subdued }}>{suffix()}</span>
-    </InlineToolRow>
   )
 }
 
