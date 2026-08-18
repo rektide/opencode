@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test"
 import { Agent } from "@opencode-ai/core/agent"
 import { Bus } from "@opencode-ai/core/bus"
+import { SubscriberRegistry } from "@opencode-ai/core/subscriber-registry"
+import { LayerNode } from "@opencode-ai/util/effect/layer-node"
 import { Event } from "@opencode-ai/schema/event"
-import { Deferred, Effect, Exit, Fiber, Option, Schema, Stream } from "effect"
+import { Context, Deferred, Effect, Exit, Fiber, Layer, Option, Schema, Stream } from "effect"
 import { it } from "../../core/test/lib/effect"
 import { EventFeed } from "../src/event-feed"
 
@@ -35,6 +37,16 @@ function makeSource() {
     publish: (event: Event.Payload) => Effect.suspend(() => (subscriber ? subscriber(event) : Effect.void)),
   }
 }
+
+const registryLayer = () =>
+  Effect.map(
+    Layer.build(
+      LayerNode.compile(LayerNode.group([SubscriberRegistry.configured()]), []) as unknown as Layer.Layer<
+        SubscriberRegistry.Service
+      >,
+    ),
+    (context) => Context.get(context, SubscriberRegistry.Service),
+  )
 
 describe("EventFeed", () => {
   test("preserves the public SSE frame encoding", () => {
@@ -148,6 +160,83 @@ describe("EventFeed", () => {
       if (Exit.isSuccess(exit)) return
       expect(Option.getOrUndefined(Exit.findErrorOption(exit))).toBeInstanceOf(EventFeed.EncodingError)
       expect(Array.from(yield* Fiber.join(received))).toEqual(["evt_good"])
+    }),
+  )
+
+  it.effect("mirrors SSE queues into the subscriber registry", () =>
+    Effect.gen(function* () {
+      const registry = yield* registryLayer()
+      const source = makeSource()
+      const feed = yield* EventFeed.make(source.observe, { registry, encode: (event) => event.type })
+
+      expect(yield* registry.count({ target: { namespace: "event", name: "public-feed" } })).toBe(1)
+      const bridge = yield* registry.snapshot(undefined, { kind: "listener" })
+      expect(bridge.subscribers[0]?.owner).toEqual({ type: "server", component: "event-feed-bridge" })
+
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          yield* feed.subscribe
+          expect(yield* feed.count).toBe(1)
+          expect(yield* registry.count({ kind: "stream", target: { namespace: "event", name: "public-feed" } })).toBe(1)
+          const linked = yield* registry.snapshot(undefined, { kind: "stream" })
+          expect(linked.subscribers[0]?.parentID).toBe(bridge.subscribers[0]?.id)
+          expect(linked.subscribers[0]?.owner).toEqual({ type: "client", client: "unknown" })
+          expect(linked.subscribers[0]?.delivery).toEqual({ type: "sse", capacity: 4096 })
+
+          const stream = yield* feed.subscribe
+          const consumed = yield* stream.pipe(
+            Stream.take(1),
+            Stream.runCollect,
+            Effect.forkScoped,
+          )
+          yield* source.publish(event("delivered"))
+          yield* Fiber.join(consumed)
+          const counted = yield* registry.snapshot(undefined, { kind: "stream" })
+          const activity = counted.subscribers.find((subscriber) => subscriber.activity.delivered > 0)?.activity
+          expect(activity?.delivered).toBe(1)
+        }),
+      )
+      expect(yield* feed.count).toBe(0)
+      expect(yield* registry.count({ kind: "stream" })).toBe(0)
+      expect(yield* registry.count({ kind: "listener" })).toBe(1)
+    }),
+  )
+
+  it.live("removes exactly the overflowing subscriber with an overflow reason", () =>
+    Effect.gen(function* () {
+      const registry = yield* registryLayer()
+      const source = makeSource()
+      const feed = yield* EventFeed.make(source.observe, {
+        registry,
+        capacity: 1,
+        encode: (event) => event.id,
+      })
+      const slow = yield* feed.subscribe
+      const changes: Array<string> = []
+      const watching = yield* registry
+        .watch(undefined, { kind: "stream" })
+        .pipe(
+          Stream.tap((change) =>
+            Effect.sync(() => {
+              if (change.type === "removed") changes.push(change.reason)
+            }),
+          ),
+          Stream.runDrain,
+          Effect.forkScoped,
+        )
+      yield* Effect.sleep(1)
+
+      yield* source.publish(event("one"))
+      yield* source.publish(event("two"))
+
+      const result = yield* slow.pipe(Stream.runCollect, Effect.exit)
+      expect(Exit.isFailure(result)).toBeTrue()
+      expect(yield* registry.count({ kind: "stream" })).toBe(0)
+      const removed = yield* registry.snapshot()
+      expect(removed.subscribers.filter((subscriber) => subscriber.kind === "stream").length).toBe(0)
+      yield* Effect.sleep(1)
+      yield* Fiber.interrupt(watching)
+      expect(changes[0]).toBe("overflow")
     }),
   )
 })

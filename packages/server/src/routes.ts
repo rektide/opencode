@@ -6,6 +6,7 @@ import { httpClient } from "@opencode-ai/util/effect/app-node-platform"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { Bus } from "@opencode-ai/core/bus"
 import { EventLogger } from "@opencode-ai/core/event-logger"
+import { SubscriberRegistry } from "@opencode-ai/core/subscriber-registry"
 import { FileSystemSearch } from "@opencode-ai/core/filesystem/search"
 import { Credential } from "@opencode-ai/core/credential"
 import { Config } from "@opencode-ai/core/config"
@@ -50,6 +51,7 @@ const applicationServiceNodes = [
   Database.node,
   Bus.node,
   EventLogger.node,
+  SubscriberRegistry.node,
   httpClient,
   Job.node,
   Project.node,
