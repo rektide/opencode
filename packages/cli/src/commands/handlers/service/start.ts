@@ -8,6 +8,7 @@ import { ServiceConfig } from "../../../services/service-config"
 export default Runtime.handler(
   Commands.commands.service.commands.start,
   Effect.fn("cli.service.start")(function* () {
+    yield* ServiceConfig.requireInternal("start")
     const transport = yield* Service.ensure(yield* ServiceConfig.options())
     process.stdout.write(transport.url + EOL)
   }),

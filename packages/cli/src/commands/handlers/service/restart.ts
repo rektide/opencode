@@ -8,6 +8,7 @@ import { ServiceConfig } from "../../../services/service-config"
 export default Runtime.handler(
   Commands.commands.service.commands.restart,
   Effect.fn("cli.service.restart")(function* () {
+    yield* ServiceConfig.requireInternal("restart")
     const options = yield* ServiceConfig.options()
     yield* Service.stop(options)
     const transport = yield* Service.ensure(options)
