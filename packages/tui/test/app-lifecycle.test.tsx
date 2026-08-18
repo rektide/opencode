@@ -26,7 +26,7 @@ test("SIGHUP clears title and disposes scoped resources once", async () => {
     const { run } = await import("../src/app")
     const task = Effect.runPromise(
       run({
-        app: { name: "test", version: "test", channel: "test" },
+        app: { name: "test", version: "test", channel: "test-lifecycle-signals" },
         server: { endpoint: { url: server.url.toString() } },
         config: { get: async () => ({}), update: async () => ({}) },
         packages: { resolve: async () => undefined },
@@ -102,7 +102,7 @@ test("session lifecycle updates the terminal title and prints the epilogue after
     const { run } = await import("../src/app")
     const task = Effect.runPromise(
       run({
-        app: { name: "test", version: "test", channel: "test" },
+        app: { name: "test", version: "test", channel: "test-lifecycle-epilogue" },
         server: { endpoint: { url: server.url.toString() } },
         config: { get: async () => ({}), update: async () => ({}) },
         packages: { resolve: async () => undefined },
@@ -161,8 +161,9 @@ test("session title generated while an untitled session is loading remains visib
     if (url.pathname === "/api/session") return json({ data: [], cursor: {} })
     if (url.pathname === "/api/session/dummy") {
       sessionRequests++
+      if (sessionRequests === 1) return json({ data: session })
       sessionRequested.resolve()
-      if (sessionRequests === 2) renameSyncRequested.resolve()
+      if (sessionRequests === 3) renameSyncRequested.resolve()
       await releaseSession.promise
       return json({ data: session })
     }
@@ -176,7 +177,7 @@ test("session title generated while an untitled session is loading remains visib
     const { run } = await import("../src/app")
     const task = Effect.runPromise(
       run({
-        app: { name: "test", version: "test", channel: "test" },
+        app: { name: "test", version: "test", channel: "test-lifecycle-title" },
         server: { endpoint: { url: server.url.toString() } },
         config: { get: async () => ({}), update: async () => ({}) },
         packages: { resolve: async () => undefined },
@@ -268,7 +269,7 @@ test("session startup prompt is submitted exactly once", async () => {
     const { run } = await import("../src/app")
     const task = Effect.runPromise(
       run({
-        app: { name: "test", version: "test", channel: "test" },
+        app: { name: "test", version: "test", channel: "test-lifecycle-prompt" },
         server: { endpoint: { url: server.url.toString() } },
         config: { get: async () => ({}), update: async () => ({}) },
         packages: { resolve: async () => undefined },
@@ -308,7 +309,7 @@ test("configured app bindings execute settings and permission commands", async (
     const { run } = await import("../src/app")
     const task = Effect.runPromise(
       run({
-        app: { name: "test", version: "test", channel: "test" },
+        app: { name: "test", version: "test", channel: "test-lifecycle-bindings" },
         server: { endpoint: { url: server.url.toString() } },
         config: {
           get: async () => ({
