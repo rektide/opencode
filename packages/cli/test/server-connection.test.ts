@@ -9,6 +9,42 @@ import path from "node:path"
 import { ServerConnection } from "../src/services/server-connection"
 import { ServiceConfig } from "../src/services/service-config"
 
+test("service patience env vars parameterize probe and eviction thresholds", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-patience-"))
+  const layer = Global.layerWith({ config: path.join(root, "config"), state: path.join(root, "state") })
+  const runPromise = <A, E>(effect: Effect.Effect<A, E, Global.Service | FileSystem.FileSystem | Scope.Scope>) =>
+    Effect.runPromise(effect.pipe(Effect.provide(layer), Effect.provide(NodeFileSystem.layer), Effect.scoped))
+  // These vars are real deployment knobs and may already be exported here;
+  // snapshot and restore instead of assuming a clean environment.
+  const names = ["OPENCODE_SERVICE_PROBE_TIMEOUT", "OPENCODE_SERVICE_EVICTION_STRIKES", "OPENCODE_SERVICE_KILL_GRACE"]
+  const saved = names.map((name) => process.env[name])
+
+  try {
+    for (const name of names) delete process.env[name]
+    const defaults = await runPromise(ServiceConfig.options())
+    expect(defaults.probeTimeoutSeconds).toBeUndefined()
+    expect(defaults.evictionStrikes).toBeUndefined()
+    expect(defaults.killGraceSeconds).toBeUndefined()
+
+    process.env["OPENCODE_SERVICE_PROBE_TIMEOUT"] = "3"
+    process.env["OPENCODE_SERVICE_EVICTION_STRIKES"] = "100"
+    process.env["OPENCODE_SERVICE_KILL_GRACE"] = "240"
+    const tuned = await runPromise(ServiceConfig.options())
+    expect(tuned.probeTimeoutSeconds).toBe(3)
+    expect(tuned.evictionStrikes).toBe(100)
+    expect(tuned.killGraceSeconds).toBe(240)
+
+    process.env["OPENCODE_SERVICE_EVICTION_STRIKES"] = "bogus"
+    expect((await runPromise(ServiceConfig.options())).evictionStrikes).toBeUndefined()
+  } finally {
+    names.forEach((name, index) => {
+      if (saved[index] === undefined) delete process.env[name]
+      else process.env[name] = saved[index]
+    })
+    await fs.rm(root, { recursive: true, force: true })
+  }
+})
+
 test("resolution groups Effect-native lifecycle operations only for the managed service", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-server-resolution-"))
   const id = "server-resolution-test"
