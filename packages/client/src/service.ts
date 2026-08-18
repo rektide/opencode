@@ -24,6 +24,16 @@ export type DiscoverOptions = {
 /** Reason ensuring the service requires a new process. */
 export type EnsureReason = "missing" | "version-mismatch"
 
+/** Contender process lifecycle event emitted while ensuring a service. */
+export type ContenderEvent =
+  | { readonly type: "spawned"; readonly pid: number | undefined }
+  | {
+      readonly type: "finished"
+      readonly pid: number | undefined
+      readonly elapsedMs: number
+      readonly outcome: "yielded" | "failed" | "error"
+    }
+
 /** Options used to ensure the local OpenCode service is running. */
 export type EnsureOptions = DiscoverOptions & {
   /** Service command and arguments. Defaults to `opencode serve --service`. */
@@ -32,6 +42,8 @@ export type EnsureOptions = DiscoverOptions & {
   readonly env?: Readonly<Record<string, string>>
   /** Called once before spawning a new service process. */
   readonly onStart?: (reason: EnsureReason, previousVersion?: string) => void
+  /** Called for each contender spawn and exit, with elapsed time on exit. */
+  readonly onContender?: (event: ContenderEvent) => void
 }
 
 /** Options used to stop the local OpenCode service. */
