@@ -236,6 +236,20 @@ test("replacing a managed service registration stops its owner and preserves the
   }
 }, 30_000)
 
+test("a stalled managed service shutdown is forced out at the deadline", async () => {
+  const service = await startManagedService("opencode-service-stall-", false, { OPENCODE_TEST_SHUTDOWN_STALL: "1" })
+  const foreign = { ...service.info, id: "foreign-owner", pid: process.pid }
+  try {
+    await fs.writeFile(service.registration, JSON.stringify(foreign))
+    expect(await waitForExit(service.owner, 30_000)).toBe(true)
+    expect(service.owner.exitCode).toBe(1)
+    expect(await Bun.file(service.registration).json()).toEqual(foreign)
+    await expectPortAvailable(service.port)
+  } finally {
+    await stopManagedService(service)
+  }
+}, 60_000)
+
 test("clean managed service shutdown removes its registration", async () => {
   const service = await startManagedService("opencode-service-clean-")
   try {
@@ -594,7 +608,7 @@ function serviceEnv(root: string) {
   }
 }
 
-async function startManagedService(prefix: string, failBoot = false) {
+async function startManagedService(prefix: string, failBoot = false, extraEnv: Record<string, string> = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), prefix))
   const port = await availablePort()
   const registration = path.join(root, "state", "opencode", "service-local.json")
@@ -602,7 +616,11 @@ async function startManagedService(prefix: string, failBoot = false) {
   if (failBoot) await fs.mkdir(path.join(root, "database"))
   await fs.writeFile(path.join(root, "config", "opencode", "service-local.json"), JSON.stringify({ port }))
   const owner = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/index.ts"), "serve", "--service"], {
-    env: failBoot ? { ...serviceEnv(root), OPENCODE_DB: path.join(root, "database") } : serviceEnv(root),
+    env: {
+      ...serviceEnv(root),
+      ...extraEnv,
+      ...(failBoot ? { OPENCODE_DB: path.join(root, "database") } : {}),
+    },
     stderr: "pipe",
     stdout: "ignore",
   })

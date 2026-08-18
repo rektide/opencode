@@ -42,6 +42,7 @@ export const run = Effect.fnUntraced(function* (options: Options) {
 const processEffect = Effect.fnUntraced(function* (options: Options) {
   const global = yield* Global.Service
   if (options.mode === "service") yield* Effect.sync(() => process.chdir(global.home))
+  const shutdownDeadline = options.mode === "service" ? yield* makeShutdownDeadline() : undefined
   return yield* Effect.scoped(
     Effect.gen(function* () {
       const foreground = options.mode === "default"
@@ -149,12 +150,49 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
       const updater = yield* Updater.Service
       yield* updater.check().pipe(Effect.schedule(Schedule.spaced("10 minutes")), Effect.forkScoped)
       return yield* options.mode === "service"
-        ? server.shutdown
+        ? server.shutdown.pipe(
+            Effect.tap(() => Effect.sync(() => shutdownDeadline?.arm("service shutdown requested"))),
+            // Test hook: stalls after shutdown is requested so the forced-exit deadline is observable.
+            Effect.andThen(() => (truthy(process.env.OPENCODE_TEST_SHUTDOWN_STALL) ? Effect.never : Effect.void)),
+          )
         : options.mode === "stdio"
           ? waitForStdinClose()
           : Effect.never
-    }).pipe(Effect.annotateLogs({ role: "server" })),
+    }).pipe(
+      Effect.onInterrupt(() => Effect.sync(() => shutdownDeadline?.arm("server interrupted"))),
+      Effect.annotateLogs({ role: "server" }),
+    ),
   )
+})
+
+const shutdownDeadlineMs = 10_000
+
+// A managed service must exit once shutdown has been requested, even when a
+// teardown finalizer never completes; otherwise displacement strands a process
+// that holds neither port nor registration. Finalizers keep the fiber until the
+// deadline, then the process exits.
+const makeShutdownDeadline = Effect.fnUntraced(function* () {
+  const runFork = Effect.runForkWith(yield* Effect.context<never>())
+  let armed = false
+  const arm = (reason: string) => {
+    if (armed) return
+    armed = true
+    const timer = setTimeout(() => {
+      runFork(
+        Effect.logError("shutdown deadline exceeded; forcing exit", {
+          reason,
+          pid: process.pid,
+          deadlineMs: shutdownDeadlineMs,
+        }),
+      )
+      setTimeout(() => process.exit(1), 250)
+    }, shutdownDeadlineMs)
+    timer.unref()
+  }
+  const onSignal = (signal: NodeJS.Signals) => arm(signal)
+  process.once("SIGTERM", onSignal)
+  process.once("SIGINT", onSignal)
+  return { arm }
 })
 
 const infoJson = Schema.fromJsonString(Service.Info)
