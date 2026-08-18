@@ -48,10 +48,10 @@ test("fails when any explicitly named session is unknown", async () => {
   expect(resolveStartupSessions(api, ["known", "missing"])).rejects.toThrow()
 })
 
-test("requires tabs for repeated startup sessions", () => {
+test("requires tabs for multiple normalized startup sessions", () => {
   expect(() => assertStartupSessionTabs(false, ["one"])).not.toThrow()
   expect(() => assertStartupSessionTabs(true, ["one", "two"])).not.toThrow()
-  expect(() => assertStartupSessionTabs(false, ["one", "one"])).toThrow(
+  expect(() => assertStartupSessionTabs(false, ["one", "two"])).toThrow(
     "Multiple --session values require tabs to be enabled",
   )
 })
