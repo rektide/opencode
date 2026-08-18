@@ -5,15 +5,16 @@ import { OpenCode } from "@opencode-ai/client/promise"
 import { renderUnicodeCompact } from "uqr"
 import { Commands } from "../commands"
 import { Runtime } from "../../framework/runtime"
+import { ServerConnection } from "../../services/server-connection"
 import { ServiceConfig } from "../../services/service-config"
 
 export default Runtime.handler(
   Commands.commands.pair,
   Effect.fn("cli.pair")(function* () {
-    const endpoint = yield* Service.ensure(yield* ServiceConfig.options())
+    const endpoint = yield* ServerConnection.resolve({})
     const password = yield* ServiceConfig.password()
     const server = yield* Effect.tryPromise(() =>
-      OpenCode.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) }).server.get(),
+      OpenCode.make({ baseUrl: endpoint.endpoint.url, headers: Service.headers(endpoint.endpoint) }).server.get(),
     )
     const info = { urls: server.urls, username: "opencode", password }
     process.stdout.write(
@@ -34,7 +35,7 @@ export default Runtime.handler(
       ].join(EOL) + EOL,
     )
 
-    const hostname = new URL(endpoint.url).hostname
+    const hostname = new URL(endpoint.endpoint.url).hostname
     if (!["localhost", "127.0.0.1", "[::1]"].includes(hostname)) return
     process.stderr.write(`  Run \`opencode service set hostname 0.0.0.0\` to access the service remotely.${EOL}${EOL}`)
   }),
