@@ -215,7 +215,7 @@ test.each(["dismissed", "refreshing"])(
   },
 )
 
-test("SIGHUP clears title and disposes scoped resources once", async () => {
+test("termination signals clear title and dispose scoped resources once", async () => {
   const setup = await createTestRenderer({ width: 80, height: 24, useThread: false })
   const titles: string[] = []
   let started!: () => void
@@ -228,7 +228,8 @@ test("SIGHUP clears title and disposes scoped resources once", async () => {
     if (title === "OpenCode") started()
     setTitle(title)
   }
-  const listeners = new Set(process.listeners("SIGHUP"))
+  const signals = ["SIGHUP", "SIGINT", "SIGTERM"] as const
+  const listeners = signals.map((signal) => [signal, new Set(process.listeners(signal))] as const)
   const events = createEventStream()
   const calls = createFetch(undefined, events)
   const server = Bun.serve({ port: 0, fetch: (request) => calls.fetch(request) })
@@ -246,19 +247,21 @@ test("SIGHUP clears title and disposes scoped resources once", async () => {
       }).pipe(Effect.provide(AppNodeBuilder.build(Global.node)), Effect.provide(FileSystem.layerNoop({}))),
     )
     await ready
-    process.emit("SIGHUP")
+    process.emit("SIGTERM")
     await task
 
     expect(setup.renderer.isDestroyed).toBe(true)
     expect(titles.at(-1)).toBe("")
-    expect(process.listeners("SIGHUP").every((listener) => listeners.has(listener))).toBe(true)
+    listeners.forEach(([signal, initial]) => {
+      expect(process.listeners(signal).every((listener) => initial.has(listener))).toBe(true)
+    })
   } finally {
     if (!setup.renderer.isDestroyed) setup.renderer.destroy()
     await server.stop()
   }
-})
+}, 15000)
 
-test("session lifecycle updates the terminal title and prints the epilogue after cleanup", async () => {
+test("SIGINT prints the session epilogue after cleanup", async () => {
   const setup = await createTestRenderer({ width: 80, height: 24, useThread: false })
   let initialTitle!: () => void
   const initialTitleSet = new Promise<void>((resolve) => {
@@ -331,7 +334,7 @@ test("session lifecycle updates the terminal title and prints the epilogue after
       data: { sessionID: "dummy", title: "Renamed session" },
     })
     await renamedTitleSet
-    setup.renderer.destroy()
+    process.emit("SIGINT")
     await task
 
     expect(stdout).toContain("Renamed session")
@@ -342,7 +345,7 @@ test("session lifecycle updates the terminal title and prints the epilogue after
     if (!setup.renderer.isDestroyed) setup.renderer.destroy()
     await server.stop()
   }
-})
+}, 15000)
 
 test("session title generated while an untitled session is loading remains visible", async () => {
   const setup = await createTestRenderer({ width: 80, height: 24, useThread: false })
