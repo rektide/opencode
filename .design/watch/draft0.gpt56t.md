@@ -21,6 +21,8 @@ sources:
     resource: https://facebook.github.io/watchman/docs/cmd/subscribe
   - id: session-presence
     resource: /home/rektide/a/doc/opencode/sessions.md
+  - id: esm-fork
+    resource: /home/rektide/src/watchman-esm/watchman/node
 ---
 
 # OpenCode V2 filesystem watch registry
@@ -34,7 +36,7 @@ The registry has two ownership tiers:
 1. **Location watch registries** own logical interests for Config, Skill, PluginSupervisor, and LocationWatcher. They reconcile changing watch sets and retain leases according to Location activity.
 2. A **process-global watch broker** owns backend connections and physical subscriptions. It deduplicates compatible subscriptions across Locations and retains them briefly after the final logical lease disappears.
 
-The Watchman backend uses a small native ESM TypeScript client over Watchman's documented newline-delimited JSON socket protocol. It does not depend on `fb-watchman`, BSER, or CommonJS.
+The Watchman backend uses [`@superbfowle/fb-watchman-esm`](/home/rektide/src/watchman-esm/watchman/node) — an ESM-only fork of the official Watchman node client (v3.0.0, unpublished at time of writing) — behind a narrow Effect adapter. No CommonJS, no `node-int64`; BSER framing via `@superbfowle/bser-esm` (BigInt-based).
 
 Project-local paths use `watch-project` and `relative_root`. Global and home-scoped paths use bounded exact watches unless an already-existing covering root can be adopted safely. Normal teardown sends `unsubscribe`, never `watch-del`, because Watchman roots are daemon-global and may be shared with editors and other tools.
 
@@ -169,7 +171,7 @@ flowchart TB
       Broker[WatchBroker]
       Routes[Route registry]
       Physical[Physical subscription RcMap]
-      Json[Watchman JSON client]
+      Json[fb-watchman-esm adapter]
       Fallback[Parcel / node fallback]
       Broker --> Routes
       Broker --> Physical
@@ -457,45 +459,31 @@ See [`sessions.md`](/home/rektide/a/doc/opencode/sessions.md) for the future pre
 
 ## Watchman transport
 
-### Native ESM TypeScript JSON client
+### Primary transport: the ESM fork
 
-Watchman's documented socket protocol accepts either JSON or BSER. JSON requests are compact one-line arrays terminated by `\n`; JSON responses are one-line objects terminated by `\n`. The server detects the request encoding and responds in the same encoding.
+The transport is [`@superbfowle/fb-watchman-esm`](/home/rektide/src/watchman-esm/watchman/node) 3.0.0, the user's ESM-only fork of the official `facebook/watchman` node client:
 
-Implement the V2 client directly with:
+- ESM-only (`"type": "module"`, `export {Client}`), Node >= 20.19;
+- BSER framing via `@superbfowle/bser-esm`, which replaces the abandoned `node-int64` with `BigInt`;
+- keeps the callback/EventEmitter `Client` API (command FIFO, unilateral `subscription`/`log` events, `WATCHMAN_SOCK` + `get-sockname` discovery, `capabilityCheck`).
 
-- `Bun.spawn(["watchman", "--no-pretty", "get-sockname"])` for discovery when `WATCHMAN_SOCK` is absent;
-- `node:net` for the Unix socket;
-- compact `JSON.stringify(command) + "\n"` writes;
-- an incremental UTF-8 line buffer;
-- one ordered in-flight command queue;
-- separate routing for unilateral `subscription` and `log` objects;
+Not yet published to npm. Until it is, depend on it via git/file dependency and pin the commit; swap to the registry version on publish. Publishing is a prerequisite for flipping the watcher default, not for opt-in dogfood.
+
+Because the fork retains the callback API, it still needs the same narrow Effect adapter as originally designed — that boundary work was never wasted:
+
+- one client per connection generation;
+- `error`/`end`/`connect`/`subscription`/`log` listeners installed before any command;
+- callbacks wrapped in interruptible, timed Effects;
 - Effect Schema decoders for every command response and PDU;
-- scoped socket/listener cleanup;
-- typed timeouts, interruption, and connection errors.
+- adapter replaces a dead client instead of trusting implicit reconnect;
+- listeners removed and client ended in a finalizer;
+- the registry, not the transport, owns route/subscription restoration.
 
-No CommonJS, BSER, `bser`, or `fb-watchman` runtime dependency is required.
+### JSON protocol: verified fallback
 
-This path was verified live under Bun 1.3.14 against Watchman `20260708.093114.0`:
+Watchman's socket protocol also accepts newline-delimited JSON in both directions (documented in [socket-interface](https://facebook.github.io/watchman/docs/socket-interface); the server auto-detects request encoding, verified in `PDU.cpp`). A live Bun prototype (`~/tmp-opencode/watchman-json-test/test.ts`) confirmed discovery, `watch-project`, `clock`, `subscribe` with `relative_root`, unilateral events, and `unsubscribe` all work over plain JSON with zero dependencies.
 
-- socket discovery;
-- JSON `version`;
-- nested `watch-project` returning a VCS root and `relative_path`;
-- `clock`;
-- `subscribe` with `relative_root`;
-- unilateral JSON event delivery;
-- `unsubscribe`.
-
-### JSON performance posture
-
-JSON is acceptable initially because:
-
-- the socket is local;
-- subscriptions are narrowly rooted and expression-filtered;
-- normal traffic is incremental;
-- `empty_on_fresh_instance` avoids full-tree snapshots;
-- correctness and clean ownership matter more than speculative framing savings.
-
-Measure decode time and payload bytes during dogfood. If framing becomes material, add a native ESM BSER codec or upstream a modern Watchman client. Do not introduce a CJS dependency preemptively.
+This stays in the design as a documented escape hatch: if the fork path is ever blocked (unpublishable, unmaintained, or protocol-divergent), the JSON client is a small, verified, dependency-free alternative. It is not the primary path.
 
 ### Command behavior
 
@@ -666,7 +654,7 @@ packages/core/src/filesystem/
     retention.ts                     neutral hint/pin interface
     backend.ts                       backend-neutral contracts
     watchman/
-      client.ts                      native ESM TypeScript JSON socket client
+      client.ts                      Effect adapter over @superbfowle/fb-watchman-esm
       schema.ts                      command/PDU Effect Schemas
       route.ts                       project/exact route resolution
       backend.ts                     subscribe, cursor, reconnect state machine
@@ -741,9 +729,9 @@ One startup log line records backend choice. State transitions log only when cha
 - reconnect compatibility and conservative invalidation.
 - backend identity preventing cross-workspace path collisions.
 
-### JSON client tests
+### Transport adapter tests
 
-Use a fake newline-delimited JSON socket server to cover:
+Inject a fake client (or a fake BSER socket server for the fork transport) to cover:
 
 - fragmented/multiple PDUs per chunk;
 - unilateral PDU interleaving with command responses;
@@ -786,10 +774,10 @@ Gate on a reachable daemon:
 - Add static physical retention using the existing `RcMap` and TestClock coverage.
 - Measure churn reduction on Parcel before Watchman changes.
 
-### 2. Native JSON transport
+### 2. Transport
 
-- Implement ESM TypeScript discovery/socket/command/PDU client.
-- Add fake-server and gated live tests.
+- Publish or pin `@superbfowle/fb-watchman-esm` (git/file dependency until published).
+- Implement the Effect adapter, schemas, and fake-socket + gated live tests.
 - No consumer changes.
 
 ### 3. Opt-in Watchman backend
@@ -859,7 +847,7 @@ This document is standalone; this section records how its decisions were obtaine
 | [`watchman/draft0.glm52.md`](/.design/watchman/draft0.glm52.md) | Initial watcher inventory, Native seam, Parcel backend discovery, opt-in posture. | Initial `watch-del` ownership, event vocabulary, and fresh-instance handling were corrected by source review and live tests. |
 | [`watch/init0.glm52.md`](/.design/watch/init0.glm52.md) | Explicit live/releasing/purged lifecycle, short/long activity policy, TestClock emphasis, conservative unknown-client handling. | Client-side `watch-list` as primary project router, normal `watch-del`, immediate Location teardown assumptions, and one-Location-per-server claim were rejected. |
 | [`watchman/init0.glm52.md`](/.design/watchman/init0.glm52.md) | Live protocol observations, broad-home-root warning, context lease framing, Bun/CJS packaging discovery, expression edge cases. | Post-`watch-project` broad-root rejection is too late; root ownership and `watch-del`, immediate unsubscribe during grace, fresh-result dropping, and `created/updated/deleted` vocabulary were rejected. |
-| [`watch/init0.gpt56t.md`](/.design/watch/init0.gpt56t.md) | Two-tier Effect ownership, route Deferreds, WatchSets, retained physical subscription, reconnect continuity, local matcher, diagnostics, staged rollout. | Universal `watch-project` routing was narrowed with explicit project/exact intent. The `fb-watchman` runtime dependency was replaced with native ESM JSON transport. |
+| [`watch/init0.gpt56t.md`](/.design/watch/init0.gpt56t.md) | Two-tier Effect ownership, route Deferreds, WatchSets, retained physical subscription, reconnect continuity, local matcher, diagnostics, staged rollout. | Universal `watch-project` routing was narrowed with explicit project/exact intent. The transport was later revised to the user's `@superbfowle/fb-watchman-esm` fork once it existed. |
 
 ### Implementation sources
 
@@ -874,13 +862,14 @@ This document is standalone; this section records how its decisions were obtaine
 | [Watchman `subscribe`](https://facebook.github.io/watchman/docs/cmd/subscribe) | Connection-scoped subscriptions, `since` cursors, settling behavior. |
 | Watchman server `PDU.cpp` | Verified automatic JSON vs BSER request detection. |
 | Parcel 2.5.1 Watchman backend source | Exact-root behavior, error/recovery limitations, current event mapping. |
-| `fb-watchman` source | Reference command queue and unilateral-response handling only; no runtime dependency. |
-| Live Bun JSON prototype (`~/tmp-opencode/watchman-json-test/test.ts`) | Verified native ESM-compatible JSON discovery, routing, subscription, event, and unsubscribe path. |
+| JSON socket protocol (`socket-interface` docs, `PDU.cpp`, live prototype) | Verified newline-JSON framing as the zero-dependency fallback path and protocol semantics cross-check. |
+| `fb-watchman` source | Reference for command queue and unilateral-response handling that the fork preserves. |
+| Live Bun JSON prototype (`~/tmp-opencode/watchman-json-test/test.ts`) | Verified JSON discovery, routing, subscription, event, and unsubscribe as the fallback transport option. |
 | [`sessions.md`](/home/rektide/a/doc/opencode/sessions.md) | Separation of execution activity, client attachment, per-session presence, and close intent. |
 
 ### Material changes from init0
 
-- The runtime client is native ESM TypeScript over JSON, not `fb-watchman`/BSER/CJS.
+- The runtime transport is the user's ESM fork `@superbfowle/fb-watchman-esm` (unpublished; pin via git/file until on npm), with the verified JSON-protocol client retained as a documented fallback.
 - Routing intent distinguishes project consolidation from bounded global/home watches.
 - `watch-list` is limited to optional exact-root adoption, never primary project routing.
 - Dynamic retention is a Location logical concern; the broker's TTL remains static and small.
