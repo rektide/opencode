@@ -148,14 +148,18 @@ async function probe(info: Info, allowLegacy = false): Promise<LocalService | un
   return (await probeResult(info, allowLegacy)).service
 }
 
-async function probeResult(info: Info, allowLegacy = false, timeout = defaultEnsureTiming.requestTimeout) {
-  const endpoint = {
+function endpointOf(info: Info): Endpoint {
+  return {
     url: info.url,
     auth:
       info.password === undefined
         ? undefined
         : { type: "basic" as const, username: "opencode", password: info.password },
-  } satisfies Endpoint
+  }
+}
+
+async function probeResult(info: Info, allowLegacy = false, timeout = defaultEnsureTiming.requestTimeout) {
+  const endpoint = endpointOf(info)
   const signal = AbortSignal.timeout(timeout)
   const result = await fetch(new URL("/api/health", info.url), {
     headers: headers(endpoint),
@@ -229,7 +233,11 @@ function same(left: Info, right: Info) {
 async function terminate(info: Info, options: { readonly file?: string }, timing: EnsureTiming) {
   const current = await read(options.file)
   if (current === undefined || !same(current, info)) return
-  signal(info.pid, "SIGTERM")
+  // Prefer an authenticated graceful stop so active sessions suspend before
+  // any signal escalation.
+  const requested = await requestStop({ info, endpoint: endpointOf(info) }, timing.requestTimeout)
+  if (requested === "rejected") return
+  if (requested === "unsupported") signal(info.pid, "SIGTERM")
   if (!(await waitUntilStopped(info.pid, timing))) {
     const latest = await read(options.file)
     if (latest === undefined || !same(latest, info)) return
@@ -239,6 +247,23 @@ async function terminate(info: Info, options: { readonly file?: string }, timing
   const latest = await read(options.file)
   if (latest === undefined || !same(latest, info)) return
   await rm(options.file ?? fallback(), { force: true })
+}
+
+async function requestStop(
+  service: { readonly info: Info; readonly endpoint: Endpoint; readonly legacy?: boolean },
+  timeout = defaultEnsureTiming.requestTimeout,
+) {
+  if (service.info.id === undefined || service.legacy === true) return "unsupported" as const
+  const response = await fetch(new URL("/api/service/stop", service.info.url), {
+    method: "POST",
+    headers: { ...headers(service.endpoint), "content-type": "application/json" },
+    body: JSON.stringify({ instanceID: service.info.id }),
+    signal: AbortSignal.timeout(timeout),
+  }).catch(() => undefined)
+  if (response === undefined || response.status === 404 || response.status === 405) return "unsupported" as const
+  const body = (await response.json().catch(() => undefined)) as { accepted?: boolean } | undefined
+  if (!response.ok || body?.accepted !== true) return "rejected" as const
+  return "accepted" as const
 }
 
 function delay(milliseconds: number) {
