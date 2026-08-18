@@ -4,7 +4,7 @@ import { Effect } from "effect"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Service, type EnsureReason } from "../src/effect/service"
+import { Service, type ContenderEvent, type EnsureReason } from "../src/effect/service"
 import { accelerate, waitForExit } from "./fixture/service-timing"
 
 const fixture = join(import.meta.dir, "fixture/service.ts")
@@ -334,6 +334,36 @@ test("replaces an incompatible owner that appears during startup", async () => {
     await waitForExit(info.pid)
   }
 })
+
+test("reports contender outcomes with elapsed time", async () => {
+  const directory = await temp()
+  const registration = join(directory, "service.json")
+  const events: ContenderEvent[] = []
+  const endpoint = await run(
+    ensure({
+      file: registration,
+      version: "test",
+      command: [process.execPath, fixture, registration, "coordinated"],
+      onContender: (event) => events.push(event),
+    }),
+  )
+  const info = await Bun.file(registration).json()
+  try {
+    expect(endpoint.url).toBe(info.url)
+    // The losing contender yields shortly after the winner registers, which
+    // can land after ensure itself resolves.
+    for (let attempt = 0; attempt < 500 && !events.some((event) => event.type === "finished"); attempt++)
+      await Bun.sleep(10)
+    expect(events.filter((event) => event.type === "spawned")).toHaveLength(2)
+    const finished = events.filter((event) => event.type === "finished")
+    expect(finished).toHaveLength(1)
+    expect(finished[0]).toMatchObject({ type: "finished", outcome: "yielded" })
+    expect(finished[0].elapsedMs).toBeGreaterThan(0)
+  } finally {
+    process.kill(info.pid, "SIGTERM")
+    await waitForExit(info.pid)
+  }
+}, 15_000)
 
 function run<A, E>(effect: Effect.Effect<A, E>) {
   return Effect.runPromise(effect.pipe(Effect.provide(NodeFileSystem.layer)))

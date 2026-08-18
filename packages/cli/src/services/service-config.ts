@@ -1,7 +1,7 @@
 import { Global } from "@opencode-ai/util/global"
 import { OPENCODE_CHANNEL, OPENCODE_VERSION } from "../version"
 import { Hash } from "@opencode-ai/util/hash"
-import { Service } from "@opencode-ai/client/effect/service"
+import { Service, type ContenderEvent } from "@opencode-ai/client/effect/service"
 import { Effect, FileSystem, Option, Schema } from "effect"
 import { randomBytes } from "crypto"
 import path from "path"
@@ -113,6 +113,14 @@ export const options = Effect.fnUntraced(function* (input: { readonly checkVersi
       "--service",
       ...(process.env.OPENCODE_CPU_PROFILE ? ["--cpu-profile", process.env.OPENCODE_CPU_PROFILE] : []),
     ],
+    // Contender startup time is otherwise invisible: contenders run detached
+    // with ignored stdio, so the spawning client is the only observer.
+    onContender: (event: ContenderEvent) => {
+      if (event.type !== "finished") return
+      process.stderr.write(
+        `opencode: service contender ${event.pid} ${event.outcome} after ${Math.round(event.elapsedMs)}ms\n`,
+      )
+    },
   }
 })
 
