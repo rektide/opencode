@@ -5,6 +5,7 @@ import type { DiscoverOptions, Endpoint, Info, EnsureOptions, StopOptions } from
 import {
   contenderFailure,
   contenderFinished,
+  contenderOutcome,
   type ServiceContender,
   spawnServiceContender,
 } from "../service-contender.js"
@@ -57,6 +58,18 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
   try {
     while (true) {
       if (Date.now() >= deadline) throw new Error("Timed out waiting for the background service to start")
+      // Observe contender exits every iteration: a loser that yields after the
+      // winner registers must still be reported before the loop resolves.
+      const finished = [...contenders].filter(contenderFinished)
+      finished.forEach((item) => {
+        options.onContender?.({
+          type: "finished",
+          pid: item.child.pid,
+          elapsedMs: Date.now() - item.at,
+          outcome: contenderOutcome(item),
+        })
+        contenders.delete(item)
+      })
       const registration = await registered(options.file, true, timing.requestTimeout)
       if (registration.timedOut && registration.info !== undefined) {
         timeouts = {
@@ -96,19 +109,19 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
         }
       } else {
         if (lastSpawn === 0 && registration.info !== undefined) lastSpawn = Date.now()
-        const finished = [...contenders].filter(contenderFinished)
         const failure = finished.map(contenderFailure).find((error) => error !== undefined)
         if (finished.some((item) => item.child.exitCode === 0)) {
           spawnDelay = Math.min(spawnDelay * 2, timing.maxSpawnDelay)
         }
-        finished.forEach((item) => contenders.delete(item))
         if (failure !== undefined && contenders.size === 0) throw failure
         // Keep one candidate plus one lock probe so a pre-lock stall cannot block
         // recovery. A merely unresponsive incumbent is left alone: strikes
         // accumulate toward eviction instead of racing a replacement for its port.
         if (contenders.size < 2 && !registration.timedOut && Date.now() - lastSpawn >= spawnDelay) {
           announce("missing")
-          contenders.add(await spawnContender())
+          const contender = await spawnContender()
+          contenders.add(contender)
+          options.onContender?.({ type: "spawned", pid: contender.child.pid })
           lastSpawn = Date.now()
         }
       }
