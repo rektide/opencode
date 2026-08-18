@@ -17,6 +17,12 @@ test("validates mini replay settings", () => {
   expect(() => decodeInfo({ mini: { replay_limit: 1.5 } })).toThrow()
 })
 
+test("validates animation frame rates", () => {
+  expect(decodeInfo({ animations: true })).toEqual({ animations: true })
+  expect(decodeInfo({ animations: 3 })).toEqual({ animations: 3 })
+  expect(() => decodeInfo({ animations: 0 })).toThrow()
+})
+
 test("validates the session tabs setting", () => {
   const decode = Schema.decodeUnknownSync(Info)
 
