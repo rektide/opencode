@@ -65,6 +65,7 @@ export const Plugin = {
               const sessions = (yield* runtime.session.list({ parentID: context.sessionID })).data.filter(
                 (session) => session.fork === undefined,
               )
+              const active = yield* runtime.session.active
               return yield* Effect.forEach(sessions, (session) =>
                 Effect.gen(function* () {
                   const messages = yield* runtime.session.messages({ sessionID: session.id, order: "asc" })
@@ -122,7 +123,9 @@ export const Plugin = {
                     createdAt: DateTime.toEpochMillis(session.time.created),
                     updatedAt: DateTime.toEpochMillis(session.time.updated),
                     prompts,
-                    ...(job
+                    ...(active.has(session.id)
+                      ? { status: "running" as const }
+                      : job
                       ? {
                           status: job.status,
                           ...(job.status === "error" && job.error ? { error: job.error } : {}),
