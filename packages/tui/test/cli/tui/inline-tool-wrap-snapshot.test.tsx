@@ -180,7 +180,9 @@ describe("TUI inline tool wrapping", () => {
         movePath: undefined,
       },
     ])
-    expect(parseQuestions([{}, { question: 1 }, { question: "Continue?" }])).toEqual([{ question: "Continue?" }])
+    expect(parseQuestions([{}, { question: 1 }, { question: "Continue?" }])).toEqual([
+      { question: "Continue?", options: [] },
+    ])
     expect(parseQuestionAnswers([null, ["yes", 1], "no"])).toEqual([[], ["yes"], []])
     expect(parseQuestionAnswers({})).toBeUndefined()
   })
