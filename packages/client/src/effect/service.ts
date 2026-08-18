@@ -36,14 +36,15 @@ export const incumbent = Effect.fn("service.incumbent")(function* (
   options: DiscoverOptions & { readonly url: string },
 ) {
   const info = yield* read(options.file)
-  const found = info === undefined ? undefined : yield* probe({ ...info, url: options.url })
+  const found =
+    info === undefined ? undefined : yield* probe({ ...info, url: options.url }, false, ensureTiming(options).requestTimeout)
   if (found === undefined || found.legacy) return undefined
   if (!matchesVersion(found.version, options)) return undefined
   return { endpoint: found.endpoint, state: found.state }
 })
 
 const discoverLocal = Effect.fnUntraced(function* (options: DiscoverOptions) {
-  const found = (yield* registered(options.file)).service
+  const found = (yield* registered(options.file, false, ensureTiming(options).requestTimeout)).service
   if (found?.state !== "ready") return undefined
   if (!matchesVersion(found.version, options)) return undefined
   return found
@@ -85,7 +86,7 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
         info,
         count: timeouts !== undefined && same(timeouts.info, info) ? timeouts.count + 1 : 1,
       }
-      if (timeouts.count >= 3) {
+      if (timeouts.count >= timing.evictionStrikes) {
         yield* announce("missing")
         yield* terminate(info, options, timing)
         timeouts = undefined
@@ -134,7 +135,7 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
 /** Stop the registered local service. */
 export const stop = Effect.fn("service.stop")(function* (options: StopOptions = {}) {
   const info = yield* read(options.file)
-  if (info !== undefined) yield* terminate(info, options, defaultEnsureTiming)
+  if (info !== undefined) yield* terminate(info, options, ensureTiming(options))
 })
 
 function fallback() {
@@ -178,8 +179,8 @@ type LocalService = {
   readonly legacy: boolean
 }
 
-const probe = Effect.fnUntraced(function* (info: Info, allowLegacy = false) {
-  return (yield* probeResult(info, allowLegacy)).service
+const probe = Effect.fnUntraced(function* (info: Info, allowLegacy = false, timeout?: number) {
+  return (yield* probeResult(info, allowLegacy, timeout)).service
 })
 
 const probeResult = Effect.fnUntraced(function* (
