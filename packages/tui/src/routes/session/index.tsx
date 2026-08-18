@@ -3897,7 +3897,7 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
   return isRecord(value) ? value : undefined
 }
 
-function formatSessionTranscript(session: SessionInfo, messages: SessionMessageInfo[], thinking: boolean) {
+export function formatSessionTranscript(session: SessionInfo, messages: SessionMessageInfo[], thinking: boolean) {
   const body = messages.flatMap((message) => {
     if (message.type === "user") return [`## User\n\n${message.text}`]
     if (message.type === "shell")
@@ -3906,6 +3906,10 @@ function formatSessionTranscript(session: SessionInfo, messages: SessionMessageI
     const content = message.content.flatMap((item) => {
       if (item.type === "text") return [item.text]
       if (item.type === "reasoning") return thinking ? [`_Thinking:_\n\n${item.text}`] : []
+      if (toolDisplay(item.name) === "question") {
+        const questions = formatQuestionTranscript(item.state)
+        if (questions) return [questions]
+      }
       const input = typeof item.state.input === "string" ? item.state.input : JSON.stringify(item.state.input, null, 2)
       const output =
         item.state.status === "error"
@@ -3920,6 +3924,19 @@ function formatSessionTranscript(session: SessionInfo, messages: SessionMessageI
     return [`## Assistant\n\n${content.join("\n\n")}`]
   })
   return `# ${withTimestampedFallback(session)}\n\n**Session ID:** ${session.id}\n**Created:** ${new Date(session.time.created).toLocaleString()}\n**Updated:** ${new Date(session.time.updated).toLocaleString()}\n\n---\n\n${body.join("\n\n---\n\n")}\n`
+}
+
+function formatQuestionTranscript(state: SessionMessageAssistantTool["state"]) {
+  if (state.status !== "completed") return
+  const questions = parseQuestions(state.input.questions)
+  const answers = parseQuestionAnswers(state.metadata?.answers)
+  if (questions.length === 0 || answers === undefined) return
+  return questions
+    .map((question, index) => {
+      const answer = answers[index] ?? []
+      return `**Question:** ${question.question}\n\n**Answer:** ${answer.length ? answer.join(", ") : "(no answer)"}`
+    })
+    .join("\n\n")
 }
 
 export function parseApplyPatchFiles(value: unknown) {
