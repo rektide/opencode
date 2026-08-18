@@ -26,7 +26,7 @@ export async function discover(options: DiscoverOptions = {}) {
 }
 
 async function discoverLocal(options: DiscoverOptions) {
-  const found = (await registered(options.file)).service
+  const found = (await registered(options.file, false, ensureTiming(options).requestTimeout)).service
   if (found?.state !== "ready") return undefined
   if (!matchesVersion(found.version, options)) return undefined
   return found
@@ -66,7 +66,7 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
           info: registration.info,
           count: timeouts !== undefined && same(timeouts.info, registration.info) ? timeouts.count + 1 : 1,
         }
-        if (timeouts.count >= 3) {
+        if (timeouts.count >= timing.evictionStrikes) {
           announce("missing")
           await terminate(registration.info, options, timing)
           timeouts = undefined
@@ -111,7 +111,7 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
 /** Stop the registered local service. */
 export async function stop(options: StopOptions = {}) {
   const info = await read(options.file)
-  if (info !== undefined) await terminate(info, options, defaultEnsureTiming)
+  if (info !== undefined) await terminate(info, options, ensureTiming(options))
 }
 
 function fallback() {
