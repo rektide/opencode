@@ -44,21 +44,48 @@ export const resolve = Effect.fn("cli.server-connection.resolve")(function* (arg
 
   const mismatch = args.mismatch ?? "ignore"
   const options = yield* ServiceConfig.options({ checkVersion: mismatch !== "ignore" })
+  const external = yield* ServiceConfig.external()
+  if (external)
+    return {
+      endpoint: yield* discoverExternal(options),
+      service: managedService(options, true),
+    } satisfies Resolved
   return {
     endpoint: yield* resolveManaged({ ...options, onStart: args.onStart }, mismatch),
-    service: managedService(options),
+    service: managedService(options, false),
   } satisfies Resolved
 })
 
-function managedService(options: EnsureOptions) {
+// An externally managed service is never started or replaced by clients: the
+// registration file is the only rendezvous, and a miss is a hard failure that
+// points at the supervisor instead of silently promoting this client to owner.
+const discoverExternal = Effect.fnUntraced(function* (options: EnsureOptions) {
+  const endpoint = yield* Service.discover(options)
+  if (endpoint !== undefined) return endpoint
+  return yield* Effect.fail(yield* unavailableError())
+})
+
+const unavailableError = Effect.fnUntraced(function* () {
+  return new Error(
+    `Background service at ${yield* ServiceConfig.expectedURL()} is unavailable or incompatible; it is externally managed (service.external), so this client will not start or replace it. Check your service manager, e.g. \`systemctl --user status opencode\``,
+  )
+})
+
+function managedService(options: EnsureOptions, external: boolean) {
   const reconnectOptions = { ...options, version: undefined }
   return {
-    reconnect: () => Service.ensure(reconnectOptions),
+    reconnect: () => (external ? discoverExternal(reconnectOptions) : Service.ensure(reconnectOptions)),
     restart: () =>
-      Effect.gen(function* () {
-        yield* Service.stop(options)
-        yield* Service.ensure(reconnectOptions)
-      }),
+      external
+        ? Effect.fail(
+            new Error(
+              "Background service is externally managed; use your service manager to restart it (service.external)",
+            ),
+          )
+        : Effect.gen(function* () {
+            yield* Service.stop(options)
+            yield* Service.ensure(reconnectOptions)
+          }),
   }
 }
 
