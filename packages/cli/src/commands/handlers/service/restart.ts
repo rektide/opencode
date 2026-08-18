@@ -9,6 +9,7 @@ import { ServerConnection } from "../../../services/server-connection"
 export default Runtime.handler(
   Commands.commands.service.commands.restart,
   Effect.fn("cli.service.restart")(function* () {
+    yield* ServiceConfig.requireInternal("restart")
     const options = yield* ServiceConfig.options()
     // Keep this explicit: automatic service replacement must preserve terminals.
     yield* ServerConnection.shutdownPersistentPty(options).pipe(Effect.ignore)

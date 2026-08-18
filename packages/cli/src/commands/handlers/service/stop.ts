@@ -8,6 +8,7 @@ import { ServerConnection } from "../../../services/server-connection"
 export default Runtime.handler(
   Commands.commands.service.commands.stop,
   Effect.fn("cli.service.stop")(function* () {
+    yield* ServiceConfig.requireInternal("stop")
     const options = yield* ServiceConfig.options()
     yield* ServerConnection.shutdownPersistentPty(options).pipe(Effect.ignore)
     yield* Service.stop(options)
