@@ -43,6 +43,7 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
   lifecycle?: Lifecycle<E, R>,
   transform?: Transform,
 ) {
+  const startedAt = Date.now()
   const password = options.password
   if (!password) return yield* Effect.fail(new Error("Missing server password"))
   const hostname = options.hostname ?? "127.0.0.1"
@@ -101,6 +102,9 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
     const app = Context.get(context, HttpRouter.HttpRouter).asHttpEffect()
     yield* Ref.set(application, Option.some(transform ? transform(app) : app))
     yield* status.ready
+    // Contender boot time decides elections and client deadlines; make it
+    // observable wherever server logs land (journal, stderr).
+    yield* Effect.log(`server ready in ${Date.now() - startedAt}ms`)
     return { address: bound.http.address, shutdown: Deferred.await(shutdown) }
   }).pipe(
     Effect.catchCause((cause) => {
