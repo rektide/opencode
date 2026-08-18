@@ -29,7 +29,7 @@ export type Info = import("../service.js").Info
 // Never spawns; escalation to ensure() is the caller's policy.
 /** Discover a healthy, compatible local service without starting one. */
 export const discover = Effect.fn("service.discover")(function* (options: DiscoverOptions = {}) {
-  const found = (yield* registered(options.file)).service
+  const found = (yield* registered(options.file, false, ensureTiming(options).requestTimeout)).service
   if (found?.state !== "ready") return undefined
   if (!matchesVersion(found.version, options)) return undefined
   return found.endpoint
@@ -40,7 +40,8 @@ export const incumbent = Effect.fn("service.incumbent")(function* (
   options: DiscoverOptions & { readonly url: string },
 ) {
   const info = yield* read(options.file)
-  const found = info === undefined ? undefined : yield* probe({ ...info, url: options.url })
+  const found =
+    info === undefined ? undefined : yield* probe({ ...info, url: options.url }, false, ensureTiming(options).requestTimeout)
   if (found === undefined || found.legacy) return undefined
   if (!matchesVersion(found.version, options)) return undefined
   return { endpoint: found.endpoint, state: found.state }
@@ -83,7 +84,7 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
         info,
         count: timeouts !== undefined && same(timeouts.info, info) ? timeouts.count + 1 : 1,
       }
-      if (timeouts.count >= 3) {
+      if (timeouts.count >= timing.evictionStrikes) {
         yield* announce("missing")
         yield* Effect.logWarning("Background service is unresponsive; recovery cannot preserve persistent terminals")
         yield* Effect.tryPromise(() => PtyHandoff.clear(options.file ?? fallback()))
@@ -147,7 +148,7 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
 export const stop = Effect.fn("service.stop")(function* (options: StopOptions = {}) {
   yield* Effect.tryPromise(() => PtyHandoff.clear(options.file ?? fallback()))
   const info = yield* read(options.file)
-  if (info !== undefined) yield* terminate(info, options, defaultEnsureTiming)
+  if (info !== undefined) yield* terminate(info, options, ensureTiming(options))
 })
 
 function fallback() {
@@ -191,8 +192,8 @@ type LocalService = {
   readonly legacy: boolean
 }
 
-const probe = Effect.fnUntraced(function* (info: Info, allowLegacy = false) {
-  return (yield* probeResult(info, allowLegacy)).service
+const probe = Effect.fnUntraced(function* (info: Info, allowLegacy = false, timeout?: number) {
+  return (yield* probeResult(info, allowLegacy, timeout)).service
 })
 
 const probeResult = Effect.fnUntraced(function* (
