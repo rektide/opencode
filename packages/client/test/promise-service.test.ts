@@ -168,6 +168,30 @@ test("evicts an unresponsive service through a graceful stop request", async () 
   expect(endpoint.url).toBe(replacement.url)
 })
 
+test("a briefly unresponsive registered service recovers instead of being evicted", async () => {
+  await using fixture = await serviceFixture()
+  const registration = fixture.registration
+  const existing = fixture.spawn("stall")
+  await fixture.waitForFile()
+  const original = await Bun.file(registration).json()
+
+  // An empty command makes any contender spawn throw, proving the strike
+  // window holds contenders back while the incumbent is merely unresponsive.
+  const result = Service.ensure({
+    file: registration,
+    version: "test",
+    command: [],
+    probeTimeoutSeconds: 0.5,
+    evictionStrikes: 100,
+  })
+  await Bun.sleep(2_000)
+  await Bun.write(registration + ".release", "")
+
+  const endpoint = await result
+  expect(endpoint.url).toBe(original.url)
+  expect(existing.exitCode).toBe(null)
+}, 20_000)
+
 test("signals the registered service process", async () => {
   await using fixture = await serviceFixture()
   const registration = fixture.registration
