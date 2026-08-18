@@ -30,6 +30,7 @@ export interface Interface {
     | "synthetic"
     | "wait"
     | "context"
+    | "active"
   >
   readonly job: Pick<Job.Interface, "get" | "start" | "wait" | "block" | "background" | "cancel" | "completeBackground">
   readonly persistentPty: Pick<PersistentPty.Interface, "read">
@@ -86,6 +87,7 @@ export const layerWithCell = (cell: Cell) =>
         synthetic: (input) => require(cell, (runtime) => runtime.session.synthetic(input)),
         wait: (sessionID) => require(cell, (runtime) => runtime.session.wait(sessionID)),
         context: (sessionID) => require(cell, (runtime) => runtime.session.context(sessionID)),
+        active: require(cell, (runtime) => runtime.session.active),
       },
       job: {
         get: (id) => require(cell, (runtime) => runtime.job.get(id)),
