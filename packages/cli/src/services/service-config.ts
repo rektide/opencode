@@ -16,10 +16,11 @@ export const Info = Schema.Struct({
   port: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(65_535))),
   password: Schema.optional(Schema.String),
   env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  external: Schema.optional(Schema.Boolean),
 })
 export type Info = typeof Info.Type
 
-const keys = ["hostname", "port", "password", "env"] as const
+const keys = ["hostname", "port", "password", "env", "external"] as const
 type Key = (typeof keys)[number]
 
 const decodeInfo = Schema.decodeUnknownEffect(Schema.fromJsonString(Info))
@@ -77,7 +78,7 @@ export const migrateConfig = Effect.fnUntraced(function* (legacy: string, file: 
 })
 
 function configKey(key: string): Key {
-  if (key === "hostname" || key === "port" || key === "password" || key === "env") return key
+  if (key === "hostname" || key === "port" || key === "password" || key === "env" || key === "external") return key
   throw new Error(`Unknown service config key: ${key}`)
 }
 
@@ -163,6 +164,27 @@ export const password = Effect.fn("cli.service-config.password")(function* (valu
   return next
 })
 
+// External management: a supervisor such as systemd owns the service process.
+// Clients discover only and never spawn, evict, or stop the service. The env
+// var overrides the config key in either direction so units and shells can
+// force a mode without touching persisted state.
+export const external = Effect.fnUntraced(function* () {
+  const override = process.env["OPENCODE_SERVICE_EXTERNAL"]
+  if (override !== undefined) return override === "1" || override.toLowerCase() === "true"
+  return (yield* read()).external === true
+})
+export const requireInternal = Effect.fnUntraced(function* (action: string) {
+  if (yield* external())
+    return yield* Effect.fail(
+      new Error(`Background service is externally managed; use your service manager to ${action} it (service.external)`),
+    )
+})
+export const expectedURL = Effect.fnUntraced(function* () {
+  const config = yield* read()
+  const hostname = config.hostname ?? "127.0.0.1"
+  const port = config.port ?? defaultPort()
+  return `http://${hostname.includes(":") ? `[${hostname}]` : hostname}:${port}`
+})
 export const get = Effect.fn("cli.service-config.get")(function* (key?: string, name?: string) {
   if (key === undefined) {
     const { password: _password, ...safe } = yield* read()
@@ -185,6 +207,9 @@ export const get = Effect.fn("cli.service-config.get")(function* (key?: string, 
       const env = (yield* read()).env ?? {}
       return name === undefined ? JSON.stringify(env, null, 2) : (env[name] ?? "")
     }
+    case "external": {
+      return String((yield* read()).external === true)
+    }
   }
   throw new Error(`Unknown service config key: ${key}`)
 })
@@ -195,27 +220,33 @@ export const set = Effect.fn("cli.service-config.set")(function* (key: string, v
     throw new Error(`Usage: opencode service set ${selected} <value>`)
   switch (selected) {
     case "hostname": {
-      yield* Service.stop(yield* options())
+      yield* stopUnlessExternal()
       yield* write({ ...(yield* read()), hostname: value })
       return
     }
     case "port": {
       const port = Number(value)
       if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("Port must be between 1 and 65535")
-      yield* Service.stop(yield* options())
+      yield* stopUnlessExternal()
       yield* write({ ...(yield* read()), port })
       return
     }
     case "password": {
-      yield* Service.stop(yield* options())
+      yield* stopUnlessExternal()
       yield* password(value)
       return
     }
     case "env": {
       if (nestedValue === undefined) throw new Error("Usage: opencode service set env <key> <value>")
-      yield* Service.stop(yield* options())
+      yield* stopUnlessExternal()
       const existing = yield* read()
       yield* write({ ...existing, env: { ...existing.env, [value]: nestedValue } })
+      return
+    }
+    case "external": {
+      const next = value === "true" || value === "1" ? true : value === "false" || value === "0" ? false : undefined
+      if (next === undefined) throw new Error("External must be true or false")
+      yield* write({ ...(yield* read()), external: next })
       return
     }
   }
@@ -226,33 +257,43 @@ export const unset = Effect.fn("cli.service-config.unset")(function* (key: strin
   if (selected !== "env" && name !== undefined) throw new Error(`Usage: opencode service unset ${selected}`)
   switch (selected) {
     case "hostname": {
-      yield* Service.stop(yield* options())
+      yield* stopUnlessExternal()
       const { hostname: _hostname, ...next } = yield* read()
       yield* write(next)
       return
     }
     case "port": {
-      yield* Service.stop(yield* options())
+      yield* stopUnlessExternal()
       const { port: _port, ...next } = yield* read()
       yield* write(next)
       return
     }
     case "password": {
-      yield* Service.stop(yield* options())
+      yield* stopUnlessExternal()
       const { password: _password, ...next } = yield* read()
       yield* write(next)
       return
     }
     case "env": {
       if (name === undefined) throw new Error("Usage: opencode service unset env <key>")
-      yield* Service.stop(yield* options())
+      yield* stopUnlessExternal()
       const existing = yield* read()
       const { [name]: _removed, ...env } = existing.env ?? {}
       const { env: _existingEnv, ...rest } = existing
       yield* write(Object.keys(env).length === 0 ? rest : { ...rest, env })
       return
     }
+    case "external": {
+      const { external: _external, ...next } = yield* read()
+      yield* write(next)
+      return
+    }
   }
+})
+
+const stopUnlessExternal = Effect.fnUntraced(function* () {
+  if (yield* external()) return
+  yield* Service.stop(yield* options())
 })
 
 export * as ServiceConfig from "./service-config"
