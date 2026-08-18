@@ -148,45 +148,51 @@ upstream — it composes with any accepted stack.
 - Keyboard path: is there a future where transcript rows (notices included)
   are keyboard-selectable, so Enter opens the child the way click does?
 
-# Implementation — 2026-08-18
+# Implementation — 2026-08-18 (collapsed)
 
-Implemented on `v2@origin` `02f3f3cb` as commit `e500506e`
-(`feat(tui): make subagent completion notices clickable`), bookmark
-`agent-complete`. The workspace's earlier docs commit was rebased off the
-unrelated service-reap ancestry first, so the feature line is exactly
-upstream + design + implementation.
+Two commits on `v2@origin` `02f3f3cb`, bookmark `agent-complete`:
+`e500506e` (initial extraction) and `3adc33b3` (collapse). The first
+version extracted a `CompletionNoticeRow` component plus a standalone
+mouse-click test; review pushed back — a carried patch gets rebased on
+every `working` rebuild, and a bespoke row component with prop-threaded
+`width`/`state` plus a one-off test harness (4 nested providers,
+hardcoded mouse coordinates) is exactly the kind of surface that sucks
+to maintain. The collapse reuses what already existed.
 
-## What landed
+## Final shape
 
-- `SessionNoticeMessageV2` keeps the message parsing (source/state/actor/
-  description/childID) and delegates the interactive completion branch to a
-  new exported `CompletionNoticeRow`, which takes `width` as a prop instead
-  of reading the session-local context — the extraction exists so the row is
-  renderable under just `RouteProvider` + `ConfigProvider` + `ThemeProvider`
-  in tests.
-- `CompletionNoticeRow` renders through `InlineToolRow` (design shape B): the
-  `↳`/`!` marker moves from the heading text into the icon column, aligning
-  completion notices with the launch row's geometry; suffix truncation
-  subtracts the icon column explicitly. Hover brightens the heading to
-  `theme.text.default` only when a `childID` is present; mouse-up ignores
-  active text selections and navigates `route.navigate({ type: "session",
-  sessionID: childID })`. `completed`, `error`, and `cancelled` all navigate;
-  shell notices (no `childID`) render identically but stay inert.
-- No core, protocol, or schema changes, as designed — core already persists
-  `metadata: { source: "subagent", childID, agent, state }`
-  (`packages/core/src/tool/plugin/subagent.ts:90`).
+- **`SessionNoticeMessageV2` stays one function** (now exported). Its
+  completion branch renders through `InlineToolRow` — the exported row
+  primitive its own fallback branch and `SessionSkillMessage` already
+  use, which already carries `onMouseOver`/`onMouseOut`/`onMouseUp` and
+  the icon-column geometry shared with the launch row. ~10 added lines
+  inside the function: a hover signal, `childID` read, and the mouse-up
+  handler that mirrors the launch row (`route.navigate({ type:
+  "session", sessionID })` after the text-selection guard). No new
+  component, no prop threading. Total production surface vs upstream:
+  46 lines in one file, including a `context` → `SessionContext`
+  rename/export so the story can provide a fixture session context.
+- **Existing materials reused**: the launch row already navigates at
+  session create (`Subagent` tool component), the composer subagents tab
+  already navigates by keyboard, and `InlineToolRow` already had the
+  mouse plumbing — the patch only wires the notice into that row.
+- **Verification moved to a story**: the standalone
+  `completion-notice.test.tsx` is deleted.
+  `packages/tui/src/feature-plugins/system/storybook/completion-notice.tsx`
+  renders the real production `SessionNoticeMessageV2` under a nested
+  fixture `RouteProvider` (clicks navigate the fixture route, shown in
+  the footer — no real session is opened) and a fixture
+  `SessionContext`. Keybinds cycle completion state (`tab`), subagent vs
+  shell source (`c` — shell has no `childID` and must stay inert), and
+  description length (`d`); `r` resets the route. Run with
+  `OPENCODE_STORY=completion-notice bun run dev:live` and click the row.
 
 ## Verification
 
-- New `packages/tui/test/cli/tui/completion-notice.test.tsx` (3 tests, all
-  pass): click-to-navigate for `completed`; the same for `error` and
-  `cancelled`; inertness without a `childID`. Uses `testRender` +
-  `mockMouse.click` with a `RouteProbe` observing route changes, following
-  `session-tabs-mouse.test.tsx`'s harness.
-- `packages/tui/test/cli/tui/inline-tool-wrap-snapshot.test.tsx` still passes
-  (15 tests across both files), including the reminder-alignment snapshot.
-- `bun typecheck` clean from `packages/tui`; oxlint reports only the 30
-  pre-existing warnings in the touched files.
-- Not yet done: the interactive `bun run dev:live` pass with a real
-  background subagent. The mouse-path coverage is from the test harness, so
-  this remains the one manual check before promoting to `working`.
+- `bun typecheck` clean from `packages/tui`; oxlint clean on the touched
+  files (the one warning it raised was fixed).
+- `inline-tool-wrap-snapshot.test.tsx` and `form.test.tsx` pass
+  (31 tests) — no regression to the shared row primitive.
+- Manual: exercise the story per above, plus the original live check
+  (launch a background subagent in `dev:live`, click the completion
+  notice without scrolling).
