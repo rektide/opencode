@@ -165,7 +165,7 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
   )
 })
 
-const shutdownDeadlineMs = 10_000
+const shutdownDeadlineMs = 60_000
 
 // A managed service must exit once shutdown has been requested, even when a
 // teardown finalizer never completes; otherwise displacement strands a process

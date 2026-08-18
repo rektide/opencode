@@ -241,14 +241,14 @@ test("a stalled managed service shutdown is forced out at the deadline", async (
   const foreign = { ...service.info, id: "foreign-owner", pid: process.pid }
   try {
     await fs.writeFile(service.registration, JSON.stringify(foreign))
-    expect(await waitForExit(service.owner, 30_000)).toBe(true)
+    expect(await waitForExit(service.owner, 90_000)).toBe(true)
     expect(service.owner.exitCode).toBe(1)
     expect(await Bun.file(service.registration).json()).toEqual(foreign)
     await expectPortAvailable(service.port)
   } finally {
     await stopManagedService(service)
   }
-}, 60_000)
+}, 150_000)
 
 test("clean managed service shutdown removes its registration", async () => {
   const service = await startManagedService("opencode-service-clean-")
