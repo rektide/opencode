@@ -515,7 +515,7 @@ function VerticalSessionTabs(props: {
   const data = useData()
   const theme = useTheme("elevated")
   const config = useConfig().data
-  const animations = () => props.animations ?? config.animations ?? true
+  const animations = () => props.animations ?? config.animations !== false
   const width = () => props.width ?? SESSION_SIDEBAR_WIDTH
   const unreadColor = () => theme.text.status.unread
   const activeNumber = () => theme.text.status.running
@@ -1088,7 +1088,7 @@ function HorizontalSessionTabs(props: {
   const dimensions = useTerminalDimensions()
   const theme = useTheme()
   const config = useConfig().data
-  const animations = () => props.animations ?? config.animations ?? true
+  const animations = () => props.animations ?? config.animations !== false
   const [addHovered, setAddHovered] = createSignal(false)
   const marquee = createTabMarquee(animations)
   const hovered = marquee.hovered
