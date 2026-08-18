@@ -2,14 +2,16 @@ import { describe, expect } from "bun:test"
 import { Deferred, Effect, Exit, Fiber, Layer, Option, Stream } from "effect"
 import { LayerNode } from "@opencode-ai/util/effect/layer-node"
 import { SubscriberRegistry } from "@opencode-ai/core/subscriber-registry"
+import { Location } from "@opencode-ai/schema/location"
 import { Plugin } from "@opencode-ai/schema/plugin"
+import { Workspace } from "@opencode-ai/schema/workspace"
 import { Subscriber } from "@opencode-ai/schema/subscriber"
 import { testEffect } from "./lib/effect"
 
 const registryLayer = LayerNode.compile(
   LayerNode.group([SubscriberRegistry.configured({ observerCapacity: 4 })]),
   [],
-) as unknown as Layer.Layer<never>
+) as unknown as Layer.Layer<SubscriberRegistry.Service>
 
 const it = testEffect(registryLayer)
 
@@ -53,14 +55,12 @@ describe("SubscriberRegistry", () => {
       )
       yield* Effect.sleep(1)
       yield* Fiber.interrupt(watcher)
-      const added = changes.find((change) => change.type === "added")
+      const added = changes.find((change): change is Extract<Subscriber.Change, { type: "added" }> =>
+        change.type === "added",
+      )
+      if (!added) throw new Error("expected added change")
       expect(changes.filter((change) => change.type === "removed")).toEqual([
-        {
-          type: "removed",
-          revision: 2,
-          id: added?.type === "added" ? added.subscriber.id : undefined,
-          reason: "overflow",
-        },
+        { type: "removed", revision: 2, id: added.subscriber.id, reason: "overflow" },
       ])
       expect(yield* service.count()).toBe(0)
     }),
@@ -263,7 +263,7 @@ describe("SubscriberRegistry", () => {
             target: {
               namespace: "event",
               name: "public-feed",
-              location: { directory: "/elsewhere", workspaceID: "wrk_other" },
+              location: Location.Ref.make({ directory: "/elsewhere" as never, workspaceID: Workspace.ID.make("wrk_other") }),
             },
             delivery: { type: "effect-stream" },
           })
@@ -273,20 +273,20 @@ describe("SubscriberRegistry", () => {
             target: {
               namespace: "event",
               name: "public-feed",
-              location: { directory: "/elsewhere", workspaceID: "wrk_other" },
+              location: Location.Ref.make({ directory: "/elsewhere" as never, workspaceID: Workspace.ID.make("wrk_other") }),
             },
             delivery: { type: "effect-stream" },
           })
 
           const self = yield* service.snapshot({
-            location: { directory: "/here", workspaceID: "wrk_here" },
+            location: Location.Ref.make({ directory: "/here" as never, workspaceID: Workspace.ID.make("wrk_here") }),
             pluginID: Plugin.ID.make("plug_self"),
           })
           expect(self.subscribers.map((subscriber) => subscriber.owner)).toMatchObject([
             { type: "core", component: "global" },
             { type: "plugin", pluginID: "plug_self", generation: "1" },
           ])
-          const away = yield* service.snapshot({ location: { directory: "/here", workspaceID: "wrk_here" } })
+          const away = yield* service.snapshot({ location: Location.Ref.make({ directory: "/here" as never, workspaceID: Workspace.ID.make("wrk_here") }) })
           expect(away.subscribers.length).toBe(1)
         }),
       )

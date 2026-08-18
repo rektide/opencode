@@ -59,18 +59,18 @@ type Entry = {
   readonly target: Subscriber.Target
   readonly delivery: Subscriber.Delivery
   state: Subscriber.State
-  readonly startedAt: DateTime.DateTime.Utc
-  updatedAt: DateTime.DateTime.Utc
+  readonly startedAt: DateTime.Utc
+  updatedAt: DateTime.Utc
   delivered: number
   dropped: number
   lag: number | undefined
   highWaterMark: number | undefined
-  lastAt: DateTime.DateTime.Utc | undefined
+  lastAt: DateTime.Utc | undefined
   closed: boolean
 }
 
 type Observer = {
-  readonly queue: Queue.Queue<Subscriber.Change, Subscriber.WatchOverflowError>
+  readonly queue: Queue.Queue<Subscriber.Change, Subscriber.WatchOverflowError | Cause.Done>
   readonly query: Subscriber.Query | undefined
 }
 
@@ -241,7 +241,7 @@ export function configured(options?: { readonly observerCapacity?: number }) {
             })),
           summary: (query) =>
             Effect.sync(() => {
-              const groups = new Map<string, Subscriber.Summary["groups"][number]>()
+              const groups = new Map<string, { readonly group: Subscriber.Summary["groups"][number]; count: number }>()
               let total = 0
               for (const entry of records.values()) {
                 const info = project(entry)
@@ -249,24 +249,35 @@ export function configured(options?: { readonly observerCapacity?: number }) {
                 total++
                 const key = `${info.kind}/${info.target.namespace}/${info.target.name}/${info.delivery.type}`
                 const current = groups.get(key)
-                if (current) current.count++
-                else
-                  groups.set(key, {
+                if (current) {
+                  current.count++
+                  continue
+                }
+                groups.set(key, {
+                  group: {
                     kind: info.kind,
                     namespace: info.target.namespace,
                     name: info.target.name,
                     delivery: info.delivery.type,
                     count: 1,
-                  })
+                  },
+                  count: 1,
+                })
               }
-              return { processID, revision, total, groups: Array.from(groups.values()) }
+              return {
+                processID,
+                revision,
+                total,
+                groups: Array.from(groups.values(), ({ group, count }) => ({ ...group, count })),
+              }
             }),
           watch: (principal, query) =>
             Stream.unwrap(
               Effect.gen(function* () {
-                const queue = yield* Queue.dropping<Subscriber.Change, Subscriber.WatchOverflowError>(
-                  observerCapacity,
-                )
+                const queue = yield* Queue.dropping<
+                  Subscriber.Change,
+                  Subscriber.WatchOverflowError | Cause.Done
+                >(observerCapacity)
                 const acquired = yield* Effect.acquireRelease(
                   Effect.sync(() => {
                     const observer: Observer = { queue, query }
@@ -284,10 +295,8 @@ export function configured(options?: { readonly observerCapacity?: number }) {
                   }),
                   ({ observer }) => Effect.sync(() => observers.delete(observer)),
                 )
-                return Stream.concat(
-                  Stream.make<Subscriber.Change>({ type: "snapshot", snapshot: acquired.snapshot }),
-                  Stream.fromQueue(queue),
-                )
+                const first: Subscriber.Change = { type: "snapshot", snapshot: acquired.snapshot }
+                return Stream.concat(Stream.make(first), Stream.fromQueue(queue))
               }),
             ),
           count: (query) =>
@@ -306,7 +315,7 @@ export function configured(options?: { readonly observerCapacity?: number }) {
  */
 export const track =
   (registry: Interface, input: RegisterInput) =>
-  <A, E, R>(stream: Stream.Stream<A, E, R>): Stream.Stream<A, E> =>
+  <A, E, R>(stream: Stream.Stream<A, E, R>): Stream.Stream<A, E, R> =>
     Stream.unwrap(
       Effect.gen(function* () {
         const owner = yield* CurrentOwner

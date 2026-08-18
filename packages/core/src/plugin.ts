@@ -15,6 +15,7 @@ import { MCP } from "./mcp/index.js"
 import { Location } from "./location.js"
 import { PluginHost } from "./plugin/host.js"
 import { PluginRuntime } from "./plugin/runtime.js"
+import { SubscriberRegistry } from "./subscriber-registry.js"
 import { WebSearch } from "./websearch.js"
 import { Reference } from "./reference.js"
 import { Skill } from "./skill.js"
@@ -45,17 +46,24 @@ const layer = Layer.effect(
     const active = new Map<Plugin.ID, { readonly plugin: Versioned; readonly scope: Scope.Closeable }>()
     const lock = Semaphore.makeUnsafe(1)
     let inventory: Plugin.Info[] = []
+    let generation = 0
     let host: Parameters<import("@opencode-ai/plugin/effect/plugin").Plugin["effect"]>[0]
 
     const load = Effect.fnUntraced(function* (plugin: Versioned) {
       const child = yield* Scope.fork(scope)
       const inherit = yield* State.inherit()
+      const owner = {
+        type: "plugin",
+        pluginID: Plugin.ID.make(plugin.id),
+        generation: `${generation}`,
+      } as const
       const loaded = yield* Effect.suspend(() => plugin.effect(host)).pipe(
         inherit,
         Effect.updateContext((context: Context.Context<never>) =>
           Context.make(Scope.Scope, child).pipe(
             Context.add(Logger.CurrentLoggers, Context.get(context, Logger.CurrentLoggers)),
             Context.add(References.MinimumLogLevel, Context.get(context, References.MinimumLogLevel)),
+            Context.add(SubscriberRegistry.CurrentOwner, owner),
           ),
         ),
         Effect.withSpan("Plugin.load", { attributes: { "plugin.id": plugin.id } }),
@@ -84,6 +92,7 @@ const layer = Layer.effect(
 
       yield* lock.withPermit(
         Effect.gen(function* () {
+          generation++
           const next = definitions.map((definition) => ({ id: definition.id, version: definition.version }))
           const current = Array.from(active.values(), (entry) => ({
             id: entry.plugin.id,
@@ -193,6 +202,7 @@ export const node = makeLocationNode({
     Location.node,
     Reference.node,
     Skill.node,
+    SubscriberRegistry.node,
     Tool.node,
     PluginHooks.node,
     PluginRuntime.node,

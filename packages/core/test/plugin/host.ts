@@ -97,6 +97,11 @@ export function host(overrides: Overrides = {}): Plugin.Context {
     shell: overrides.shell ?? {
       hook: () => Effect.die("unused shell.hook"),
     },
+    subscriber: overrides.subscriber ?? {
+      snapshot: () => Effect.die("unused subscriber.snapshot"),
+      watch: () => Stream.empty,
+      count: () => Effect.die("unused subscriber.count"),
+    },
     tool: overrides.tool ?? {
       transform: () => Effect.die("unused tool.transform"),
       hook: () => Effect.die("unused tool.hook"),

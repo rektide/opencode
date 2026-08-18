@@ -5,6 +5,7 @@ import type { IntegrationMethodRegistration } from "@opencode-ai/plugin/effect/i
 import type { CredentialOAuth } from "@opencode-ai/sdk/v2/types"
 import { EventManifest } from "@opencode-ai/schema/event-manifest"
 import { Mcp } from "@opencode-ai/schema/mcp"
+import { Subscriber } from "@opencode-ai/schema/subscriber"
 import { App } from "../app.js"
 import { Effect, Schema, Stream } from "effect"
 import { Agent } from "../agent.js"
@@ -22,6 +23,7 @@ import { Provider } from "../provider.js"
 import { Reference } from "../reference.js"
 import { AbsolutePath, type DeepMutable } from "../schema.js"
 import { Skill } from "../skill.js"
+import { SubscriberRegistry } from "../subscriber-registry.js"
 import { Tool } from "../tool.js"
 import { Workspace } from "../workspace.js"
 import { WebSearch } from "../websearch.js"
@@ -44,6 +46,11 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: import("../p
   const websearch = yield* WebSearch.Service
   const hooks = yield* PluginHooks.Service
   const runtime = yield* PluginRuntime.Service
+  const subscribers = yield* SubscriberRegistry.Service
+  const principal = (owner: Subscriber.Owner): SubscriberRegistry.Principal => ({
+    location: { directory: location.directory, workspaceID: location.workspaceID },
+    ...(owner.type === "plugin" ? { pluginID: owner.pluginID } : {}),
+  })
   const locationInfo = () =>
     new Location.Info({
       directory: location.directory,
@@ -185,7 +192,19 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: import("../p
         }),
     },
     event: {
-      subscribe: () => bus.subscribe().pipe(Stream.filter(EventManifest.isServer)),
+      subscribe: () =>
+        bus.subscribe().pipe(
+          Stream.filter(EventManifest.isServer),
+          SubscriberRegistry.track(subscribers, {
+            kind: "stream",
+            target: {
+              namespace: "event",
+              name: "public-feed",
+              location: Location.Ref.make({ directory: location.directory, workspaceID: location.workspaceID }),
+            },
+            delivery: { type: "effect-stream" },
+          }),
+        ),
     },
     integration: {
       list: () => response(integration.list()),
@@ -402,6 +421,18 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: import("../p
       synthetic: runtime.session.synthetic,
       interrupt: (input) => runtime.session.interrupt(input.sessionID),
       wait: (input) => runtime.session.wait(input.sessionID),
+    },
+    subscriber: {
+      snapshot: (query) =>
+        Effect.flatMap(SubscriberRegistry.CurrentOwner, (owner) => subscribers.snapshot(principal(owner), query)),
+      watch: (query) =>
+        Stream.unwrap(
+          Effect.map(
+            SubscriberRegistry.CurrentOwner,
+            (owner) => subscribers.watch(principal(owner), query),
+          ),
+        ),
+      count: (query) => subscribers.count(query),
     },
   } satisfies Plugin.Context
 })

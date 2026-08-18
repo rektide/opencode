@@ -1,3 +1,4 @@
+import { Subscriber } from "@opencode-ai/schema/subscriber"
 import { Tool } from "@opencode-ai/schema/tool"
 import { Effect, Schema, SchemaAST, Scope, Stream } from "effect"
 import { HttpApiEndpoint, HttpApiSchema } from "effect/unstable/httpapi"
@@ -8,6 +9,11 @@ import type { Info } from "./tool.js"
 type HostRegistration = { readonly dispose: Effect.Effect<void> }
 type Registration = { readonly dispose: () => Promise<void> }
 type PromiseEvent = ReturnType<Context["event"]["subscribe"]> extends AsyncIterable<infer Event> ? Event : never
+
+const decodeSubscriberQuery = (query: Subscriber.Query | undefined) =>
+  query === undefined ? Effect.succeed(undefined) : Schema.decodeUnknownEffect(Subscriber.Query)(query).pipe(Effect.orDie)
+const encodeSubscriberSnapshot = Schema.encodeUnknownSync(Subscriber.Snapshot)
+const encodeSubscriberChange = Schema.encodeUnknownSync(Subscriber.Change)
 
 interface CompiledEndpoint {
   readonly decode: ReadonlyArray<(input: unknown) => Effect.Effect<unknown, Schema.SchemaError>>
@@ -310,6 +316,22 @@ export function fromPromise(plugin: Plugin) {
             interrupt: adaptApiMethod(SessionEndpoints["session.interrupt"], host.session.interrupt),
             rename: adaptApiMethod(SessionEndpoints["session.rename"], host.session.rename),
             wait: adaptApiMethod(SessionEndpoints["session.wait"], host.session.wait),
+          },
+          subscriber: {
+            snapshot: (query) =>
+              run(Effect.flatMap(decodeSubscriberQuery(query), (decoded) => host.subscriber.snapshot(decoded))).then(
+                (snapshot) => encodeSubscriberSnapshot(snapshot),
+              ),
+            watch: (query) =>
+              Stream.toAsyncIterable(
+                Stream.unwrap(
+                  Effect.map(decodeSubscriberQuery(query), (decoded) =>
+                    host.subscriber.watch(decoded).pipe(Stream.map((change) => encodeSubscriberChange(change))),
+                  ),
+                ),
+              ),
+            count: (query) =>
+              run(Effect.flatMap(decodeSubscriberQuery(query), (decoded) => host.subscriber.count(decoded))),
           },
           shell: {
             hook: (name, callback) =>
