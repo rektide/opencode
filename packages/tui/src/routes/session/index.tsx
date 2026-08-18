@@ -1220,7 +1220,7 @@ export function Session(props: {
 
           const content =
             options.format === "markdown"
-              ? formatSessionTranscript(sessionData, messages(), options.thinking)
+              ? formatSessionTranscript(sessionData, messages(), options.thinking, options.allOptions)
               : JSON.stringify(
                   await client.api.session.export({ sessionID: sessionData.id, sanitize: options.sanitize }),
                   null,
@@ -3897,7 +3897,12 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
   return isRecord(value) ? value : undefined
 }
 
-export function formatSessionTranscript(session: SessionInfo, messages: SessionMessageInfo[], thinking: boolean) {
+export function formatSessionTranscript(
+  session: SessionInfo,
+  messages: SessionMessageInfo[],
+  thinking: boolean,
+  allOptions = false,
+) {
   const body = messages.flatMap((message) => {
     if (message.type === "user") return [`## User\n\n${message.text}`]
     if (message.type === "shell")
@@ -3907,7 +3912,7 @@ export function formatSessionTranscript(session: SessionInfo, messages: SessionM
       if (item.type === "text") return [item.text]
       if (item.type === "reasoning") return thinking ? [`_Thinking:_\n\n${item.text}`] : []
       if (toolDisplay(item.name) === "question") {
-        const questions = formatQuestionTranscript(item.state)
+        const questions = formatQuestionTranscript(item.state, allOptions)
         if (questions) return [questions]
       }
       const input = typeof item.state.input === "string" ? item.state.input : JSON.stringify(item.state.input, null, 2)
@@ -3926,7 +3931,7 @@ export function formatSessionTranscript(session: SessionInfo, messages: SessionM
   return `# ${withTimestampedFallback(session)}\n\n**Session ID:** ${session.id}\n**Created:** ${new Date(session.time.created).toLocaleString()}\n**Updated:** ${new Date(session.time.updated).toLocaleString()}\n\n---\n\n${body.join("\n\n---\n\n")}\n`
 }
 
-function formatQuestionTranscript(state: SessionMessageAssistantTool["state"]) {
+function formatQuestionTranscript(state: SessionMessageAssistantTool["state"], allOptions: boolean) {
   if (state.status !== "completed") return
   const questions = parseQuestions(state.input.questions)
   const answers = parseQuestionAnswers(state.metadata?.answers)
@@ -3934,7 +3939,23 @@ function formatQuestionTranscript(state: SessionMessageAssistantTool["state"]) {
   return questions
     .map((question, index) => {
       const answer = answers[index] ?? []
-      return `**Question:** ${question.question}\n\n**Answer:** ${answer.length ? answer.join(", ") : "(no answer)"}`
+      const options = allOptions && question.options.length > 0
+        ? [
+            question.options
+              .map((option) =>
+                [
+                  `- [${answer.includes(option.label) ? "x" : " "}] ${option.label}`,
+                  option.description ? `  ${option.description}` : "",
+                ]
+                  .filter(Boolean)
+                  .join("\n"),
+              )
+              .join("\n"),
+          ]
+        : []
+      return [`**Question:** ${question.question}`, ...options, `**Answer:** ${answer.length ? answer.join(", ") : "(no answer)"}`].join(
+        "\n\n",
+      )
     })
     .join("\n\n")
 }
@@ -3969,8 +3990,16 @@ export function parseApplyPatchFiles(value: unknown) {
 export function parseQuestions(value: unknown) {
   if (!Array.isArray(value)) return []
   return value.flatMap((item) => {
-    const question = stringValue(recordValue(item)?.question)
-    return question ? [{ question }] : []
+    const record = recordValue(item)
+    const question = stringValue(record?.question)
+    if (!record || !question) return []
+    const options = Array.isArray(record.options)
+      ? record.options.flatMap((option) => {
+          const label = stringValue(recordValue(option)?.label)
+          return label ? [{ label, description: stringValue(recordValue(option)?.description) }] : []
+        })
+      : []
+    return [{ question, options }]
   })
 }
 
