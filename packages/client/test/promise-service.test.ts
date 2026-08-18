@@ -172,6 +172,39 @@ test("evicts an unresponsive service through a graceful stop request", async () 
   await waitForExit(replacement.pid)
 })
 
+test("a briefly unresponsive registered service recovers instead of being evicted", async () => {
+  const directory = await temp()
+  const registration = join(directory, "service.json")
+  const existing = Bun.spawn([process.execPath, fixture, registration, "stall"], {
+    stdout: "ignore",
+    stderr: "inherit",
+  })
+  processes.push(existing)
+  await waitForFile(registration)
+  const original = await Bun.file(registration).json()
+
+  // An empty command makes any contender spawn throw, proving the strike
+  // window holds contenders back while the incumbent is merely unresponsive.
+  const result = Service.ensure({
+    file: registration,
+    version: "test",
+    command: [],
+    probeTimeoutSeconds: 0.5,
+    evictionStrikes: 100,
+  })
+  await Bun.sleep(2_000)
+  await Bun.write(registration + ".release", "")
+
+  const endpoint = await result
+  try {
+    expect(endpoint.url).toBe(original.url)
+    expect(existing.exitCode).toBe(null)
+  } finally {
+    process.kill(original.pid, "SIGTERM")
+    await waitForExit(original.pid)
+  }
+}, 20_000)
+
 test("signals the registered service process", async () => {
   const registration = await setup("compatible")
 

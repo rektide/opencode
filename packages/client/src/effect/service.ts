@@ -52,7 +52,10 @@ const discoverLocal = Effect.fnUntraced(function* (options: DiscoverOptions) {
 
 // Idempotent ensure-running: reuses a healthy compatible server, replaces a
 // version-mismatched one, and otherwise spawns small contenders until a server
-// becomes discoverable. A contender is never killed merely for slow startup.
+// becomes discoverable. A contender is never killed merely for slow startup,
+// and a registered server that misses health probes is only evicted after the
+// configured strike window; while strikes accumulate no contenders are spawned
+// against the port the incumbent still holds.
 /** Ensure a healthy, compatible local service is running. */
 export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOptions = {}) {
   const timing = ensureTiming(options)
@@ -113,8 +116,10 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
     }
     finished.forEach((item) => contenders.delete(item))
     if (failure !== undefined && contenders.size === 0) return yield* Effect.fail(failure)
-    // Keep one candidate plus one lock probe so a pre-lock stall cannot block recovery.
-    if (contenders.size < 2 && Date.now() - lastSpawn >= spawnDelay) {
+    // Keep one candidate plus one lock probe so a pre-lock stall cannot block
+    // recovery. A merely unresponsive incumbent is left alone: strikes
+    // accumulate toward eviction instead of racing a replacement for its port.
+    if (contenders.size < 2 && !registration.timedOut && Date.now() - lastSpawn >= spawnDelay) {
       yield* announce("missing")
       contenders.add(yield* spawnContender)
       lastSpawn = Date.now()
