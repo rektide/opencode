@@ -37,8 +37,8 @@ function questionMessage(input: unknown, metadata?: Record<string, unknown>) {
   return message
 }
 
-function transcript(content: SessionMessageInfo[]) {
-  return formatSessionTranscript(session, content, false)
+function transcript(content: SessionMessageInfo[], allOptions = false) {
+  return formatSessionTranscript(session, content, false, allOptions)
 }
 
 describe("question transcript export", () => {
@@ -91,6 +91,29 @@ describe("question transcript export", () => {
     const output = transcript([questionMessage({ questions: [{ question: "Skipped?", header: "S", options: [] }] }, { answers: [[]] })])
 
     expect(output).toContain("**Answer:** (no answer)")
+  })
+
+  test("hides offered options unless show-all-options is enabled", () => {
+    const input = {
+      questions: [
+        {
+          question: "Which approach?",
+          header: "Approach",
+          options: [
+            { label: "Direct", description: "Edit in place" },
+            { label: "Copy first" },
+          ],
+        },
+      ],
+    }
+
+    const compact = transcript([questionMessage(input, { answers: [["Direct"]] })])
+    expect(compact).not.toContain("- [")
+    expect(compact).not.toContain("Copy first")
+
+    const expanded = transcript([questionMessage(input, { answers: [["Direct"]] })], true)
+    expect(expanded).toContain("- [x] Direct\n  Edit in place")
+    expect(expanded).toContain("- [ ] Copy first\n")
   })
 
   test("falls back to generic tool output when answers metadata is missing", () => {
