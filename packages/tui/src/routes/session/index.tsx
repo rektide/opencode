@@ -120,7 +120,7 @@ const TRANSCRIPT_TAIL_ROWS = 40
 const TRANSCRIPT_BACKFILL_CHUNK = 60
 type PendingAction = "steer" | "queue" | "cancel"
 
-export const SessionContext = createContext<{
+const context = createContext<{
   width: number
   sessionID: string
   thinkingMode: () => ThinkingMode
@@ -135,7 +135,7 @@ export const SessionContext = createContext<{
 }>()
 
 function use() {
-  const ctx = useContext(SessionContext)
+  const ctx = useContext(context)
   if (!ctx) throw new Error("useContext must be used within a Session component")
   return ctx
 }
@@ -1122,7 +1122,7 @@ export function Session(props: { verticalTabsWidth: number }) {
   )
 
   return (
-    <SessionContext.Provider
+    <context.Provider
       value={{
         get width() {
           return contentWidth()
@@ -1296,7 +1296,7 @@ export function Session(props: { verticalTabsWidth: number }) {
           </Switch>
         </Show>
       </box>
-    </SessionContext.Provider>
+    </context.Provider>
   )
 }
 
@@ -1872,7 +1872,7 @@ function SessionSwitchMessageV2(props: { message: SessionMessageInfo }) {
   )
 }
 
-export function SessionNoticeMessageV2(props: { message: SessionMessageInfo }) {
+function SessionNoticeMessageV2(props: { message: SessionMessageInfo }) {
   const ctx = use()
   const theme = useTheme()
   const renderer = useRenderer()
