@@ -196,18 +196,22 @@ const probe = Effect.fnUntraced(function* (info: Info, allowLegacy = false, time
   return (yield* probeResult(info, allowLegacy, timeout)).service
 })
 
-const probeResult = Effect.fnUntraced(function* (
-  info: Info,
-  allowLegacy = false,
-  timeout = defaultEnsureTiming.requestTimeout,
-) {
-  const endpoint = {
+function endpointOf(info: Info): Endpoint {
+  return {
     url: info.url,
     auth:
       info.password === undefined
         ? undefined
         : { type: "basic" as const, username: "opencode", password: info.password },
-  } satisfies Endpoint
+  }
+}
+
+const probeResult = Effect.fnUntraced(function* (
+  info: Info,
+  allowLegacy = false,
+  timeout = defaultEnsureTiming.requestTimeout,
+) {
+  const endpoint = endpointOf(info)
   const signal = AbortSignal.timeout(timeout)
   const result = yield* Effect.promise(() =>
     fetch(new URL("/api/health", info.url), {
@@ -280,7 +284,11 @@ function same(left: Info, right: Info) {
 const terminate = Effect.fnUntraced(function* (info: Info, options: { readonly file?: string }, timing: EnsureTiming) {
   const current = yield* read(options.file)
   if (current === undefined || !same(current, info)) return
-  yield* signal(info.pid, "SIGTERM")
+  // Prefer an authenticated graceful stop so active sessions suspend before
+  // any signal escalation.
+  const requested = yield* requestStop({ info, endpoint: endpointOf(info) }, timing.requestTimeout)
+  if (requested === "rejected") return
+  if (requested === "unsupported") yield* signal(info.pid, "SIGTERM")
   const done = yield* stopped(info.pid).pipe(Effect.retry(poll(timing)), Effect.option)
   if (Option.isNone(done)) {
     const latest = yield* read(options.file)
@@ -292,6 +300,28 @@ const terminate = Effect.fnUntraced(function* (info: Info, options: { readonly f
   if (latest === undefined || !same(latest, info)) return
   const fs = yield* FileSystem.FileSystem
   yield* fs.remove(options.file ?? fallback()).pipe(Effect.ignore)
+})
+
+const decodeStopResponse = Schema.decodeUnknownOption(Schema.Struct({ accepted: Schema.Boolean }))
+
+const requestStop = Effect.fnUntraced(function* (
+  service: { readonly info: Info; readonly endpoint: Endpoint; readonly legacy?: boolean },
+  timeout = defaultEnsureTiming.requestTimeout,
+) {
+  if (service.info.id === undefined || service.legacy === true) return "unsupported" as const
+  const response = yield* Effect.tryPromise(() =>
+    fetch(new URL("/api/service/stop", service.info.url), {
+      method: "POST",
+      headers: { ...headers(service.endpoint), "content-type": "application/json" },
+      body: JSON.stringify({ instanceID: service.info.id }),
+      signal: AbortSignal.timeout(timeout),
+    }),
+  ).pipe(Effect.option, Effect.map(Option.getOrUndefined))
+  if (response === undefined || response.status === 404 || response.status === 405) return "unsupported" as const
+  const body = yield* Effect.tryPromise(() => response.json()).pipe(Effect.option, Effect.map(Option.getOrUndefined))
+  const decoded = decodeStopResponse(body)
+  if (!response.ok || Option.isNone(decoded) || !decoded.value.accepted) return "rejected" as const
+  return "accepted" as const
 })
 
 /** Effect-based local service lifecycle operations. */

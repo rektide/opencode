@@ -149,6 +149,29 @@ test("evicts an unresponsive registered service before starting its replacement"
   expect(await health(endpoint.url)).toEqual({ healthy: true, version: "test", pid: replacement.pid })
 })
 
+test("evicts an unresponsive service through a graceful stop request", async () => {
+  await using fixture = await serviceFixture()
+  const registration = fixture.registration
+  const existing = fixture.spawn("hanging-graceful")
+  await fixture.waitForFile()
+  const original = await Bun.file(registration).json()
+
+  const endpoint = await run(
+    ensure({
+      file: registration,
+      version: "test",
+      command: fixture.command("delayed", "10"),
+    }),
+  )
+  const replacement = await Bun.file(registration).json()
+  fixture.track(replacement.pid)
+
+  expect(await Bun.file(registration + ".stop").json()).toEqual({ instanceID: original.id })
+  expect(await existing.exited).toBe(0)
+  expect(replacement.pid).not.toBe(original.pid)
+  expect(endpoint.url).toBe(replacement.url)
+})
+
 test("signals an unresponsive registered service process", async () => {
   await using fixture = await serviceFixture()
   const registration = fixture.registration
