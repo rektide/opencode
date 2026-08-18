@@ -23,7 +23,7 @@ export * from "../service.js"
 
 /** Discover a healthy, compatible local service without starting one. */
 export async function discover(options: DiscoverOptions = {}) {
-  const found = (await registered(options.file)).service
+  const found = (await registered(options.file, false, ensureTiming(options).requestTimeout)).service
   if (found?.state !== "ready") return undefined
   if (!matchesVersion(found.version, options)) return undefined
   return found.endpoint
@@ -63,7 +63,7 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
           info: registration.info,
           count: timeouts !== undefined && same(timeouts.info, registration.info) ? timeouts.count + 1 : 1,
         }
-        if (timeouts.count >= 3) {
+        if (timeouts.count >= timing.evictionStrikes) {
           announce("missing")
           console.warn("Background service is unresponsive; recovery cannot preserve persistent terminals")
           await PtyHandoff.clear(options.file ?? fallback())
@@ -121,7 +121,7 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
 export async function stop(options: StopOptions = {}) {
   await PtyHandoff.clear(options.file ?? fallback())
   const info = await read(options.file)
-  if (info !== undefined) await terminate(info, options, defaultEnsureTiming)
+  if (info !== undefined) await terminate(info, options, ensureTiming(options))
 }
 
 function fallback() {
