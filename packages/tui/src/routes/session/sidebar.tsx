@@ -53,7 +53,7 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
                   pending: data.session.title.pending(props.sessionID),
                   title: withTimestampedFallback(session()),
                 }}
-                enabled={config.animations ?? true}
+                enabled={config.animations !== false}
                 backdrop={theme.background.default}
                 attributes={
                   data.session.title.pending(props.sessionID) && config.animations === false
