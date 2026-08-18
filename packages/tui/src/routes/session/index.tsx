@@ -1886,18 +1886,6 @@ function SessionNoticeMessageV2(props: { message: SessionMessageInfo }) {
     return ""
   }
   const description = () => (source() === "shell" ? text().replace(/\s+/g, " ").trim() : text())
-  const status = () => {
-    if (state() === "completed") return "finished"
-    if (state() === "error") return "failed"
-    return state() ?? "finished"
-  }
-  const heading = () => `${state() === "completed" ? "↳" : "!"} ${actor()} ${status()}`
-  const suffix = () => Locale.truncateWidth(` · ${description()}`, Math.max(0, ctx.width - 3 - stringWidth(heading())))
-  const color = () => {
-    if (state() === "error") return theme.text.feedback.error.default
-    if (state() === "cancelled") return theme.text.feedback.warning.default
-    return theme.text.feedback.info.default
-  }
   return (
     <Show
       when={completion()}
@@ -1907,13 +1895,62 @@ function SessionNoticeMessageV2(props: { message: SessionMessageInfo }) {
         </InlineToolRow>
       }
     >
-      <box marginLeft={3}>
-        <text wrapMode="none">
-          <span style={{ fg: color() }}>{heading()}</span>
-          <span style={{ fg: theme.text.subdued }}>{suffix()}</span>
-        </text>
-      </box>
+      <CompletionNoticeRow
+        width={ctx.width}
+        actor={actor()}
+        state={state()}
+        description={description()}
+        childID={stringValue(metadata()?.childID)}
+      />
     </Show>
+  )
+}
+
+export function CompletionNoticeRow(props: {
+  width: number
+  actor: string
+  state?: string
+  description: string
+  childID?: string
+}) {
+  const theme = useTheme()
+  const renderer = useRenderer()
+  const route = useRoute()
+  const [hover, setHover] = createSignal(false)
+  const status = () => {
+    if (props.state === "completed") return "finished"
+    if (props.state === "error") return "failed"
+    return props.state ?? "finished"
+  }
+  const heading = () => `${props.actor} ${status()}`
+  const suffix = () =>
+    Locale.truncateWidth(
+      ` · ${props.description}`,
+      Math.max(0, props.width - 3 - INLINE_TOOL_ICON_WIDTH - stringWidth(heading())),
+    )
+  const color = () => {
+    if (props.state === "error") return theme.text.feedback.error.default
+    if (props.state === "cancelled") return theme.text.feedback.warning.default
+    return theme.text.feedback.info.default
+  }
+  const headingColor = () => (props.childID && hover() ? theme.text.default : color())
+  return (
+    <InlineToolRow
+      icon={props.state === "completed" ? "↳" : "!"}
+      iconColor={headingColor()}
+      color={headingColor()}
+      pending="Notice"
+      complete={true}
+      onMouseOver={() => props.childID && setHover(true)}
+      onMouseOut={() => setHover(false)}
+      onMouseUp={() => {
+        if (renderer.getSelection()?.getSelectedText()) return
+        if (props.childID) route.navigate({ type: "session", sessionID: props.childID })
+      }}
+    >
+      <span style={{ fg: headingColor() }}>{heading()}</span>
+      <span style={{ fg: theme.text.subdued }}>{suffix()}</span>
+    </InlineToolRow>
   )
 }
 
