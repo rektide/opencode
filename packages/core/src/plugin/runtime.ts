@@ -14,8 +14,10 @@ export interface Interface {
   readonly session: Pick<
     Session.Interface,
     | "get"
+    | "list"
     | "create"
     | "messages"
+    | "inbox"
     | "prompt"
     | "generate"
     | "command"
@@ -27,7 +29,7 @@ export interface Interface {
     | "synthetic"
     | "wait"
   >
-  readonly job: Pick<Job.Interface, "start" | "wait" | "block" | "background" | "cancel">
+  readonly job: Pick<Job.Interface, "get" | "start" | "wait" | "block" | "background" | "cancel">
   readonly location: {
     readonly agent: {
       readonly list: (
@@ -70,8 +72,10 @@ export const layerWithCell = (cell: Cell) =>
     Service.of({
       session: {
         get: (sessionID) => require(cell, (runtime) => runtime.session.get(sessionID)),
+        list: (input) => require(cell, (runtime) => runtime.session.list(input)),
         create: (input) => require(cell, (runtime) => runtime.session.create(input)),
         messages: (input) => require(cell, (runtime) => runtime.session.messages(input)),
+        inbox: (sessionID) => require(cell, (runtime) => runtime.session.inbox(sessionID)),
         prompt: (input) => require(cell, (runtime) => runtime.session.prompt(input)),
         generate: (input) => require(cell, (runtime) => runtime.session.generate(input)),
         command: (input) => require(cell, (runtime) => runtime.session.command(input)),
@@ -84,6 +88,7 @@ export const layerWithCell = (cell: Cell) =>
         wait: (sessionID) => require(cell, (runtime) => runtime.session.wait(sessionID)),
       },
       job: {
+        get: (id) => require(cell, (runtime) => runtime.job.get(id)),
         start: (input) => require(cell, (runtime) => runtime.job.start(input)),
         wait: (input) => require(cell, (runtime) => runtime.job.wait(input)),
         block: (input) => require(cell, (runtime) => runtime.job.block(input)),
