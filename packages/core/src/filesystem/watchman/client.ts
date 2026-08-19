@@ -7,6 +7,10 @@ const COMMAND_TIMEOUT = "10 seconds"
 export type RawClient = {
   readonly end: () => void
   readonly command: (args: readonly unknown[], callback: (error: Error | null, response?: unknown) => void) => void
+  readonly capabilityCheck: (
+    capabilities: { readonly required: readonly string[] },
+    callback: (error: Error | null, response?: unknown) => void,
+  ) => void
   readonly on: (event: string, listener: (value?: unknown) => void) => unknown
 }
 
@@ -46,6 +50,9 @@ export const make = Effect.gen(function* () {
       if (Deferred.isDoneUnsafe(generation.closed)) return
       Deferred.doneUnsafe(generation.closed, Effect.void)
       generation.client.end()
+      generation.routes.clear()
+      generation.subscriptions.clear()
+      generations.delete(generation)
       if (active === generation) active = undefined
       if (cause) Effect.runFork(Effect.logWarning("watchman connection retired", { generation: generation.id, cause }))
     })
@@ -81,6 +88,30 @@ export const make = Effect.gen(function* () {
       ),
     )
 
+  const capabilityCheck = (generation: Generation) =>
+    Effect.callback<unknown, WatchmanError>((resume) => {
+      generation.client.capabilityCheck({ required: ["cmd-watch-project", "relative_root"] }, (error, value) => {
+        if (error) {
+          resume(Effect.fail(new WatchmanError("connect", error.message, error)))
+          return
+        }
+        resume(Effect.succeed(value))
+      })
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: COMMAND_TIMEOUT,
+        orElse: () =>
+          retire(generation, "capability check timed out").pipe(
+            Effect.andThen(Effect.fail(new WatchmanError("connect", "Watchman capability check timed out"))),
+          ),
+      }),
+      Effect.flatMap((value) =>
+        Schema.decodeUnknownEffect(CapabilityResponse)(value).pipe(
+          Effect.mapError((error) => new WatchmanError("decode", "Invalid Watchman capability response", error)),
+        ),
+      ),
+    )
+
   const create = Effect.gen(function* () {
     const generation: Generation = {
       id: ++next,
@@ -99,12 +130,7 @@ export const make = Effect.gen(function* () {
     generation.client.on("log", (value: unknown) => Effect.runFork(Effect.logDebug("watchman log", { value })))
     generation.client.on("error", disconnect)
     generation.client.on("end", disconnect)
-    yield* command(
-      generation,
-      ["version", { required: ["cmd-watch-project", "relative_root"] }],
-      CapabilityResponse,
-      "connect",
-    ).pipe(Effect.tapError((error) => retire(generation, error)))
+    yield* capabilityCheck(generation).pipe(Effect.tapError((error) => retire(generation, error)))
     active = generation
     yield* Effect.logInfo("watchman connected", { generation: generation.id })
     return generation
