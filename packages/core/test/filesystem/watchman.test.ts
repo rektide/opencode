@@ -1,11 +1,11 @@
 import { expect } from "bun:test"
 import { Deferred, Effect, Schema } from "effect"
 import { Watcher } from "@opencode-ai/core/filesystem/watcher"
-import type { Generation, Manager } from "@opencode-ai/core/filesystem/watchman/client"
-import { makeNativeWith } from "@opencode-ai/core/filesystem/watchman/native"
-import { resolve } from "@opencode-ai/core/filesystem/watchman/route"
-import { WatchmanError } from "@opencode-ai/core/filesystem/watchman/schema"
-import { it } from "../lib/effect"
+import type { Generation, Manager } from "../../src/filesystem/watchman/client.ts"
+import { makeNativeWith } from "../../src/filesystem/watchman/native.ts"
+import { resolve } from "../../src/filesystem/watchman/route.ts"
+import { WatchmanError } from "../../src/filesystem/watchman/schema.ts"
+import { it } from "../lib/effect.ts"
 
 function generation(id = 1): Generation {
   const client = {
@@ -114,6 +114,9 @@ it.effect("routes one project interest and filters Watchman events locally", () 
     })
     yield* Effect.yieldNow
     expect(updates).toEqual([{ path: "/repo/.opencode/config.json", type: "update" }])
+    expect(commands.find((command) => command[0] === "subscribe")?.[3]).toMatchObject({
+      expression: ["not", ["anyof", ["name", "node_modules", "wholename"], ["dirname", "node_modules"]]],
+    })
     yield* Effect.promise(() => subscription?.unsubscribe() ?? Promise.resolve())
     expect(commands.some((command) => command[0] === "watch-del")).toBe(false)
     expect(commands.some((command) => command[0] === "unsubscribe")).toBe(true)
@@ -183,6 +186,50 @@ it.effect("resumes an interest cursor on a new connection generation", () => {
     const command = yield* Deferred.await(resumed)
     expect(command[0]).toBe("subscribe")
     expect(command[3]).toMatchObject({ since: "c:2", relative_root: "src" })
+    yield* Effect.promise(() => subscription?.unsubscribe() ?? Promise.resolve())
+  })
+})
+
+it.effect("stores the replacement cursor after a resume cursor is rejected", () => {
+  const first = generation(1)
+  const second = generation(2)
+  const resumed = Deferred.makeUnsafe<readonly unknown[]>()
+  let current = first
+  let attempts = 0
+  const transport = manager(
+    () => current,
+    (generation, args) => {
+      if (args[0] === "watch-project") return Effect.succeed({ watch: "/repo", relative_path: "src" })
+      if (args[0] === "clock") return Effect.succeed({ clock: generation === first ? "c:1" : "c:3" })
+      if (args[0] === "subscribe" && generation === second) {
+        attempts++
+        if (attempts === 1) return Effect.fail(new WatchmanError("subscribe", "cursor rejected"))
+        Deferred.doneUnsafe(resumed, Effect.succeed(args))
+      }
+      if (args[0] === "subscribe") return Effect.succeed({ subscribe: args[2] })
+      return Effect.succeed({ unsubscribe: args[2], deleted: true })
+    },
+  )
+  return Effect.gen(function* () {
+    const subscription = yield* makeNativeWith(transport, fallback()).subscribe({
+      type: "directory",
+      target: "/repo/src",
+      routing: "project",
+      ignore: [],
+      publish: () => {},
+      fail: () => {},
+    })
+    first.subscriptions.values().next().value?.({
+      subscription: "opencode-1-1",
+      root: "/repo",
+      clock: "c:2",
+      is_fresh_instance: false,
+      files: [],
+    })
+    yield* Effect.yieldNow
+    current = second
+    Deferred.doneUnsafe(first.closed, Effect.void)
+    expect((yield* Deferred.await(resumed))[3]).toMatchObject({ since: "c:3" })
     yield* Effect.promise(() => subscription?.unsubscribe() ?? Promise.resolve())
   })
 })
