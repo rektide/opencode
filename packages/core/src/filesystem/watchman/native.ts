@@ -60,49 +60,58 @@ function watchmanSubscribe(
         const name = `opencode-${generation.id}-${id}`
         const queue = yield* Queue.unbounded<unknown>()
         generation.subscriptions.set(name, (value) => Queue.offerUnsafe(queue, value))
+        const pending = { subscribed: false }
         const options = {
           since: clock,
           ...(route.relativeRoot ? { relative_root: route.relativeRoot } : {}),
           expression: expression(route, input.ignore),
           fields: ["name", "exists", "new", "type"],
         }
-        const subscribed = yield* manager
-          .command(generation, ["subscribe", route.root, name, options], SubscribeResponse, "subscribe")
-          .pipe(
-            Effect.map((response) => ({ response, clock })),
-            Effect.catch((error) =>
-              compatible
-                ? Effect.gen(function* () {
-                    const current = (yield* manager.command(
-                      generation,
-                      ["clock", route.root],
-                      ClockResponse,
-                      "subscribe",
-                    )).clock
-                    input.publish({ path: input.target, type: "update" })
-                    const response = yield* manager.command(
-                      generation,
-                      ["subscribe", route.root, name, { ...options, since: current }],
-                      SubscribeResponse,
-                      "subscribe",
-                    )
-                    return { response, clock: current }
-                  })
-                : Effect.fail(error),
-            ),
-            Effect.tapError(() =>
-              Effect.sync(() => {
-                generation.subscriptions.delete(name)
-                Effect.runFork(Queue.shutdown(queue))
-              }),
-            ),
-          )
-        if (subscribed.response.warning)
-          yield* Effect.logWarning("watchman subscription warning", {
-            name,
-            warning: subscribed.response.warning,
-          })
-        return { generation, route, name, queue, clock: subscribed.clock, closed: false } satisfies State
+        return yield* Effect.gen(function* () {
+          const subscribed = yield* manager
+            .command(generation, ["subscribe", route.root, name, options], SubscribeResponse, "subscribe")
+            .pipe(
+              Effect.map((response) => ({ response, clock })),
+              Effect.catch((error) =>
+                compatible
+                  ? Effect.gen(function* () {
+                      const current = (yield* manager.command(
+                        generation,
+                        ["clock", route.root],
+                        ClockResponse,
+                        "subscribe",
+                      )).clock
+                      input.publish({ path: input.target, type: "update" })
+                      const response = yield* manager.command(
+                        generation,
+                        ["subscribe", route.root, name, { ...options, since: current }],
+                        SubscribeResponse,
+                        "subscribe",
+                      )
+                      return { response, clock: current }
+                    })
+                  : Effect.fail(error),
+              ),
+              Effect.tap(() => Effect.sync(() => (pending.subscribed = true))),
+            )
+          if (subscribed.response.warning)
+            yield* Effect.logWarning("watchman subscription warning", {
+              name,
+              warning: subscribed.response.warning,
+            })
+          return { generation, route, name, queue, clock: subscribed.clock, closed: false } satisfies State
+        }).pipe(
+          Effect.onError(() =>
+            Effect.gen(function* () {
+              generation.subscriptions.delete(name)
+              yield* Queue.shutdown(queue)
+              if (!pending.subscribed || Deferred.isDoneUnsafe(generation.closed)) return
+              yield* manager
+                .command(generation, ["unsubscribe", route.root, name], UnsubscribeResponse)
+                .pipe(Effect.catchCause(() => Effect.void))
+            }),
+          ),
+        )
       }).pipe(Effect.tapError((error) => manager.retire(generation, error)))
     })
 
@@ -164,7 +173,7 @@ function watchmanSubscribe(
           clock: next.state.clock,
         })
         return yield* loop(next.state)
-      })
+      }).pipe(Effect.onError(() => close(state)))
     return loop(initial)
   }
 
