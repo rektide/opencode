@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process"
 
 export type ServiceContender = {
   readonly child: ChildProcess
+  readonly at: number
   readonly error: () => Error | undefined
   readonly closed: () => boolean
   readonly stderr: () => string
@@ -41,6 +42,7 @@ export function spawnServiceContender(
   child.unref()
   return {
     child,
+    at: Date.now(),
     error: () => error,
     closed: () => closed,
     stderr: () => stderr.toString("utf8").trim(),
@@ -64,6 +66,12 @@ export function contenderFailure(contender: ServiceContender) {
 
 export function contenderFinished(contender: ServiceContender) {
   return contender.error() !== undefined || contender.closed()
+}
+
+export function contenderOutcome(contender: ServiceContender) {
+  if (contender.error() !== undefined) return "error" as const
+  if (contender.child.exitCode === 0) return "yielded" as const
+  return "failed" as const
 }
 
 function startupError(message: string, stderr: string) {
