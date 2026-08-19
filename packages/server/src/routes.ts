@@ -103,7 +103,7 @@ function makeRoutes<AuthError, AuthServices>(
     [Bus.node, Bus.configured({ persist: options.events?.persist })],
     [App.node, App.configured(options.app)],
     [ModelsDev.node, ModelsDev.configured(options.models)],
-    [Watcher.node, Watcher.configured({ enabled: options.fs?.filewatcher })],
+    [Watcher.node, Watcher.configured({ enabled: options.fs?.filewatcher, backend: options.fs?.watcherBackend })],
     [FileSystemSearch.node, FileSystemSearch.configured({ fff: options.fs?.fff })],
     [Global.node, Global.layerWith(options.config?.directory ? { config: options.config.directory } : {})],
     [
