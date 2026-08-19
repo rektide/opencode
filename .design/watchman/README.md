@@ -108,6 +108,25 @@ directory, and removal of a duplicate symlink-sentinel re-acquisition entry
 (the retention semantics: reacquiring the same interest inside the TTL hits
 the retained entry rather than re-subscribing).
 
+## Configuration
+
+| Knob | Values | Effect |
+| --- | --- | --- |
+| `OPENCODE_WATCHER_BACKEND` | `default` / `watchman` / `parcel` | `watchman` prefers Watchman with Parcel fallback before first subscribe; `parcel` forces Parcel; unknown values fail startup |
+| `OPENCODE_FILEWATCHER_DISABLE` / `OPENCODE_DISABLE_FILEWATCHER` | truthy | Disables watching entirely (takes precedence; empty streams) |
+| `WATCHMAN_SOCK` | socket path | Transport-only, consumed by the fb-watchman-esm fork (`connect()` reads it before spawning `watchman get-sockname`); also removes the PATH/binary requirement |
+| `ServerOptions.fs.watcherBackend` | same as env | Programmatic/embedded-server equivalent |
+| `Watcher.Options { enabled, backend }` | — | In-code layer option; the seam the above feed |
+
+Failover behavior (verified live): a dead `WATCHMAN_SOCK` or absent daemon
+fails acquisition in well under a second (local-socket ECONNREFUSED) and each
+affected interest falls back to Parcel with a logged warning. After the first
+Watchman subscribe acknowledgement there is no silent backend switch — only
+cursor-resume reconnects or a visible stream failure. Not configurable
+(hardcoded so far): 15m retention TTL, 10s command timeout, reconnect retry
+policy (6 × 100ms), and the fork's `watchmanBinaryPath` (unexposed; only
+relevant without `WATCHMAN_SOCK`).
+
 ## Verification
 
 Run from package directories, never repo root:
