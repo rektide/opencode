@@ -90,6 +90,7 @@ export const layer = (options?: Options) =>
       const credentials = yield* Credential.Service
       const wellknown = yield* WellKnown.Service
       const names = ["opencode.json", "opencode.jsonc"]
+      const globalDirectory = AbsolutePath.make(global.config)
       const reloadLock = Semaphore.makeUnsafe(1)
       const fileTargets = new Set<AbsolutePath>()
       const decodeOptions = { errors: "all", onExcessProperty: "ignore", propertyOrder: "original" } as const
@@ -185,7 +186,6 @@ export const layer = (options?: Options) =>
       })
 
       const discover = Effect.fn("Config.discover")(function* () {
-        const globalDirectory = AbsolutePath.make(global.config)
         const globalAgentsDirectory = AbsolutePath.make(path.join(global.home, ".agents"))
         const globalClaudeDirectory = AbsolutePath.make(path.join(global.home, ".claude"))
         const locationIsGlobal = path.resolve(location.directory) === path.resolve(global.config)
@@ -299,7 +299,15 @@ export const layer = (options?: Options) =>
           ...fileTargets,
         ]
         const targets = [
-          ...directories.map((path) => ({ path, type: "directory" as const, ignore })),
+          ...directories.map((path) => ({
+            path,
+            type: "directory" as const,
+            routing:
+              path !== globalDirectory && FSUtil.contains(location.project.directory, path)
+                ? ("project" as const)
+                : ("exact" as const),
+            ignore,
+          })),
           ...files
             .filter((file) => !directories.some((directory) => FSUtil.contains(directory, file)))
             .map((path) => ({ path, type: "file" as const })),

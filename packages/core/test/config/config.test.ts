@@ -1470,6 +1470,7 @@ describe("Config", () => {
 
           return yield* Effect.gen(function* () {
             const config = yield* Config.Service
+            const watcher = yield* Watcher.Test
             const entries = (yield* config.entries()).filter((entry) => !entry.path || inFixture(tmp.path, entry.path))
             const documents = entries.filter((entry) => entry.type === "document")
 
@@ -1496,6 +1497,29 @@ describe("Config", () => {
               "directory",
               "root-dot",
               "directory-dot",
+            ])
+            expect(
+              (yield* watcher.subscriptions()).filter(
+                (input) => input.type === "directory" && inFixture(tmp.path, input.path),
+              ),
+            ).toEqual([
+              {
+                type: "directory",
+                path: AbsolutePath.make(global),
+                ignore: ["**/{node_modules,.git}/**", ".git", "node_modules"],
+              },
+              {
+                type: "directory",
+                path: AbsolutePath.make(path.join(root, ".opencode")),
+                routing: "project",
+                ignore: ["**/{node_modules,.git}/**", ".git", "node_modules"],
+              },
+              {
+                type: "directory",
+                path: AbsolutePath.make(path.join(directory, ".opencode")),
+                routing: "project",
+                ignore: ["**/{node_modules,.git}/**", ".git", "node_modules"],
+              },
             ])
             expect(entries.map((entry) => (entry.type === "document" ? entry.info.$schema : entry.path))).toEqual([
               AbsolutePath.make(globalClaude),
