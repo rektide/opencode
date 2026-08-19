@@ -24,7 +24,6 @@ test("accepts optional app metadata", () => {
 test("accepts durable event persistence configuration", () => {
   expect(Option.getOrThrow(decode({ events: { persist: true } })).events).toEqual({ persist: true })
 })
-
 test("accepts an optional CORS allowlist", () => {
   expect(Option.getOrThrow(decode({})).cors).toBeUndefined()
   expect(Option.getOrThrow(decode({ cors: [] })).cors).toEqual([])
@@ -33,4 +32,11 @@ test("accepts an optional CORS allowlist", () => {
     "https://example.com",
   ])
   expect(Option.isNone(decode({ cors: "http://192.168.1.10:3001" }))).toBe(true)
+})
+
+test("accepts only known watcher backends", () => {
+  for (const watcherBackend of ["default", "watchman", "parcel"]) {
+    expect(Option.isSome(decode({ fs: { watcherBackend } }))).toBe(true)
+  }
+  expect(Option.isNone(decode({ fs: { watcherBackend: "native" } }))).toBe(true)
 })
