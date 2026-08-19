@@ -55,6 +55,9 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
           : undefined
       if (incumbent !== undefined) return
       const { start } = yield* Effect.promise(() => import("@opencode-ai/server/process"))
+      const watcherBackend = yield* Schema.decodeUnknownEffect(Schema.Literals(["default", "watchman", "parcel"]))(
+        process.env.OPENCODE_WATCHER_BACKEND ?? "default",
+      ).pipe(Effect.mapError(() => new Error("OPENCODE_WATCHER_BACKEND must be one of: default, watchman, parcel")))
       const environmentPassword = yield* Env.password
       // Keep the lease credential out of the environment inherited by tools.
       if (options.mode === "stdio") {
@@ -108,6 +111,7 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
           },
           fs: {
             filewatcher: !truthy(process.env.OPENCODE_FILEWATCHER_DISABLE ?? process.env.OPENCODE_DISABLE_FILEWATCHER),
+            watcherBackend,
             fff:
               process.env.OPENCODE_DISABLE_FFF === undefined
                 ? process.platform !== "win32"
