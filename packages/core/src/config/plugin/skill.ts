@@ -35,7 +35,15 @@ export const Plugin = define({
 
     const watch = Effect.fn("ConfigSkillPlugin.watch")(function* (directory: string, type: Watcher.WatchInput["type"]) {
       const target = path.resolve(directory)
-      const updates = yield* watcher.subscribe({ path: target, type })
+      const updates = yield* watcher.subscribe(
+        type === "file"
+          ? { path: target, type: "file" }
+          : {
+              path: target,
+              type: "directory",
+              routing: FSUtil.contains(location.project.directory, target) ? "project" : "exact",
+            },
+      )
       yield* FiberMap.run(
         watches,
         `${type}:${target}`,

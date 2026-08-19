@@ -97,7 +97,7 @@ export const layer = (options?: Options) =>
       const native =
         options?.backend === "watchman"
           ? yield* Effect.gen(function* () {
-              const { makeNative } = yield* Effect.promise(() => import("./watchman/native.ts"))
+              const { makeNative } = yield* Effect.promise(() => import("./watchman/native.js"))
               return yield* makeNative(fallback)
             })
           : fallback
