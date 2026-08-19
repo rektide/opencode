@@ -128,6 +128,9 @@ export const make = Effect.gen(function* () {
       if (typeof name === "string") generation.subscriptions.get(name)?.(value)
     })
     generation.client.on("log", (value: unknown) => Effect.runFork(Effect.logDebug("watchman log", { value })))
+    generation.client.on("connect", () => {
+      if (Deferred.isDoneUnsafe(generation.closed)) generation.client.end()
+    })
     generation.client.on("error", disconnect)
     generation.client.on("end", disconnect)
     yield* capabilityCheck(generation).pipe(Effect.tapError((error) => retire(generation, error)))
