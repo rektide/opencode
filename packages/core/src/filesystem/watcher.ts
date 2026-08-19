@@ -5,7 +5,7 @@ import { createWrapper } from "@parcel/watcher/wrapper"
 import type ParcelWatcher from "@parcel/watcher"
 import { FileSystem } from "@opencode-ai/schema/filesystem"
 import { makeGlobalNode } from "@opencode-ai/util/effect/app-node"
-import { Cause, Context, Effect, Layer, PubSub, RcMap, Schema, Stream } from "effect"
+import { Cause, Context, Deferred, Effect, Layer, PubSub, RcMap, Schema, Scope, Stream } from "effect"
 import { lazy } from "../util/lazy.js"
 import { watch } from "node:fs"
 import path from "path"
@@ -33,7 +33,12 @@ export type Update = ParcelWatcher.Event
 
 export type WatchInput =
   | { readonly path: string; readonly type: "file" }
-  | { readonly path: string; readonly type: "directory"; readonly ignore?: readonly string[] }
+  | {
+      readonly path: string
+      readonly type: "directory"
+      readonly routing?: "project" | "exact"
+      readonly ignore?: readonly string[]
+    }
 
 export type Subscription = {
   readonly unsubscribe: () => Promise<void>
@@ -46,9 +51,11 @@ export interface NativeInterface {
   readonly subscribe: (input: {
     readonly type: WatchInput["type"]
     readonly target: string
+    readonly routing: "project" | "exact"
     readonly ignore: readonly string[]
     readonly publish: (update: Update) => void
-  }) => Effect.Effect<Subscription | undefined>
+    readonly fail: (error: Error) => void
+  }) => Effect.Effect<Subscription | undefined, never, Scope.Scope>
 }
 
 /**
@@ -59,11 +66,12 @@ export interface NativeInterface {
 export class Native extends Context.Service<Native, NativeInterface>()("@opencode/Watcher/Native") {}
 
 export interface Interface {
-  readonly subscribe: (input: WatchInput) => Effect.Effect<Stream.Stream<Update>>
+  readonly subscribe: (input: WatchInput) => Effect.Effect<Stream.Stream<Update, Error>>
 }
 
 export const Options = Schema.Struct({
   enabled: Schema.optional(Schema.Boolean),
+  backend: Schema.optional(Schema.Literals(["default", "watchman", "parcel"])),
 })
 export type Options = typeof Options.Type
 
@@ -85,20 +93,37 @@ export const layer = (options?: Options) =>
       if (options?.enabled === false) {
         return Service.of({ subscribe: () => Effect.succeed(Stream.empty) })
       }
-      const native = yield* Native
+      const fallback = yield* Native
+      const native =
+        options?.backend === "watchman"
+          ? yield* Effect.gen(function* () {
+              const { makeNative } = yield* Effect.promise(() => import("./watchman/native.ts"))
+              return yield* makeNative(fallback)
+            })
+          : fallback
 
       // Keys compare structurally (effect Equal), so equivalent watches share one entry.
-      type Key = { readonly type: WatchInput["type"]; readonly target: string; readonly ignore: readonly string[] }
+      type Key = {
+        readonly type: WatchInput["type"]
+        readonly target: string
+        readonly routing: "project" | "exact"
+        readonly ignore: readonly string[]
+      }
       const watchers = yield* RcMap.make({
         lookup: (key: Key) =>
           Effect.gen(function* () {
             const pubsub = yield* Effect.acquireRelease(PubSub.unbounded<Update>(), (pubsub) => PubSub.shutdown(pubsub))
+            const terminal = yield* Effect.acquireRelease(Deferred.make<void, Error>(), (terminal) =>
+              Deferred.succeed(terminal, undefined).pipe(Effect.asVoid),
+            )
             const subscription = yield* Effect.acquireRelease(
               native.subscribe({
                 type: key.type,
                 target: key.target,
+                routing: key.routing,
                 ignore: key.ignore,
                 publish: (update) => PubSub.publishUnsafe(pubsub, update),
+                fail: (error) => Deferred.doneUnsafe(terminal, Effect.fail(error)),
               }),
               (subscription) =>
                 subscription
@@ -114,7 +139,8 @@ export const layer = (options?: Options) =>
             if (!subscription) {
               // Unsupported backend: end subscriber streams instead of hanging them.
               yield* PubSub.shutdown(pubsub)
-              return pubsub
+              yield* Deferred.succeed(terminal, undefined)
+              return { pubsub, terminal }
             }
             yield* Effect.logInfo("watcher started", {
               path: key.target,
@@ -122,23 +148,28 @@ export const layer = (options?: Options) =>
               backend: subscription.backend,
               ignores: key.ignore.length,
             })
-            return pubsub
+            return { pubsub, terminal }
           }),
+        idleTimeToLive: "15 minutes",
       })
 
       const subscribe = (input: WatchInput) => {
         const target = path.resolve(input.path)
+        const routing = input.type === "directory" ? (input.routing ?? "exact") : "exact"
         const ignore = [...new Set(input.type === "directory" ? (input.ignore ?? []) : [])].toSorted()
         return Effect.gen(function* () {
           yield* Effect.logInfo("watcher subscribe", {
             path: target,
             type: input.type,
+            routing,
             ignores: ignore.length,
           })
           return Stream.unwrap(
             Effect.gen(function* () {
-              const pubsub = yield* RcMap.get(watchers, { type: input.type, target, ignore })
-              return Stream.fromPubSub(pubsub)
+              const hub = yield* RcMap.get(watchers, { type: input.type, target, routing, ignore })
+              return Stream.fromPubSub(hub.pubsub).pipe(
+                Stream.merge(Stream.fromEffect(Deferred.await(hub.terminal)).pipe(Stream.drain)),
+              )
             }),
           )
         })
@@ -162,9 +193,13 @@ export const testLayer = Layer.effectContext(
           subscriptions.push(
             input.type === "file"
               ? { path: input.target, type: "file" }
-              : input.ignore.length > 0
-                ? { path: input.target, type: "directory", ignore: input.ignore }
-                : { path: input.target, type: "directory" },
+              : input.routing === "project"
+                ? input.ignore.length > 0
+                  ? { path: input.target, type: "directory", routing: "project", ignore: input.ignore }
+                  : { path: input.target, type: "directory", routing: "project" }
+                : input.ignore.length > 0
+                  ? { path: input.target, type: "directory", ignore: input.ignore }
+                  : { path: input.target, type: "directory" },
           )
           active.add(input.publish)
           return {
