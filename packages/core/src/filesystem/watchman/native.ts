@@ -2,10 +2,10 @@ import isGlob from "is-glob"
 import micromatch from "micromatch"
 import path from "node:path"
 import { Deferred, Effect, Fiber, Queue, Schema, Scope } from "effect"
-import type { NativeInterface, Subscription, Update } from "../watcher"
-import { make, type Generation, type Manager, type Route } from "./client"
-import { resolve } from "./route"
-import { ClockResponse, SubscribeResponse, SubscriptionPdu, UnsubscribeResponse, WatchmanError } from "./schema"
+import type { NativeInterface, Subscription, Update } from "../watcher.ts"
+import { make, type Generation, type Manager, type Route } from "./client.ts"
+import { resolve } from "./route.ts"
+import { ClockResponse, SubscribeResponse, SubscriptionPdu, UnsubscribeResponse, WatchmanError } from "./schema.ts"
 
 type State = {
   readonly generation: Generation
@@ -50,48 +50,60 @@ function watchmanSubscribe(
   const establish = (previous?: State) =>
     Effect.gen(function* () {
       const generation = yield* manager.current()
-      const route = yield* resolve(manager, generation, input.target, input.routing)
-      const compatible = previous?.route.root === route.root && previous.route.relativeRoot === route.relativeRoot
-      const clock = compatible
-        ? previous.clock
-        : (yield* manager.command(generation, ["clock", route.root], ClockResponse, "subscribe")).clock
-      if (previous && !compatible) input.publish({ path: input.target, type: "update" })
-      const name = `opencode-${generation.id}-${id}`
-      const queue = yield* Queue.unbounded<unknown>()
-      generation.subscriptions.set(name, (value) => Queue.offerUnsafe(queue, value))
-      const options = {
-        since: clock,
-        ...(route.relativeRoot ? { relative_root: route.relativeRoot } : {}),
-        expression: ["true"],
-        fields: ["name", "exists", "new", "type"],
-      }
-      const request = ["subscribe", route.root, name, options]
-      const subscribed = yield* manager.command(generation, request, SubscribeResponse, "subscribe").pipe(
-        Effect.catch((error) =>
-          compatible
-            ? Effect.gen(function* () {
-                const current = (yield* manager.command(generation, ["clock", route.root], ClockResponse, "subscribe"))
-                  .clock
-                input.publish({ path: input.target, type: "update" })
-                return yield* manager.command(
-                  generation,
-                  ["subscribe", route.root, name, { ...options, since: current }],
-                  SubscribeResponse,
-                  "subscribe",
-                )
-              })
-            : Effect.fail(error),
-        ),
-        Effect.tapError(() =>
-          Effect.sync(() => {
-            generation.subscriptions.delete(name)
-            Effect.runFork(Queue.shutdown(queue))
-          }),
-        ),
-      )
-      if (subscribed.warning)
-        yield* Effect.logWarning("watchman subscription warning", { name, warning: subscribed.warning })
-      return { generation, route, name, queue, clock, closed: false } satisfies State
+      return yield* Effect.gen(function* () {
+        const route = yield* resolve(manager, generation, input.target, input.routing)
+        const compatible = previous?.route.root === route.root && previous.route.relativeRoot === route.relativeRoot
+        const clock = compatible
+          ? previous.clock
+          : (yield* manager.command(generation, ["clock", route.root], ClockResponse, "subscribe")).clock
+        if (previous && !compatible) input.publish({ path: input.target, type: "update" })
+        const name = `opencode-${generation.id}-${id}`
+        const queue = yield* Queue.unbounded<unknown>()
+        generation.subscriptions.set(name, (value) => Queue.offerUnsafe(queue, value))
+        const options = {
+          since: clock,
+          ...(route.relativeRoot ? { relative_root: route.relativeRoot } : {}),
+          expression: expression(route, input.ignore),
+          fields: ["name", "exists", "new", "type"],
+        }
+        const subscribed = yield* manager
+          .command(generation, ["subscribe", route.root, name, options], SubscribeResponse, "subscribe")
+          .pipe(
+            Effect.map((response) => ({ response, clock })),
+            Effect.catch((error) =>
+              compatible
+                ? Effect.gen(function* () {
+                    const current = (yield* manager.command(
+                      generation,
+                      ["clock", route.root],
+                      ClockResponse,
+                      "subscribe",
+                    )).clock
+                    input.publish({ path: input.target, type: "update" })
+                    const response = yield* manager.command(
+                      generation,
+                      ["subscribe", route.root, name, { ...options, since: current }],
+                      SubscribeResponse,
+                      "subscribe",
+                    )
+                    return { response, clock: current }
+                  })
+                : Effect.fail(error),
+            ),
+            Effect.tapError(() =>
+              Effect.sync(() => {
+                generation.subscriptions.delete(name)
+                Effect.runFork(Queue.shutdown(queue))
+              }),
+            ),
+          )
+        if (subscribed.response.warning)
+          yield* Effect.logWarning("watchman subscription warning", {
+            name,
+            warning: subscribed.response.warning,
+          })
+        return { generation, route, name, queue, clock: subscribed.clock, closed: false } satisfies State
+      }).pipe(Effect.tapError((error) => manager.retire(generation, error)))
     })
 
   const close = (state: State) =>
@@ -117,9 +129,7 @@ function watchmanSubscribe(
       establish(state).pipe(
         Effect.catch((error) => {
           if (attempt >= 6) return Effect.fail(error)
-          return manager
-            .retire(state.generation, error)
-            .pipe(Effect.andThen(Effect.sleep("100 millis")), Effect.andThen(reconnect(state, attempt + 1)))
+          return Effect.sleep("100 millis").pipe(Effect.andThen(reconnect(state, attempt + 1)))
         }),
       )
     const loop = (state: State): Effect.Effect<void, WatchmanError> =>
@@ -134,6 +144,7 @@ function watchmanSubscribe(
             yield* Effect.logWarning("watchman subscription warning", { name: state.name, warning: pdu.warning })
           if ("canceled" in pdu) {
             input.publish({ path: input.target, type: "update" })
+            yield* manager.retire(state.generation, "subscription canceled")
           } else {
             state.clock = pdu.clock
             if (pdu.is_fresh_instance) input.publish({ path: input.target, type: "update" })
@@ -142,13 +153,17 @@ function watchmanSubscribe(
           }
         }
         yield* close(state)
-        const next = yield* reconnect(state)
+        const next = yield* Effect.raceFirst(
+          reconnect(state).pipe(Effect.map((state) => ({ type: "resumed" as const, state }))),
+          Deferred.await(stop).pipe(Effect.as({ type: "stopped" as const })),
+        )
+        if (next.type === "stopped") return
         yield* Effect.logInfo("watchman subscription resumed", {
           path: input.target,
-          generation: next.generation.id,
-          clock: next.clock,
+          generation: next.state.generation.id,
+          clock: next.state.clock,
         })
-        return yield* loop(next)
+        return yield* loop(next.state)
       })
     return loop(initial)
   }
@@ -169,6 +184,19 @@ function watchmanSubscribe(
         Effect.runPromise(Deferred.succeed(stop, undefined).pipe(Effect.andThen(Fiber.join(fiber)), Effect.asVoid)),
     }
   })
+}
+
+function expression(route: Route, ignore: readonly string[]): readonly unknown[] {
+  const terms = ignore.flatMap((value) => {
+    if (isGlob(value)) return []
+    const relative = path.relative(route.eventRoot, path.resolve(route.eventRoot, value)).split(path.sep).join("/")
+    if (!relative || relative === ".." || relative.startsWith("../")) return []
+    return [
+      ["name", relative, "wholename"],
+      ["dirname", relative],
+    ]
+  })
+  return terms.length === 0 ? ["true"] : ["not", ["anyof", ...terms]]
 }
 
 function publishFiles(
