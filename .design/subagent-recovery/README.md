@@ -26,16 +26,34 @@ ship byte-identical on this line.
 
 ## Commit shape
 
-Rebuilt directly on `b0c3a16e` (upstream):
+Refreshed 2026-08-18 onto `044d04df` ("fix(cli): preserve clean build
+manifest", the `v2@origin` tip at that fetch); previously built on
+`b0c3a16e`:
 
 | Commit | Change ID | Subject |
 | --- | --- | --- |
-| `7f56f46d` | `rsmkkkku` | feat(core): list recoverable subagent sessions |
-| `98e9ad7d` | `urowystk` | fix(core): report active subagent sessions |
-| `e9e4c880` | `squkrnnm` | test(core): register subagent list in focused tests |
+| `790c84e4` | `rsmkkkku` | feat(core): list recoverable subagent sessions |
+| `cbfd5cda` | `urowystk` | fix(core): report active subagent sessions |
+| `45895a0d` | `squkrnnm` | test(core): register subagent list in focused tests |
 
+Change IDs are stable across the refresh; commit IDs are the rebased ones.
 Bookmarks `subagent-recovery` and `subagent-recovery-20260818` both point
-at `e9e4c880`.
+at `45895a0d`.
+
+### 2026-08-18 refresh onto `044d04df`
+
+The 9-commit upstream gap (`b0c3a16e..044d04df`, through `02f3f3cb`,
+`56e66656`, `97265f8a`, `ff9452bf`, `cb39ea11`, `511b4556`, `5ff6bb87`,
+`4b9d89e9`) touches `session/model-request.ts`, `session/inbox.ts`,
+`plugin/hooks.ts`, and `plugin/internal.ts`, but only `plugin/internal.ts`
+intersects this feature. The rebase was conflict-free: the feature's
+`SubagentListTool` import/registration and upstream's
+`AppProcess`/`ConfigFormatterPlugin`/`ConfigImagePlugin` additions live in
+non-overlapping regions and both shapes are preserved in the merged file.
+`tool-subagent.test.ts` and `subagent-list.ts` carried over byte-identical
+to the pre-refresh stack (the gap touches neither), and
+`packages/core/src/tool/plugin/subagent.ts` remains byte-identical to
+upstream `044d04df`.
 
 Adaptations made while dropping the guards:
 
@@ -49,14 +67,18 @@ Adaptations made while dropping the guards:
 
 ## Verification
 
+Re-verified on `044d04df` after the 2026-08-18 refresh (same counts as the
+original `b0c3a16e` build):
+
 - `bun test test/tool-subagent.test.ts` from `packages/core`: 11 pass,
   0 fail (9 upstream tests unmodified — including "steers a running child
   session in the background" and "rejects unrelated children and switches
-  agents on continuation" — plus 2 `subagent_list` tests).
-- `bun typecheck` from `packages/core`: clean (also verified at each
-  intermediate commit).
+  agents on continuation" — plus 2 `subagent_list` tests: "lists only
+  direct children with durable prompts and honest statuses", "reports when
+  a session has no direct subagent children").
+- `bun typecheck` from `packages/core`: clean.
 - `packages/core/src/tool/plugin/subagent.ts` on this line is
-  byte-identical to upstream `b0c3a16e`.
+  byte-identical to upstream `044d04df`.
 
 ## Continuation semantics
 
