@@ -1,6 +1,6 @@
-import { Client } from "@superbfowle/fb-watchman-esm"
 import { Deferred, Effect, Schema, Semaphore } from "effect"
 import { CapabilityResponse, WatchmanError } from "./schema"
+import { Client } from "./fb-watchman-esm"
 
 const COMMAND_TIMEOUT = "10 seconds"
 
