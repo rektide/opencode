@@ -1,6 +1,6 @@
 import { Deferred, Effect, Schema, Semaphore } from "effect"
-import { Client } from "./fb-watchman-esm.ts"
-import { CapabilityResponse, WatchmanError } from "./schema.ts"
+import { Client } from "./fb-watchman-esm.js"
+import { CapabilityResponse, WatchmanError } from "./schema.js"
 
 const COMMAND_TIMEOUT = "10 seconds"
 

@@ -2,10 +2,10 @@ import isGlob from "is-glob"
 import micromatch from "micromatch"
 import path from "node:path"
 import { Deferred, Effect, Fiber, Queue, Schema, Scope } from "effect"
-import type { NativeInterface, Subscription, Update } from "../watcher.ts"
-import { make, type Generation, type Manager, type Route } from "./client.ts"
-import { resolve } from "./route.ts"
-import { ClockResponse, SubscribeResponse, SubscriptionPdu, UnsubscribeResponse, WatchmanError } from "./schema.ts"
+import type { NativeInterface, Subscription, Update } from "../watcher.js"
+import { make, type Generation, type Manager, type Route } from "./client.js"
+import { resolve } from "./route.js"
+import { ClockResponse, SubscribeResponse, SubscriptionPdu, UnsubscribeResponse, WatchmanError } from "./schema.js"
 
 type State = {
   readonly generation: Generation

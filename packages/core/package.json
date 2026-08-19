@@ -80,6 +80,7 @@
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "@types/which": "3.0.4",
+    "@opencode-ai/shell-scan": "workspace:*",
     "@types/is-glob": "4.0.4",
     "@types/micromatch": "4.0.10",
     "@parcel/watcher-darwin-arm64": "2.5.1",
