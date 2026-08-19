@@ -1,7 +1,7 @@
 import path from "node:path"
 import { Deferred, Effect, Exit } from "effect"
-import type { Generation, Manager, Route } from "./client.ts"
-import { WatchResponse, WatchmanError } from "./schema.ts"
+import type { Generation, Manager, Route } from "./client.js"
+import { WatchResponse, WatchmanError } from "./schema.js"
 
 export function resolve(
   manager: Manager,
