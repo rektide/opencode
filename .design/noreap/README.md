@@ -40,20 +40,23 @@ unless a deployment opts into patience via options or env vars.
 
 ## Stack
 
-Freshened 2026-08-18 onto upstream `b0c3a16e` (`feat(plugin): expose server
-plugin status`). Snapshot `service-reap-patience-20260818` = floating bookmark
-`service-reap-patience` at `ddc900fe` (change `moqpypyr`). Inspected from this
-workspace's clean working copy on top of that tip; all line numbers below are
-from that tree. (The `service-reap-patience-20260817` snapshot at `3956b17d`
-carries the pre-freshen change IDs `nqlqurzn` / `nlxpsylp` / `twrxpuns` /
-`qlumuuxm` for the same four commits, in the same order.)
+Freshened 2026-08-18 onto upstream `044d04df` (`fix(cli): preserve clean
+build manifest`, the `v2@origin` tip at that fetch). Floating bookmark
+`service-reap-patience` = snapshot `service-reap-patience-20260818` at
+`60d669bab663` (change `moqpypyr`). Inspected from this workspace's clean
+working copy on top of that tip; all line numbers below are from that tree.
+(Earlier 2026-08-18 resting points: `ddc900fe` on base `b0c3a16e` — and,
+before the 14:52 re-freshen, `13b2d302`; the `service-reap-patience-20260817`
+snapshot at `3956b17d` carries the pre-freshen change IDs `nqlqurzn` /
+`nlxpsylp` / `twrxpuns` / `qlumuuxm` for the same four commits, in the same
+order.)
 
 | # | Commit | Change | Subject |
 | ---: | --- | --- | --- |
-| 1 | `31dccefe9e0b` | `xkoqspzn` | feat(client): parameterize background service reap thresholds |
-| 2 | `e1fd07716cd0` | `vultouwp` | fix(client): request graceful stop before evicting a service |
-| 3 | `43880f0c1198` | `qxokmpzz` | fix(client): hold contenders while the incumbent service is unresponsive |
-| 4 | `ddc900feca93` | `moqpypyr` | feat(cli): add env vars for background service reap patience |
+| 1 | `ee95de232709` | `xkoqspzn` | feat(client): parameterize background service reap thresholds |
+| 2 | `d1fe269c1805` | `vultouwp` | fix(client): request graceful stop before evicting a service |
+| 3 | `a6bffe59bee6` | `qxokmpzz` | fix(client): hold contenders while the incumbent service is unresponsive |
+| 4 | `60d669bab663` | `moqpypyr` | feat(cli): add env vars for background service reap patience |
 
 Files touched across the stack: `packages/client/src/service.ts`,
 `packages/client/src/service-timing.ts`, `packages/client/src/effect/service.ts`,
@@ -224,6 +227,20 @@ so on this host, where they are set (this is regression-guarded).
 - This README's per-commit claims were re-verified against
   `jj show` of each freshened commit (`31dccefe`, `e1fd0771`, `43880f0c`,
   `ddc900fe`) and the tree at `ddc900fe` on 2026-08-18.
+- **2026-08-18 freshen onto `044d04df`** (second refresh of the day; superseded
+  tips `13b2d302` and `ddc900fe` on base `b0c3a16e`): rebase was conflict-free
+  and byte-identical — upstream's `b0c3a16e..044d04df` delta (9 commits,
+  core/tui/plugin-focused) touches none of the 9 feature files, so
+  `jj diff --from ddc900fe --to 60d669ba` reduces exactly to the upstream
+  delta and every per-commit claim and line number above carries over
+  unchanged. Verified from package dirs: `bun test test/service.test.ts
+  test/promise-service.test.ts` from `packages/client` — 30 pass / 0 fail
+  (74 expect calls); `bun test test/server-connection.test.ts` from
+  `packages/cli` — 3 pass / 0 fail (16 expect calls), including the env-var
+  test run with the host's live `OPENCODE_SERVICE_EVICTION_STRIKES=100` /
+  `OPENCODE_SERVICE_KILL_GRACE=240` exports; `bun typecheck` clean in both
+  packages. Change IDs preserved through the rebase; both bookmarks moved to
+  `60d669bab663` (no backwards move needed).
 
 ## Open questions
 
@@ -242,7 +259,9 @@ so on this host, where they are set (this is regression-guarded).
 - The 2026-08-18 re-freshen landed on `b0c3a16e`, one commit below the
   `v2@origin` tip `02f3f3cb` (`test(core): remove flaky webfetch checks
   (#43278)` — core test-only, no client overlap; the baseline was pinned
-  while origin moved during the freshen). The next refresh should rebase the
+  while origin moved during the freshen). A same-day second refresh (see
+  Verification) moved the stack onto `044d04df`, the `v2@origin` tip at that
+  fetch, closing that gap. The next refresh should rebase the
   four commits onto the then-current tip as usual.
 - Upstream renamed the eviction helper `evict` → `terminate` and dropped the
   standalone `requestStop` between the 20260817 and 20260818 baselines;
