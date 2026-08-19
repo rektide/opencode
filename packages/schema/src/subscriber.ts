@@ -23,9 +23,13 @@ export const ProcessID = Schema.String.check(Schema.isStartsWith("subp_")).pipe(
 export type ProcessID = typeof ProcessID.Type
 
 export const Kind = Schema.Literals(["stream", "listener", "attachment", "hook", "projector", "physical"])
+export type Kind = typeof Kind.Type
 export const State = Schema.Literals(["starting", "active", "draining", "failed"])
+export type State = typeof State.Type
 export const Namespace = Schema.Literals(["event", "event-log", "pty", "filesystem", "plugin-hook", "state"])
+export type Namespace = typeof Namespace.Type
 export const RemovalReason = Schema.Literals(["scope-closed", "overflow", "failed", "shutdown"])
+export type RemovalReason = typeof RemovalReason.Type
 
 /** Who is responsible for consuming or reacting to a resource. */
 export const Owner = Schema.Union([
@@ -62,7 +66,7 @@ export const Target = Schema.Struct({
 }).annotate({ identifier: "Subscriber.Target" })
 
 /** How updates cross the relationship. */
-export interface Delivery extends Schema.Schema.Type<typeof Delivery> {}
+export type Delivery = typeof Delivery.Type
 export const Delivery = Schema.Union([
   Schema.Struct({ type: Schema.Literal("effect-stream") }),
   Schema.Struct({ type: Schema.Literal("callback") }),
@@ -166,6 +170,6 @@ export const Change = Schema.Union([
   }),
 ]).annotate({ identifier: "Subscriber.Change" })
 
-export class WatchOverflowError extends Schema.TaggedErrorClass<WatchOverflowError>()("Subscriber.WatchOverflow", {
+export class WatchOverflowError extends Schema.TaggedError<WatchOverflowError>()("Subscriber.WatchOverflow", {
   capacity: Schema.Int,
 }) {}
