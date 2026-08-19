@@ -3,6 +3,7 @@ import { describe, expect } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
 import { Deferred, Duration, Effect, Fiber, Layer, Option, Schedule, Stream } from "effect"
+import { TestClock } from "effect/testing"
 import { Config } from "@opencode-ai/core/config"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/util/effect/layer-node"
@@ -68,19 +69,20 @@ function countingNative() {
 }
 
 describe("Watcher lifecycle", () => {
-  it.effect("interrupting a consumer interrupts a pending acquisition", () =>
+  it.effect("retains a pending acquisition until the owning scope closes", () =>
     Effect.gen(function* () {
       const started = yield* Deferred.make<void>()
       const interrupted = yield* Deferred.make<void>()
-      yield* Effect.gen(function* () {
+      const program = Effect.gen(function* () {
         const watcher = yield* Watcher.Service
         const consumer = yield* watcher
           .subscribe({ path: "/pending", type: "directory" })
           .pipe(Effect.flatMap(Stream.runDrain), Effect.forkScoped({ startImmediately: true }))
         yield* Deferred.await(started)
         yield* Fiber.interrupt(consumer)
-        expect(yield* Deferred.isDone(interrupted)).toBe(true)
-      }).pipe(
+        expect(yield* Deferred.isDone(interrupted)).toBe(false)
+      })
+      yield* program.pipe(
         withNative({
           subscribe: () =>
             Deferred.succeed(started, undefined).pipe(
@@ -89,10 +91,11 @@ describe("Watcher lifecycle", () => {
             ),
         }),
       )
+      expect(yield* Deferred.isDone(interrupted)).toBe(true)
     }),
   )
 
-  it.effect("shares one subscription and releases exactly once after the final consumer", () => {
+  it.effect("shares and retains one subscription after the final consumer", () => {
     const { native, counts } = countingNative()
     return Effect.gen(function* () {
       const watcher = yield* Watcher.Service
@@ -110,6 +113,14 @@ describe("Watcher lifecycle", () => {
 
       yield* Fiber.interrupt(second)
       expect(counts.subscribes).toBe(1)
+      expect(counts.unsubscribes).toBe(0)
+
+      const third = yield* consume()
+      yield* Effect.yieldNow
+      expect(counts.subscribes).toBe(1)
+      yield* Fiber.interrupt(third)
+      yield* TestClock.adjust("15 minutes")
+      yield* Effect.yieldNow
       expect(counts.unsubscribes).toBe(1)
     }).pipe(withNative(native))
   })
