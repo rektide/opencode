@@ -430,6 +430,66 @@ than the deltas — that is correct registry behavior, not a race in it.
    full `Info` objects first? (Micro-efficiency; only worth it if snapshots
    show up in a hot path.)
 
+## Freshen record
+
+### 2026-08-18 — rebase onto `044d04df`
+
+- **Base**: `044d04df` (`fix(cli): preserve clean build manifest`, the
+  `v2@origin` tip of the 2026-08-18 fetch), pinned by commit id. Previous
+  base: `56e66656` (7 upstream commits in the gap).
+- **Tip**: `subscribers` at the architecture-README commit; first dated
+  snapshot `subscribers-20260818` created at the same commit (none existed
+  before). The stack is 10 commits directly on `044d04df`, contiguous:
+  `68b4cde1` draft0, `79e17b9d` schema contracts, `22c77465` fix TaggedError
+  name, `282d9def` core registry, `9ec7ff0c` plugin domains, `cf92bc83` fix
+  contract-identity test, `872c3c44` EventFeed instrumentation, `23f5d503`
+  implementation notes, `d4c9a466` architecture README (bookmark), plus this
+  freshen record on top.
+- **Conflicts**: none. The gap's plugin-shape changes —
+  `hook(name, callback, options)` signatures in
+  `packages/core/src/plugin/host.ts` and
+  `packages/plugin/src/promise/adapter.ts`, the new `supervisor-service.ts`,
+  and the registration/session/aisdk churn — do not textually overlap any
+  feature hunk (imports, `event.subscribe` tracking, `ctx.subscriber` after
+  the `session` block, the promise adapter's `subscriber` block).
+- **Dirty schema edit decision (kept as a real fix)**: the working copy
+  carried an unfinished edit to `packages/schema/src/subscriber.ts` —
+  `Schema.TaggedErrorClass` → `Schema.TaggedError`, `export type
+  Kind/State/Namespace/RemovalReason = typeof X.Type`, and the `Delivery`
+  interface converted to a type alias. It fixes real breakage: the installed
+  `effect@4.0.0-beta.107` exports only `Schema.TaggedError`, and
+  `packages/core/src/subscriber-registry.ts:23` references `Subscriber.Kind`
+  (and `.State`, `.RemovalReason`, `.Delivery`) as types that do not exist
+  without those exports. The original fix commit `3dc93340` (`fix(schema):
+  use current TaggedError name`) was **empty** — a prior session left its
+  content mid-flight in the working copy — so the committed stack could not
+  typecheck. Finished the edit (trailing newline), landed it as a real commit
+  in the same stack position (`22c77465`), and abandoned the empty
+  `3dc93340`.
+- **New fix commit — plugin contract test**: `cf92bc83` `fix(plugin): cover
+  Subscriber in contract identity test`. The feature's `export { Subscriber }`
+  from `packages/plugin/src/{effect,promise}/index.ts` had been breaking
+  `packages/plugin/test/contract-identity.test.ts` (2 of 3 tests) since the
+  original plugin commit — pre-existing, not rebase fallout — but was never
+  seen because the original verification ran only the plugin package's
+  *typecheck*, not its test suite. The test now imports
+  `@opencode-ai/schema/subscriber`, asserts `entrypoint.Subscriber` is the
+  schema's `Subscriber`, and includes it in the sorted key list. Refresh
+  agents: run the plugin package's tests too, not just typecheck.
+- **Verification** (from package dirs, 2026-08-18):
+  - `packages/core`: `bun test test/subscriber-registry.test.ts` — 9 pass × 5
+    runs; `bun test test/plugin-subscriber.test.ts` — 2 pass × 3 runs;
+    focused run `bun test test/plugin.test.ts test/plugin test/bus.test.ts
+    test/subscriber-registry.test.ts test/plugin-subscriber.test.ts` —
+    320 pass across 40 files, 0 fail (manifest baseline 317/39; the +1
+    file/+3 tests are upstream gap additions to these suites, e.g. the
+    WebSocket provider-hook test), typecheck clean.
+  - `packages/plugin`: `bun test ./test/contract-identity.test.ts` — 3 pass
+    (was 1 pass / 2 fail before `cf92bc83`); typecheck clean.
+  - `packages/server`: `bun test ./test/event-feed.test.ts` — 7 pass × 3
+    runs; full `bun test` — 24 pass across 11 files; typecheck clean.
+  - `packages/schema`: typecheck clean.
+
 ## Cross-references
 
 - [`draft0.gpt56t.md`](./draft0.gpt56t.md) — the design this implements;
