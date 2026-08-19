@@ -1,6 +1,6 @@
 import { Deferred, Effect, Schema, Semaphore } from "effect"
-import { CapabilityResponse, WatchmanError } from "./schema"
-import { Client } from "./fb-watchman-esm"
+import { Client } from "./fb-watchman-esm.ts"
+import { CapabilityResponse, WatchmanError } from "./schema.ts"
 
 const COMMAND_TIMEOUT = "10 seconds"
 
@@ -99,13 +99,13 @@ export const make = Effect.gen(function* () {
     generation.client.on("log", (value: unknown) => Effect.runFork(Effect.logDebug("watchman log", { value })))
     generation.client.on("error", disconnect)
     generation.client.on("end", disconnect)
-    active = generation
     yield* command(
       generation,
       ["version", { required: ["cmd-watch-project", "relative_root"] }],
       CapabilityResponse,
       "connect",
-    )
+    ).pipe(Effect.tapError((error) => retire(generation, error)))
+    active = generation
     yield* Effect.logInfo("watchman connected", { generation: generation.id })
     return generation
   })
