@@ -1,5 +1,5 @@
 import path from "node:path"
-import { Deferred, Effect } from "effect"
+import { Deferred, Effect, Exit } from "effect"
 import type { Generation, Manager, Route } from "./client.ts"
 import { WatchResponse, WatchmanError } from "./schema.ts"
 
@@ -27,7 +27,9 @@ export function resolve(
             eventRoot: path.resolve(response.watch, relativeRoot),
           }
         }),
-        Effect.tapError(() => Effect.sync(() => generation.routes.delete(key))),
+        Effect.onExit((exit) =>
+          Exit.isFailure(exit) ? Effect.sync(() => generation.routes.delete(key)) : Effect.void,
+        ),
       ),
   ).pipe(Effect.andThen(Deferred.await(deferred)))
 }
