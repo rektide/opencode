@@ -11,6 +11,10 @@ function generation(id = 1): Generation {
   const client = {
     end: () => {},
     command: (_args: readonly unknown[], _callback: (error: Error | null, response?: unknown) => void) => {},
+    capabilityCheck: (
+      _capabilities: { readonly required: readonly string[] },
+      _callback: (error: Error | null, response?: unknown) => void,
+    ) => {},
     on: (_event: string, _listener: (value?: unknown) => void) => client,
   }
   return {
