@@ -517,9 +517,8 @@ function VerticalSessionTabs(props: {
   const theme = useTheme("elevated")
   const config = useConfig().data
   const animations = () => props.animations ?? config.animations !== false
-  // The throttled 3 fps loop needs slowed playback for the sweep to read as motion; an explicit numeric
-  // fps keeps authored timing since the sampler is fast enough to show it as designed.
-  const pulseSpeed = createMemo(() => config.animationSpeed ?? (typeof config.animations === "number" ? 1 : 0.2))
+  // Playback multiplier is independent of fps: the loop rate sets sampling cost, this sets perceived duration.
+  const pulseSpeed = createMemo(() => config.animationSpeed ?? 0.2)
   const width = () => props.width ?? SESSION_SIDEBAR_WIDTH
   const unreadColor = () => theme.text.status.unread
   const activeNumber = () => theme.text.status.running
@@ -1097,8 +1096,8 @@ function HorizontalSessionTabs(props: {
   const theme = useTheme()
   const config = useConfig().data
   const animations = () => props.animations ?? config.animations !== false
-  // Same pairing as the sidebar tabs: 0.2 playback for the throttled loop, authored timing for explicit fps.
-  const pulseSpeed = createMemo(() => config.animationSpeed ?? (typeof config.animations === "number" ? 1 : 0.2))
+  // Same as the sidebar tabs: fps sets the loop rate, animationSpeed sets the timebase; no coupling.
+  const pulseSpeed = createMemo(() => config.animationSpeed ?? 0.2)
   const [addHovered, setAddHovered] = createSignal(false)
   const marquee = createTabMarquee(animations)
   const hovered = marquee.hovered
