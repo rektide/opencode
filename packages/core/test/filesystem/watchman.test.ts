@@ -23,7 +23,6 @@ function generation(id = 1): Generation {
     closed: Deferred.makeUnsafe<void>(),
     routes: new Map(),
     subscriptions: new Map(),
-    adopted: new Set<string>(),
   }
 }
 
@@ -31,7 +30,7 @@ function manager(
   current: () => Generation,
   respond: (generation: Generation, args: readonly unknown[]) => Effect.Effect<unknown, WatchmanError>,
 ): Manager {
-  const claimed = new Set<string>()
+  let demand = 0
   return {
     current: () => Effect.succeed(current()),
     command: (generation, args, schema) =>
@@ -42,11 +41,12 @@ function manager(
         ),
       ),
     retire: (generation) => Effect.sync(() => Deferred.doneUnsafe(generation.closed, Effect.void)).pipe(Effect.asVoid),
-    roots: {
-      acquire: (_generation, root) => Effect.sync(() => claimed.add(root)),
-      release: (root) => Effect.sync(() => claimed.delete(root)),
-      orphans: () => new Set(claimed),
-      demand: () => claimed.size,
+    demand: () => demand,
+    retain: () => {
+      demand++
+    },
+    release: () => {
+      demand--
     },
   }
 }
