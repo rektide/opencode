@@ -155,3 +155,11 @@ baseline; input/output renders remain at maxFps cadence.
 
 From `packages/tui`: `bun test test/config-v2.test.tsx` — 17 pass / 0 fail;
 `bun typecheck` clean.
+
+# Addendum 3 — 2026-08-20 — default playback multiplier 0.2 → 1/3
+
+Both `pulseSpeed` memos now default to `config.animationSpeed ?? 1 / 3`. At
+the 8 fps throttle the sweep cycle runs `2800 * 3` = 8.4s with ~67 samples
+(~0.8 cell of front movement per frame); one-shots land at 3x authored
+duration: edge flash 2.4s, completion 3.6s, glow release 2.7s, glow ignition
+1.8s. Tests (17 pass) and typecheck clean from `packages/tui`.
