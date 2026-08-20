@@ -113,19 +113,62 @@ the retained entry rather than re-subscribing).
 | Knob | Values | Effect |
 | --- | --- | --- |
 | `OPENCODE_WATCHER_BACKEND` | `default` / `watchman` / `parcel` | `watchman` prefers Watchman with Parcel fallback before first subscribe; `parcel` forces Parcel; unknown values fail startup |
+| `OPENCODE_WATCHMAN_NOTIFY_SECONDS` | seconds, `0` (default) | While disconnected with live subscriptions, repeat a warning every N seconds (elapsed outage, waiting roots); `0` disables |
 | `OPENCODE_FILEWATCHER_DISABLE` / `OPENCODE_DISABLE_FILEWATCHER` | truthy | Disables watching entirely (takes precedence; empty streams) |
 | `WATCHMAN_SOCK` | socket path | Transport-only, consumed by the fb-watchman-esm fork (`connect()` reads it before spawning `watchman get-sockname`); also removes the PATH/binary requirement |
 | `ServerOptions.fs.watcherBackend` | same as env | Programmatic/embedded-server equivalent |
-| `Watcher.Options { enabled, backend }` | — | In-code layer option; the seam the above feed |
+| `ServerOptions.fs.watchmanNotifySeconds` | same as env | Programmatic notify-interval equivalent |
+| `Watcher.Options { enabled, backend, watchmanNotifySeconds }` | — | In-code layer option; the seam the above feed |
 
 Failover behavior (verified live): a dead `WATCHMAN_SOCK` or absent daemon
 fails acquisition in well under a second (local-socket ECONNREFUSED) and each
 affected interest falls back to Parcel with a logged warning. After the first
 Watchman subscribe acknowledgement there is no silent backend switch — only
 cursor-resume reconnects or a visible stream failure. Not configurable
-(hardcoded so far): 15m retention TTL, 10s command timeout, reconnect retry
-policy (6 × 100ms), and the fork's `watchmanBinaryPath` (unexposed; only
-relevant without `WATCHMAN_SOCK`).
+(hardcoded so far): 15m retention TTL, 10s command timeout, and the fork's
+`watchmanBinaryPath` (unexposed; only relevant without `WATCHMAN_SOCK`).
+
+Reconnection retries **forever** with exponential backoff (100ms doubling to
+a 3.2s cap): a daemon restart or long outage pauses a subscription and
+resumes it (cursor-preserved or fresh-instance + one blanket `update`) when
+the daemon returns; only an explicit unsubscribe ends it. While disconnected
+with live demand, a warning repeats every `OPENCODE_WATCHMAN_NOTIFY_SECONDS`
+(default 0 = off): core/filesystem has no toast surface, so this is log-level
+for now.
+
+## Root cleanup (2026-08-20)
+
+Watchman roots were previously minted (`watch-project`/`watch`) and never
+deleted — the same leak the parcel backend was criticized for. Cleanup is now
+two-layered, both biasing toward **not** deleting:
+
+- **Cross-process ledger** (`ledger.ts`): one JSON file per process under
+  `<XDG data>/opencode/watchman-ledger/` claiming the roots that process
+  minted. A `watch-list` snapshot per connection marks pre-existing roots
+  *adopted* — an editor's root is never claimed and never deleted. A process
+  that *adopts* a root another opencode process claims migrates the claim to
+  itself, so the active user owns the root and a departing sibling cannot
+  `watch-del` it from under them.
+- **Proactive**: when a minted root's subscription refcount hits zero, a 5s
+  grace (reacquisition cancels it) precedes `watch-del` + claim release.
+  Shutdown watch-dels every claimed root that no other live process claims,
+  then removes the ledger file if empty.
+- **Fallback sweep**: 30s after every (re)connection, then every 10 minutes —
+  after re-asserted subscriptions have landed — the sweep reads all ledger
+  files, `watch-del`s roots claimed only by dead processes (or our own
+  unrecoverable orphans), drops claims guarded by live siblings, and unlinks
+  stale files. Failed `watch-del`s keep the claim so the next sweep retries.
+
+Deleting a root always requires being its sole live claimant. If the ledger
+directory is unwritable, claims are disabled and only the (disabled) sweep
+would delete nothing — no blind deletion without visibility. `pidAlive`
+treats EPERM as alive (foreign-owned process).
+
+Also on 2026-08-20: reconnection became **unbounded** (exponential backoff,
+100ms → 3.2s cap). A daemon restart no longer risks permanent subscription
+death after ~1s; recovery waits as long as the outage lasts. Verified by
+`retries forever and resumes once the daemon returns` (20 consecutive
+connect failures, then resume with cursor intact).
 
 ## Verification
 
@@ -133,13 +176,14 @@ Run from package directories, never repo root:
 
 ```sh
 cd packages/core && bun typecheck
-cd packages/core && bun test test/filesystem/watchman.test.ts test/filesystem/watcher.test.ts \
-  test/skill.test.ts test/plugin/skill.test.ts test/config/config.test.ts test/config/skill.test.ts
+cd packages/core && bun test test/filesystem/watchman.test.ts test/filesystem/watchman-ledger.test.ts \
+  test/filesystem/watcher.test.ts test/skill.test.ts test/plugin/skill.test.ts \
+  test/config/config.test.ts test/config/skill.test.ts
 cd packages/server && bun typecheck && bun test test/options.test.ts
 cd packages/cli && bun typecheck && bun test test/server-connection.test.ts
 ```
 
-Freshened-line results: core/server/cli typechecks clean; 66 pass across the
+Freshened-line results: core/server/cli typechecks clean; 77 pass across the
 focused core suites (1 known flake, below); server options 5/5; CLI
 server-connection 2/2.
 
