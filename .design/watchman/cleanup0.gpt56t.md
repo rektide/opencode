@@ -105,20 +105,45 @@ notify knob.
 
 ## Proposed design
 
-1. **Delete the ledger directory machinery entirely.** No per-process files,
-   no pid probing, no cross-process claim migration, no stale-file sweeps.
-2. **Deletion gate** for a minted root whose refcount hit zero (after
-   grace): run `debug-get-subscriptions <root>`. If any live subscriber has
-   a pid ≠ ours → skip deletion, log (a foreign client is streaming; the
-   daemon's idle reaper handles the rest when they leave). If the census
-   errors or the debug command is unavailable → **do not delete** (older
-   daemon, permission boundary); rely on daemon GC. Conservative default:
-   failing open = keep the watch.
-3. **Naming stays** `opencode-<gen>-<id>`; optionally embed the pid
-   (`opencode-<pid>-<gen>-<id>`) so humans reading the census see ownership
-   at a glance. The pid in the census is authoritative regardless.
-4. **Orphan residue**: accept the daemon's 5-day idle GC — see the scoped
-   analysis below.
+**Settled 2026-08-20 (user ruling): no proactive `watch-del` at all.**
+The daemon's own lifecycle is the whole story: our subscriptions are the
+claim, they die with our connection, and `considerReap` cancels the watch
+once idle (verified at defaults on this machine: `get-config` returns
+`{}`, so `idle_reap_age_seconds` = 5 days). Editors on this box follow the
+same protocol against the same daemon — ~320 roots, none of them
+`watch-del`ed by their owners.
+
+What remains in opencode:
+
+1. **Delete the ledger directory machinery entirely** — files, pid probing,
+   claim migration, sweeps — **and the census-gated deletion gate too**.
+   We never issue `watch-del`. Crash residue and graceful-exit residue are
+   the same case: subscriptionless, command-idle, reaped in ≤ 5 days.
+2. **In-process demand counter only** (retain on establish, release on
+   final close) — it exists solely to gate the disconnected-notify loop;
+   it is not ownership tracking.
+3. **Naming stays** `opencode-<gen>-<id>`. The daemon's census
+   (`debug-get-subscriptions`, peer pid) remains available as
+   *diagnostics* for humans investigating roots, not as a gate we depend
+   on.
+
+### Is "we don't need it anymore" knowable? Yes — in-process
+
+At the subscription level the fact is knowable and already implemented:
+the `Watcher` service's `RcMap` (15m idle TTL) is the arbiter of "nobody
+consumes this interest anymore". Unsubscribe flows to the daemon from TTL
+expiry, explicit consumer unsubscribe, server shutdown (scope close), and
+failure cleanup. The 15m lag is the settled retention decision (churn
+protection for skill invalidate/re-watch loops), not a leak. The outage
+edge is covered too: the run loop races the stop-deferred against
+reconnect, so an interest unsubscribed during a disconnect never
+re-establishes.
+
+At the *root* level it is not knowable by us — "no client anywhere needs
+this root" is the union over all clients, visible only to the daemon
+(subscriptions + triggers + command idleness) — which is precisely what
+`considerReap` answers. Unsubscribe what we know we dropped; never
+`watch-del`; let the daemon GC the rest.
 
 ## Orphan residue: scoped down
 
@@ -132,8 +157,8 @@ command touching the root resets it).
 Scope:
 
 - **Graceful shutdown is not an orphan case.** A cleanly exiting process
-  deletes its minted roots through the normal gate (refcount → 0 → grace →
-  census empty → `watch-del`). Orphans are **crash residue** only: SIGKILL,
+  unsubscribes every live interest; the root then has no subscribers and
+  rides the same idle clock. Orphans are **crash residue** only: SIGKILL,
   power loss, or dying while the daemon was unreachable.
 - The residue is bounded (daemon GC), self-healing, and costs one idle
   root's kernel watches on a machine that already voluntarily holds ~320
@@ -148,15 +173,9 @@ crash residue visibly accumulates in `watch-list`.**
 
 ## Open decisions
 
-1. **Census availability**: capability-probe `debug-get-subscriptions` at
-   connect and disable proactive deletion for the process when missing, vs
-   attempting per-deletion and swallowing errors. Lean per-deletion +
-   swallow: fewer states.
-2. **Query-activity veto**: before deleting a census-empty minted root,
-   also consult `debug-root-status` and skip if a *recent foreign query*
-   exists (query-only users, e.g. `watchman-wait` one-shots). This is
-   advisory and racy; probably skip — a query-only user already tolerates
-   daemon restarts and re-`watch-project`s on demand.
+None remaining — the deletion question is settled above. The query-activity
+veto (consulting `debug-root-status` before deleting) is moot: nothing is
+ever deleted by us.
 
 ## Cross-references
 
