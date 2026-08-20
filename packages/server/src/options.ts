@@ -41,6 +41,8 @@ export const ServerOptions = Schema.Struct({
     Schema.Struct({
       filewatcher: Schema.optional(Schema.Boolean),
       watcherBackend: Schema.optional(Schema.Literals(["default", "watchman", "parcel"])),
+      /** Seconds between "still disconnected" Watchman warnings; 0 disables. */
+      watchmanNotifySeconds: Schema.optional(Schema.Number),
       fff: Schema.optional(Schema.Boolean),
     }),
   ),
