@@ -537,7 +537,7 @@ function VerticalSessionTabs(props: {
   const config = useConfig().data
   const animations = () => props.animations ?? config.animations !== false
   // Playback multiplier is independent of fps: the loop rate sets sampling cost, this sets perceived duration.
-  const pulseSpeed = createMemo(() => config.animationSpeed ?? 0.2)
+  const pulseSpeed = createMemo(() => config.animationSpeed ?? 1 / 3)
   const width = () => props.width ?? SESSION_SIDEBAR_WIDTH
   const compact = createMemo(() => width() < SESSION_TABS_COMPACT_BREAKPOINT)
   const tooltipWidth = () => Math.min(54, dimensions().width - width())
@@ -1281,7 +1281,7 @@ function HorizontalSessionTabs(props: {
   const config = useConfig().data
   const animations = () => props.animations ?? config.animations !== false
   // Same as the sidebar tabs: fps sets the loop rate, animationSpeed sets the timebase; no coupling.
-  const pulseSpeed = createMemo(() => config.animationSpeed ?? 0.2)
+  const pulseSpeed = createMemo(() => config.animationSpeed ?? 1 / 3)
   const [addHovered, setAddHovered] = createSignal(false)
   const marquee = createTabMarquee(animations)
   const hovered = marquee.hovered
