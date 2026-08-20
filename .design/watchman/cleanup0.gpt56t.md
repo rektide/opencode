@@ -117,20 +117,38 @@ notify knob.
 3. **Naming stays** `opencode-<gen>-<id>`; optionally embed the pid
    (`opencode-<pid>-<gen>-<id>`) so humans reading the census see ownership
    at a glance. The pid in the census is authoritative regardless.
-4. **Orphan cleanup** (roots minted by a now-dead opencode process) is the
-   one residual gap — dead processes leave no subscriptions, so their roots
-   are census-empty but indistinguishable from a never-opencode root.
-   Options below; recommend (a) first.
+4. **Orphan residue**: accept the daemon's 5-day idle GC — see the scoped
+   analysis below.
+
+## Orphan residue: scoped down
+
+"Orphans" are roots minted by a now-dead opencode process. Dead processes
+have no connection, hence no subscriptions — subscriptions self-clean
+perfectly, and the census reflects that. What lingers is only the **watch**
+itself: connection-independent, holding the root's kernel watches and view
+until the daemon's `considerReap` cancels it (5-day default idle clock; any
+command touching the root resets it).
+
+Scope:
+
+- **Graceful shutdown is not an orphan case.** A cleanly exiting process
+  deletes its minted roots through the normal gate (refcount → 0 → grace →
+  census empty → `watch-del`). Orphans are **crash residue** only: SIGKILL,
+  power loss, or dying while the daemon was unreachable.
+- The residue is bounded (daemon GC), self-healing, and costs one idle
+  root's kernel watches on a machine that already voluntarily holds ~320
+  roots from editors.
+- The alternative — one shared `watchman-minted.json` in the opencode data
+  dir (append on mint; sweep `watch-list` ∩ file, delete census-empty
+  entries, prune) — is permanent write-on-every-mint machinery covering a
+  rare, small, already-expiring case.
+
+**Recommendation: accept daemon GC now; add the shared file later only if
+crash residue visibly accumulates in `watch-list`.**
 
 ## Open decisions
 
-1. **Orphans**: (a) accept the daemon's 5-day idle GC — zero machinery,
-   bounded leak, exactly the daemon's own garbage policy; (b) one shared
-   `watchman-minted.json` in the opencode data dir (append on mint; sweep:
-   `watch-list` ∩ file, delete census-empty entries, prune) — one file, not
-   per-process, but still a file to maintain; (c) both, (b) later if
-   lingering ever actually hurts.
-2. **Census availability**: capability-probe `debug-get-subscriptions` at
+1. **Census availability**: capability-probe `debug-get-subscriptions` at
    connect and disable proactive deletion for the process when missing, vs
    attempting per-deletion and swallowing errors. Lean per-deletion +
    swallow: fewer states.
