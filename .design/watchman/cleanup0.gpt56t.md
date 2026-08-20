@@ -152,7 +152,7 @@ crash residue visibly accumulates in `watch-list`.**
    connect and disable proactive deletion for the process when missing, vs
    attempting per-deletion and swallowing errors. Lean per-deletion +
    swallow: fewer states.
-3. **Query-activity veto**: before deleting a census-empty minted root,
+2. **Query-activity veto**: before deleting a census-empty minted root,
    also consult `debug-root-status` and skip if a *recent foreign query*
    exists (query-only users, e.g. `watchman-wait` one-shots). This is
    advisory and racy; probably skip — a query-only user already tolerates
