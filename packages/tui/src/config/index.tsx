@@ -211,6 +211,9 @@ export const Info = Schema.Struct({
   animations: Schema.optional(Schema.Union([Schema.Boolean, Schema.Number.check(Schema.isGreaterThan(0))])).annotate({
     description: "Enable interface animations or set their target frame rate",
   }),
+  animationSpeed: Schema.optional(Schema.Number.check(Schema.isGreaterThan(0))).annotate({
+    description: "Playback rate for interface animations; 1 is authored speed, lower is slower",
+  }),
   mouse: Schema.optional(Schema.Boolean).annotate({ description: "Enable terminal mouse capture" }),
   cursor: Schema.optional(Cursor),
 })
