@@ -36,6 +36,13 @@ test("validates animation frame rates", () => {
   expect(() => decodeInfo({ animations: 0 })).toThrow()
 })
 
+test("validates animation playback speed", () => {
+  expect(decodeInfo({ animationSpeed: 0.2 })).toEqual({ animationSpeed: 0.2 })
+  expect(decodeInfo({ animationSpeed: 1 })).toEqual({ animationSpeed: 1 })
+  expect(() => decodeInfo({ animationSpeed: 0 })).toThrow()
+  expect(() => decodeInfo({ animationSpeed: -1 })).toThrow()
+})
+
 test("validates the session tabs setting", () => {
   const decode = Schema.decodeUnknownSync(Info)
 
