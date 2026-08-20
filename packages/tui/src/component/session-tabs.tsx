@@ -536,6 +536,9 @@ function VerticalSessionTabs(props: {
   const base = useTheme()
   const config = useConfig().data
   const animations = () => props.animations ?? config.animations !== false
+  // The throttled 3 fps loop needs slowed playback for the sweep to read as motion; an explicit numeric
+  // fps keeps authored timing since the sampler is fast enough to show it as designed.
+  const pulseSpeed = createMemo(() => config.animationSpeed ?? (typeof config.animations === "number" ? 1 : 0.2))
   const width = () => props.width ?? SESSION_SIDEBAR_WIDTH
   const compact = createMemo(() => width() < SESSION_TABS_COMPACT_BREAKPOINT)
   const tooltipWidth = () => Math.min(54, dimensions().width - width())
@@ -965,6 +968,7 @@ function VerticalSessionTabs(props: {
                       outerColor={separatorUpperPulseColor()}
                       flashColor={tint(background(), theme.text.base, 0.22)}
                       outerFlashColor={tint(background(), theme.text.base, 0.18)}
+                      speed={pulseSpeed()}
                       flashTail={8}
                       glowColor={separatorLowerColor()}
                       outerGlowColor={separatorUpperColor()}
@@ -988,6 +992,7 @@ function VerticalSessionTabs(props: {
                         glow={glows()}
                         outerGlow={false}
                         color={tint(background(), theme.text.base, 0.04)}
+                        speed={pulseSpeed()}
                         width={indicatorWidth}
                         outerColor={tint(background(), theme.text.base, 0.006)}
                         flashColor={tint(background(), theme.text.base, 0.18)}
@@ -1010,6 +1015,7 @@ function VerticalSessionTabs(props: {
                         glow={glows()}
                         color={pulseColor()}
                         width={indicatorWidth}
+                        speed={pulseSpeed()}
                         glowColor={glowColor()}
                         flashColor={flashColor()}
                         flashTail={8}
@@ -1095,6 +1101,7 @@ function VerticalSessionTabs(props: {
                         glow={glows()}
                         color={detailPulseColor()}
                         width={indicatorWidth}
+                        speed={pulseSpeed()}
                         glowColor={detailGlowColor()}
                         glowTail={10}
                         flashColor={detailFlashColor()}
@@ -1274,6 +1281,8 @@ function HorizontalSessionTabs(props: {
   const theme = useTheme()
   const config = useConfig().data
   const animations = () => props.animations ?? config.animations !== false
+  // Same pairing as the sidebar tabs: 0.2 playback for the throttled loop, authored timing for explicit fps.
+  const pulseSpeed = createMemo(() => config.animationSpeed ?? (typeof config.animations === "number" ? 1 : 0.2))
   const [addHovered, setAddHovered] = createSignal(false)
   const marquee = createTabMarquee(animations)
   const hovered = marquee.hovered
@@ -1664,6 +1673,7 @@ function HorizontalSessionTabs(props: {
                 complete={status().complete && !status().attention}
                 glow={glows()}
                 color={pulseColor()}
+                speed={pulseSpeed()}
                 glowColor={glowColor()}
                 flashColor={flashColor()}
                 completionColor={unreadColor()}

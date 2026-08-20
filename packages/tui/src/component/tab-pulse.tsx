@@ -27,6 +27,8 @@ type TabPulseOptions = RenderableOptions<TabPulseRenderable> & {
   backgroundColor?: RGBA
   /** Reports the running sweep's intensity at the tab number's cell, quantized; 0 when idle. */
   onLevel?: (level: number) => void
+  /** Playback rate for every pulse timing; 1 is authored speed, 0.2 is the throttled-frame-rate default. */
+  speed?: number
 }
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value))
@@ -436,6 +438,7 @@ class TabPulseRenderable extends Renderable {
   private _completionColor: RGBA
   private _outerCompletionColor: RGBA
   private _backgroundColor: RGBA
+  private _speed: number
   private renderColor = RGBA.fromInts(0, 0, 0)
   private outerRenderColor = RGBA.fromInts(0, 0, 0)
   private _onLevel: ((level: number) => void) | undefined
@@ -482,6 +485,7 @@ class TabPulseRenderable extends Renderable {
     this._completionColor = options.completionColor ?? this._color
     this._outerCompletionColor = options.outerCompletionColor ?? options.completionColor ?? this._outerColor
     this._backgroundColor = options.backgroundColor ?? RGBA.defaultBackground()
+    this._speed = options.speed ?? 1
     this._onLevel = options.onLevel
   }
 
@@ -629,10 +633,18 @@ class TabPulseRenderable extends Renderable {
     this.requestRender()
   }
 
+  set speed(value: number) {
+    if (value === this._speed) return
+    // Retimes future ticks only; an idle pulse applies it whenever it next animates.
+    this._speed = value
+  }
+
   protected override onUpdate(deltaTime: number): void {
     if (!this.live) return
-    this.inner.advance(deltaTime)
-    this.outer.advance(deltaTime)
+    // The single timebase: scaling delta here retimes the sweep clock and every envelope uniformly.
+    const scaledDelta = deltaTime * this._speed
+    this.inner.advance(scaledDelta)
+    this.outer.advance(scaledDelta)
     this.live = this.inner.live || this.outer.live
   }
 
@@ -782,6 +794,7 @@ export function TabPulse(props: {
   outerCompletionColor?: RGBA
   backgroundColor: RGBA
   onLevel?: (level: number) => void
+  speed?: number
 }) {
   return (
     <tab_pulse
@@ -813,6 +826,7 @@ export function TabPulse(props: {
       outerCompletionColor={props.outerCompletionColor ?? props.completionColor ?? props.outerColor ?? props.color}
       backgroundColor={props.backgroundColor}
       onLevel={props.onLevel}
+      speed={props.speed ?? 1}
     />
   )
 }
