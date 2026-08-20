@@ -27,8 +27,38 @@ type TabPulseOptions = RenderableOptions<TabPulseRenderable> & {
   backgroundColor?: RGBA
   /** Reports the running sweep's intensity at the tab number's cell, quantized; 0 when idle. */
   onLevel?: (level: number) => void
-  /** Playback rate for every pulse timing; 1 is authored speed, 0.2 is the throttled-frame-rate default. */
-  speed?: number
+  /** Per-channel playback rates; 1 is authored speed for each voice. */
+  speeds?: PulseSpeeds
+}
+
+/** Playback rate for each pulse voice; 1 is authored speed. */
+export type PulseSpeeds = {
+  sweep: number
+  edge: number
+  completion: number
+  glow: number
+}
+
+/** The `animationSpeed` config shape: one number scales every voice, or tune channels with `rest` as fallback. */
+export type PulseSpeedConfig = number | {
+  sweep?: number
+  edge?: number
+  completion?: number
+  glow?: number
+  rest?: number
+}
+
+export const DEFAULT_PULSE_SPEEDS: PulseSpeeds = { sweep: 1 / 3, edge: 2 / 3, completion: 2 / 3, glow: 2 / 3 }
+
+/** Resolve an animationSpeed config value into per-channel rates: explicit channel > rest > default. */
+export function resolvePulseSpeeds(config: PulseSpeedConfig | undefined): PulseSpeeds {
+  if (typeof config === "number") return { sweep: config, edge: config, completion: config, glow: config }
+  return {
+    sweep: config?.sweep ?? config?.rest ?? DEFAULT_PULSE_SPEEDS.sweep,
+    edge: config?.edge ?? config?.rest ?? DEFAULT_PULSE_SPEEDS.edge,
+    completion: config?.completion ?? config?.rest ?? DEFAULT_PULSE_SPEEDS.completion,
+    glow: config?.glow ?? config?.rest ?? DEFAULT_PULSE_SPEEDS.glow,
+  }
 }
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value))
@@ -388,14 +418,14 @@ class PulseState {
     return true
   }
 
-  advance(deltaTime: number) {
+  advance(deltaTime: number, speeds: PulseSpeeds) {
     if (!this.live) return
-    // The sweep keeps coasting from note-on through the release fade.
-    if (!this.runEnvelope.idle) this.sweepClock += deltaTime
-    this.runEnvelope.advance(deltaTime)
-    this.glowEnvelope.advance(deltaTime)
-    this.completionPulse.advance(deltaTime)
-    this.edgeFlash.advance(deltaTime)
+    // The sweep keeps coasting from note-on through the release fade; its envelope shares the sweep channel.
+    if (!this.runEnvelope.idle) this.sweepClock += deltaTime * speeds.sweep
+    this.runEnvelope.advance(deltaTime * speeds.sweep)
+    this.glowEnvelope.advance(deltaTime * speeds.glow)
+    this.completionPulse.advance(deltaTime * speeds.completion)
+    this.edgeFlash.advance(deltaTime * speeds.edge)
     if (!this.completionPending) return
     if (this.complete) {
       this.completionPending = false
@@ -438,7 +468,7 @@ class TabPulseRenderable extends Renderable {
   private _completionColor: RGBA
   private _outerCompletionColor: RGBA
   private _backgroundColor: RGBA
-  private _speed: number
+  private _speeds: PulseSpeeds
   private renderColor = RGBA.fromInts(0, 0, 0)
   private outerRenderColor = RGBA.fromInts(0, 0, 0)
   private _onLevel: ((level: number) => void) | undefined
@@ -485,7 +515,7 @@ class TabPulseRenderable extends Renderable {
     this._completionColor = options.completionColor ?? this._color
     this._outerCompletionColor = options.outerCompletionColor ?? options.completionColor ?? this._outerColor
     this._backgroundColor = options.backgroundColor ?? RGBA.defaultBackground()
-    this._speed = options.speed ?? 1
+    this._speeds = options.speeds ?? DEFAULT_PULSE_SPEEDS
     this._onLevel = options.onLevel
   }
 
@@ -633,18 +663,23 @@ class TabPulseRenderable extends Renderable {
     this.requestRender()
   }
 
-  set speed(value: number) {
-    if (value === this._speed) return
+  set speeds(value: PulseSpeeds) {
+    if (
+      value.sweep === this._speeds.sweep &&
+      value.edge === this._speeds.edge &&
+      value.completion === this._speeds.completion &&
+      value.glow === this._speeds.glow
+    )
+      return
     // Retimes future ticks only; an idle pulse applies it whenever it next animates.
-    this._speed = value
+    this._speeds = value
   }
 
   protected override onUpdate(deltaTime: number): void {
     if (!this.live) return
-    // The single timebase: scaling delta here retimes the sweep clock and every envelope uniformly.
-    const scaledDelta = deltaTime * this._speed
-    this.inner.advance(scaledDelta)
-    this.outer.advance(scaledDelta)
+    // Per-channel timebase: scaling each voice's delta retimes that voice alone.
+    this.inner.advance(deltaTime, this._speeds)
+    this.outer.advance(deltaTime, this._speeds)
     this.live = this.inner.live || this.outer.live
   }
 
@@ -794,7 +829,7 @@ export function TabPulse(props: {
   outerCompletionColor?: RGBA
   backgroundColor: RGBA
   onLevel?: (level: number) => void
-  speed?: number
+  speeds?: PulseSpeeds
 }) {
   return (
     <tab_pulse
@@ -826,7 +861,7 @@ export function TabPulse(props: {
       outerCompletionColor={props.outerCompletionColor ?? props.completionColor ?? props.outerColor ?? props.color}
       backgroundColor={props.backgroundColor}
       onLevel={props.onLevel}
-      speed={props.speed ?? 1}
+      speeds={props.speeds ?? DEFAULT_PULSE_SPEEDS}
     />
   )
 }
