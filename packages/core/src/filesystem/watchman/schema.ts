@@ -32,6 +32,16 @@ export const UnsubscribeResponse = Schema.Struct({
   deleted: Schema.Boolean,
 })
 
+export const WatchListResponse = Schema.Struct({
+  ...response,
+  roots: Schema.Array(Schema.String),
+})
+
+export const WatchDelResponse = Schema.Struct({
+  ...response,
+  deleted: Schema.optional(Schema.Boolean),
+})
+
 export const SubscriptionChanges = Schema.Struct({
   ...response,
   subscription: Schema.String,

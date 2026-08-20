@@ -16,18 +16,30 @@ type State = {
   closed: boolean
 }
 
-export const makeNative = (fallback: NativeInterface) =>
+export const makeNative = (fallback: NativeInterface, options?: NativeOptions) =>
   Effect.gen(function* () {
-    const manager = yield* make
-    return makeNativeWith(manager, fallback)
+    const manager = yield* make({ notifySeconds: options?.notifySeconds })
+    return makeNativeWith(manager, fallback, options)
   })
 
-export function makeNativeWith(manager: Manager, fallback: NativeInterface): NativeInterface {
+export type NativeOptions = {
+  /** Base delay in millis for reconnect backoff; doubles per attempt up to `retryCapMs`. Retries forever. */
+  readonly retryBaseMs?: number
+  /** Ceiling in millis for reconnect backoff delay. */
+  readonly retryCapMs?: number
+  /** Seconds between "still disconnected" warnings while subscriptions wait to reconnect. 0 disables. */
+  readonly notifySeconds?: number
+}
+
+const RETRY_BASE_MS = 100
+const RETRY_CAP_MS = 3200
+
+export function makeNativeWith(manager: Manager, fallback: NativeInterface, options?: NativeOptions): NativeInterface {
   let subscriptionID = 0
   return {
     subscribe: (input) => {
       if (input.type === "file") return fallback.subscribe(input)
-      return watchmanSubscribe(manager, input, ++subscriptionID).pipe(
+      return watchmanSubscribe(manager, input, ++subscriptionID, options).pipe(
         Effect.catch((error) =>
           Effect.logWarning("watchman acquisition failed; using parcel watcher", {
             path: input.target,
@@ -44,6 +56,7 @@ function watchmanSubscribe(
   manager: Manager,
   input: Parameters<NativeInterface["subscribe"]>[0],
   id: number,
+  options?: NativeOptions,
 ): Effect.Effect<Subscription, WatchmanError, Scope.Scope> {
   const stop = Deferred.makeUnsafe<void>()
 
@@ -99,6 +112,7 @@ function watchmanSubscribe(
               name,
               warning: subscribed.response.warning,
             })
+          yield* manager.roots.acquire(generation, route.root)
           return { generation, route, name, queue, clock: subscribed.clock, closed: false } satisfies State
         }).pipe(
           Effect.onError(() =>
@@ -120,6 +134,7 @@ function watchmanSubscribe(
       if (state.closed) return
       state.closed = true
       state.generation.subscriptions.delete(state.name)
+      yield* manager.roots.release(state.route.root)
       yield* Queue.shutdown(state.queue)
       if (Deferred.isDoneUnsafe(state.generation.closed)) return
       yield* manager
@@ -134,13 +149,15 @@ function watchmanSubscribe(
     ).pipe(Effect.raceFirst(Deferred.await(stop).pipe(Effect.as({ type: "stop" as const }))))
 
   const run = (initial: State) => {
-    const reconnect = (state: State, attempt = 0): Effect.Effect<State, WatchmanError> =>
-      establish(state).pipe(
-        Effect.catch((error) => {
-          if (attempt >= 6) return Effect.fail(error)
-          return Effect.sleep("100 millis").pipe(Effect.andThen(reconnect(state, attempt + 1)))
-        }),
+    // Retries forever: a daemon restart (or a long outage) must not
+    // permanently kill a subscription that already acknowledged Watchman.
+    // The attempt counter only grows the delay; success resets it.
+    const reconnect = (state: State, attempt = 0): Effect.Effect<State, WatchmanError> => {
+      const delay = Math.min(options?.retryCapMs ?? RETRY_CAP_MS, (options?.retryBaseMs ?? RETRY_BASE_MS) * 2 ** attempt)
+      return establish(state).pipe(
+        Effect.catch((error) => Effect.sleep(delay).pipe(Effect.andThen(reconnect(state, attempt + 1)))),
       )
+    }
     const loop = (state: State): Effect.Effect<void, WatchmanError> =>
       Effect.gen(function* () {
         const result = yield* wait(state)
