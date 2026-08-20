@@ -125,6 +125,11 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
           fs: {
             filewatcher: !truthy(process.env.OPENCODE_FILEWATCHER_DISABLE ?? process.env.OPENCODE_DISABLE_FILEWATCHER),
             watcherBackend,
+            watchmanNotifySeconds:
+              process.env.OPENCODE_WATCHMAN_NOTIFY_SECONDS !== undefined &&
+              Number.isFinite(Number(process.env.OPENCODE_WATCHMAN_NOTIFY_SECONDS))
+                ? Math.max(0, Number(process.env.OPENCODE_WATCHMAN_NOTIFY_SECONDS))
+                : 0,
             fff:
               process.env.OPENCODE_DISABLE_FFF === undefined
                 ? process.platform !== "win32"
