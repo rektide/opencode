@@ -39,7 +39,7 @@ import {
 } from "../context/session-tabs-model"
 import { createAnimatable, spring, tween } from "../ui/animation"
 import { Locale } from "../util/locale"
-import { TabPulse, unreadGlowIntensity } from "./tab-pulse"
+import { TabPulse, resolvePulseSpeeds, unreadGlowIntensity } from "./tab-pulse"
 import { tint } from "../theme/color"
 import { SESSION_SIDEBAR_WIDTH, SESSION_TABS_COMPACT_BREAKPOINT } from "../ui/layout"
 import { projectName } from "../util/project"
@@ -537,7 +537,7 @@ function VerticalSessionTabs(props: {
   const config = useConfig().data
   const animations = () => props.animations ?? config.animations !== false
   // Playback multiplier is independent of fps: the loop rate sets sampling cost, this sets perceived duration.
-  const pulseSpeed = createMemo(() => config.animationSpeed ?? 1 / 3)
+  const pulseSpeeds = createMemo(() => resolvePulseSpeeds(config.animationSpeed))
   const width = () => props.width ?? SESSION_SIDEBAR_WIDTH
   const compact = createMemo(() => width() < SESSION_TABS_COMPACT_BREAKPOINT)
   const tooltipWidth = () => Math.min(54, dimensions().width - width())
@@ -967,7 +967,7 @@ function VerticalSessionTabs(props: {
                       outerColor={separatorUpperPulseColor()}
                       flashColor={tint(background(), theme.text.base, 0.22)}
                       outerFlashColor={tint(background(), theme.text.base, 0.18)}
-                      speed={pulseSpeed()}
+                      speeds={pulseSpeeds()}
                       flashTail={8}
                       glowColor={separatorLowerColor()}
                       outerGlowColor={separatorUpperColor()}
@@ -991,7 +991,7 @@ function VerticalSessionTabs(props: {
                         glow={glows()}
                         outerGlow={false}
                         color={tint(background(), theme.text.base, 0.04)}
-                        speed={pulseSpeed()}
+                        speeds={pulseSpeeds()}
                         width={indicatorWidth}
                         outerColor={tint(background(), theme.text.base, 0.006)}
                         flashColor={tint(background(), theme.text.base, 0.18)}
@@ -1014,7 +1014,7 @@ function VerticalSessionTabs(props: {
                         glow={glows()}
                         color={pulseColor()}
                         width={indicatorWidth}
-                        speed={pulseSpeed()}
+                        speeds={pulseSpeeds()}
                         glowColor={glowColor()}
                         flashColor={flashColor()}
                         flashTail={8}
@@ -1100,7 +1100,7 @@ function VerticalSessionTabs(props: {
                         glow={glows()}
                         color={detailPulseColor()}
                         width={indicatorWidth}
-                        speed={pulseSpeed()}
+                        speeds={pulseSpeeds()}
                         glowColor={detailGlowColor()}
                         glowTail={10}
                         flashColor={detailFlashColor()}
@@ -1281,7 +1281,7 @@ function HorizontalSessionTabs(props: {
   const config = useConfig().data
   const animations = () => props.animations ?? config.animations !== false
   // Same as the sidebar tabs: fps sets the loop rate, animationSpeed sets the timebase; no coupling.
-  const pulseSpeed = createMemo(() => config.animationSpeed ?? 1 / 3)
+  const pulseSpeeds = createMemo(() => resolvePulseSpeeds(config.animationSpeed))
   const [addHovered, setAddHovered] = createSignal(false)
   const marquee = createTabMarquee(animations)
   const hovered = marquee.hovered
@@ -1672,7 +1672,7 @@ function HorizontalSessionTabs(props: {
                 complete={status().complete && !status().attention}
                 glow={glows()}
                 color={pulseColor()}
-                speed={pulseSpeed()}
+                speeds={pulseSpeeds()}
                 glowColor={glowColor()}
                 flashColor={flashColor()}
                 completionColor={unreadColor()}

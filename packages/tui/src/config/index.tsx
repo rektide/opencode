@@ -239,8 +239,20 @@ export const Info = Schema.Struct({
   animations: Schema.optional(Schema.Union([Schema.Boolean, Schema.Number.check(Schema.isGreaterThan(0))])).annotate({
     description: "Enable interface animations or set their target frame rate",
   }),
-  animationSpeed: Schema.optional(Schema.Number.check(Schema.isGreaterThan(0))).annotate({
-    description: "Playback rate for interface animations; 1 is authored speed, lower is slower",
+  animationSpeed: Schema.optional(
+    Schema.Union([
+      Schema.Number.check(Schema.isGreaterThan(0)),
+      Schema.Struct({
+        sweep: Schema.optional(Schema.Number.check(Schema.isGreaterThan(0))),
+        edge: Schema.optional(Schema.Number.check(Schema.isGreaterThan(0))),
+        completion: Schema.optional(Schema.Number.check(Schema.isGreaterThan(0))),
+        glow: Schema.optional(Schema.Number.check(Schema.isGreaterThan(0))),
+        rest: Schema.optional(Schema.Number.check(Schema.isGreaterThan(0))),
+      }),
+    ]),
+  ).annotate({
+    description:
+      "Playback rate for interface animations; a number scales all voices, or tune sweep/edge/completion/glow individually with rest as the fallback for unspecified voices",
   }),
   mouse: Schema.optional(Schema.Boolean).annotate({ description: "Enable terminal mouse capture" }),
   cursor: Schema.optional(Cursor),
