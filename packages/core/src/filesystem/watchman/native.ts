@@ -112,7 +112,7 @@ function watchmanSubscribe(
               name,
               warning: subscribed.response.warning,
             })
-          yield* manager.roots.acquire(generation, route.root)
+          manager.retain()
           return { generation, route, name, queue, clock: subscribed.clock, closed: false } satisfies State
         }).pipe(
           Effect.onError(() =>
@@ -134,7 +134,7 @@ function watchmanSubscribe(
       if (state.closed) return
       state.closed = true
       state.generation.subscriptions.delete(state.name)
-      yield* manager.roots.release(state.route.root)
+      manager.release()
       yield* Queue.shutdown(state.queue)
       if (Deferred.isDoneUnsafe(state.generation.closed)) return
       yield* manager
