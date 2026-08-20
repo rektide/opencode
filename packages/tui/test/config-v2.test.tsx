@@ -39,8 +39,14 @@ test("validates animation frame rates", () => {
 test("validates animation playback speed", () => {
   expect(decodeInfo({ animationSpeed: 0.2 })).toEqual({ animationSpeed: 0.2 })
   expect(decodeInfo({ animationSpeed: 1 })).toEqual({ animationSpeed: 1 })
+  expect(decodeInfo({ animationSpeed: { sweep: 1 / 3, rest: 2 / 3 } })).toEqual({
+    animationSpeed: { sweep: 1 / 3, rest: 2 / 3 },
+  })
+  expect(decodeInfo({ animationSpeed: {} })).toEqual({ animationSpeed: {} })
   expect(() => decodeInfo({ animationSpeed: 0 })).toThrow()
   expect(() => decodeInfo({ animationSpeed: -1 })).toThrow()
+  expect(() => decodeInfo({ animationSpeed: { sweep: 0 } })).toThrow()
+  expect(() => decodeInfo({ animationSpeed: { rest: -1 } })).toThrow()
 })
 
 test("validates the session tabs setting", () => {

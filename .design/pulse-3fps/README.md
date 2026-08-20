@@ -163,3 +163,32 @@ the 8 fps throttle the sweep cycle runs `2800 * 3` = 8.4s with ~67 samples
 (~0.8 cell of front movement per frame); one-shots land at 3x authored
 duration: edge flash 2.4s, completion 3.6s, glow release 2.7s, glow ignition
 1.8s. Tests (17 pass) and typecheck clean from `packages/tui`.
+
+# Addendum 4 — 2026-08-20 — per-channel animationSpeed object
+
+`animationSpeed` now accepts a number (scales every voice) or an object
+tuning the four pulse voices independently — `sweep`, `edge`, `completion`,
+`glow` — with `rest` as the fallback for unspecified voices. Resolution
+order: explicit channel > `rest` > per-channel default; defaults are
+sweep 1/3, everything else 2/3 (so unset config, `{}`, and
+`{ sweep: 1/3, rest: 2/3 }` are equivalent; a bare number N sets all four).
+
+- `tab-pulse.tsx` — `PulseSpeeds` type, `PulseSpeedConfig`, exported
+  `resolvePulseSpeeds` + `DEFAULT_PULSE_SPEEDS`; `PulseState.advance` now
+  scales each envelope's delta by its own channel rate (sweep covers both
+  the sweep clock and its run envelope); renderable option `speed` widened
+  to `speeds` with per-field change detection.
+- `config/index.tsx` — schema widened to
+  `Number | Struct({ sweep?, edge?, completion?, glow?, rest? })`, all
+  positive-only.
+- `session-tabs.tsx` — both memos resolve through `resolvePulseSpeeds(config
+  .animationSpeed)`; all five `<TabPulse>` sites pass `speeds`.
+
+At the 8 fps throttle with defaults: sweep cycle 2800/(1/3) = 8.4s (~67
+samples), edge flash 1.2s, completion 1.8s, glow release 1.35s / ignition
+0.9s.
+
+## Verification
+
+From `packages/tui`: `bun test test/config-v2.test.tsx` — 17 pass / 0 fail /
+118 expects (object-form cases added); `bun typecheck` clean.
