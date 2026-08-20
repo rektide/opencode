@@ -228,7 +228,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
     Effect.gen(function* () {
       const options = {
         externalOutputMode: "passthrough",
-        targetFps: typeof config.animations === "number" ? config.animations : 3,
+        targetFps: typeof config.animations === "number" ? config.animations : 8,
         gatherStats: false,
         exitOnCtrlC: false,
         useKittyKeyboard: {},
