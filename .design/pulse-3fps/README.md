@@ -126,3 +126,32 @@ timebase:
 
 From `packages/tui`: `bun test test/config-v2.test.tsx` — 17 pass / 0 fail /
 114 expects; `bun typecheck` clean.
+
+# Addendum 2 — 2026-08-20 — unconditional animationSpeed, throttle raised to 8 fps
+
+## Removing the fps/speed pairing
+
+The first `animationSpeed` round paired playback with the `animations` config
+type: numeric fps implied authored speed (1.0), boolean/unset implied 0.2.
+That made perceived duration a hidden function of two knobs — worse, at an
+8 fps default, `animations: true` and `animations: 8` would run the same loop
+at different playback speeds, decided only by a type check. The multiplier is
+now unconditional: `config.animationSpeed ?? 0.2` in both tab components.
+Semantics are orthogonal — `animations` (fps) sets the sample rate and render
+cost, `animationSpeed` sets the timebase. Authored timing at any fps is
+`animationSpeed: 1`.
+
+## Throttle 3 fps → 8 fps
+
+`app.tsx` fallback `targetFps` raised from 3 to 8 (125ms frames). At the 0.2
+default the sweep cycle runs `2800/0.2` = 14s with ~112 samples (~0.5 cell of
+front movement per frame — a smooth crawl). One-shot envelopes stretch
+likewise: edge flash 800ms→4s, completion 1.2s→6s, glow release 900ms→4.5s;
+tune via `animationSpeed` without touching fps. Idle-animation cost rises to
+8 full repaints + tree walks per second (vs 3), still 7.5x below the 60 fps
+baseline; input/output renders remain at maxFps cadence.
+
+## Verification
+
+From `packages/tui`: `bun test test/config-v2.test.tsx` — 17 pass / 0 fail;
+`bun typecheck` clean.
