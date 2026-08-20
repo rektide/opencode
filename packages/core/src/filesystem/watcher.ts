@@ -72,6 +72,8 @@ export interface Interface {
 export const Options = Schema.Struct({
   enabled: Schema.optional(Schema.Boolean),
   backend: Schema.optional(Schema.Literals(["default", "watchman", "parcel"])),
+  /** Seconds between "still disconnected" Watchman warnings while subscriptions wait to reconnect. 0 disables. */
+  watchmanNotifySeconds: Schema.optional(Schema.Number),
 })
 export type Options = typeof Options.Type
 
@@ -98,7 +100,7 @@ export const layer = (options?: Options) =>
         options?.backend === "watchman"
           ? yield* Effect.gen(function* () {
               const { makeNative } = yield* Effect.promise(() => import("./watchman/native.js"))
-              return yield* makeNative(fallback)
+              return yield* makeNative(fallback, { notifySeconds: options?.watchmanNotifySeconds })
             })
           : fallback
 

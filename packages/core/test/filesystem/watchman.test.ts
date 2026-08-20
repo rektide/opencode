@@ -23,6 +23,7 @@ function generation(id = 1): Generation {
     closed: Deferred.makeUnsafe<void>(),
     routes: new Map(),
     subscriptions: new Map(),
+    adopted: new Set<string>(),
   }
 }
 
@@ -30,6 +31,7 @@ function manager(
   current: () => Generation,
   respond: (generation: Generation, args: readonly unknown[]) => Effect.Effect<unknown, WatchmanError>,
 ): Manager {
+  const claimed = new Set<string>()
   return {
     current: () => Effect.succeed(current()),
     command: (generation, args, schema) =>
@@ -40,6 +42,12 @@ function manager(
         ),
       ),
     retire: (generation) => Effect.sync(() => Deferred.doneUnsafe(generation.closed, Effect.void)).pipe(Effect.asVoid),
+    roots: {
+      acquire: (_generation, root) => Effect.sync(() => claimed.add(root)),
+      release: (root) => Effect.sync(() => claimed.delete(root)),
+      orphans: () => new Set(claimed),
+      demand: () => claimed.size,
+    },
   }
 }
 
@@ -234,6 +242,63 @@ it.effect("stores the replacement cursor after a resume cursor is rejected", () 
     current = second
     Deferred.doneUnsafe(first.closed, Effect.void)
     expect((yield* Deferred.await(resumed))[3]).toMatchObject({ since: "c:3" })
+    yield* Effect.promise(() => subscription?.unsubscribe() ?? Promise.resolve())
+  })
+})
+
+it.live("retries forever and resumes once the daemon returns", () => {
+  const first = generation(1)
+  const second = generation(2)
+  const resumed = Deferred.makeUnsafe<readonly unknown[]>()
+  let current: () => ReturnType<typeof generation> = () => first
+  let failures = 0
+  const transport = manager(
+    () => current(),
+    (generation, args) => {
+      if (args[0] === "watch-project") return Effect.succeed({ watch: "/repo", relative_path: "src" })
+      if (args[0] === "clock") return Effect.succeed({ clock: generation === first ? "c:1" : "c:9" })
+      if (args[0] === "subscribe") {
+        if (generation === second) Deferred.doneUnsafe(resumed, Effect.succeed(args))
+        return Effect.succeed({ subscribe: args[2] })
+      }
+      return Effect.succeed({ unsubscribe: args[2], deleted: true })
+    },
+  )
+  // current() succeeds initially; after gen1 dies it fails 20 times, then
+  // recovers: the old 6-attempt budget would have failed the subscription
+  // permanently.
+  const connect = () => {
+    if (Deferred.isDoneUnsafe(first.closed)) {
+      if (failures < 20) return Effect.sync(() => failures++).pipe(Effect.andThen(Effect.fail(new WatchmanError("connect", "daemon down"))))
+      return Effect.sync(() => {
+        current = () => second
+        return second
+      })
+    }
+    return Effect.succeed(first)
+  }
+  const failing = { ...transport, current: () => connect() }
+  return Effect.gen(function* () {
+    const subscription = yield* makeNativeWith(failing, fallback(), { retryBaseMs: 1, retryCapMs: 5 }).subscribe({
+      type: "directory",
+      target: "/repo/src",
+      routing: "project",
+      ignore: [],
+      publish: () => {},
+      fail: () => {},
+    })
+    first.subscriptions.values().next().value?.({
+      subscription: "opencode-1-1",
+      root: "/repo",
+      clock: "c:2",
+      is_fresh_instance: false,
+      files: [],
+    })
+    yield* Effect.yieldNow
+    Deferred.doneUnsafe(first.closed, Effect.void)
+    const command = yield* Deferred.await(resumed)
+    expect(failures).toBe(20)
+    expect(command[3]).toMatchObject({ since: "c:2", relative_root: "src" })
     yield* Effect.promise(() => subscription?.unsubscribe() ?? Promise.resolve())
   })
 })
