@@ -203,6 +203,10 @@ server-connection 2/2.
 
 ## Open follow-ups
 
+- OTEL observability design (linked subscribe/unsubscribe/resume event
+  spans, metrics, plugin-tracer gap) is written up in
+  [`otel0.glm53.md`](otel0.glm53.md); implementation not started.
+
 - Fork hardening in `~/src/watchman-esm` (`watchman/node/index.js`): the
   four lifecycle items (terminal `end`, child kill, close+error teardown,
   late-socket guard) are currently compensated adapter-side in
