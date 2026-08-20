@@ -136,33 +136,35 @@ with live demand, a warning repeats every `OPENCODE_WATCHMAN_NOTIFY_SECONDS`
 (default 0 = off): core/filesystem has no toast surface, so this is log-level
 for now.
 
-## Root cleanup (2026-08-20)
+## Root cleanup (2026-08-20, revised same day)
 
-Watchman roots were previously minted (`watch-project`/`watch`) and never
-deleted — the same leak the parcel backend was criticized for. Cleanup is now
-two-layered, both biasing toward **not** deleting:
+An initial cross-process ledger design (per-process claim files under
+`<XDG data>/opencode/watchman-ledger/`, census sweeps, pid probing) landed
+as `npyxpmkz` and was **removed the same day** after reading the watchman
+source (`~/a/facebook/watchman`): it re-implemented, worse, what the daemon
+already maintains. Source-verified model, full analysis in
+[`cleanup0.gpt56t.md`](cleanup0.gpt56t.md):
 
-- **Cross-process ledger** (`ledger.ts`): one JSON file per process under
-  `<XDG data>/opencode/watchman-ledger/` claiming the roots that process
-  minted. A `watch-list` snapshot per connection marks pre-existing roots
-  *adopted* — an editor's root is never claimed and never deleted. A process
-  that *adopts* a root another opencode process claims migrates the claim to
-  itself, so the active user owns the root and a departing sibling cannot
-  `watch-del` it from under them.
-- **Proactive**: when a minted root's subscription refcount hits zero, a 5s
-  grace (reacquisition cancels it) precedes `watch-del` + claim release.
-  Shutdown watch-dels every claimed root that no other live process claims,
-  then removes the ledger file if empty.
-- **Fallback sweep**: 30s after every (re)connection, then every 10 minutes —
-  after re-asserted subscriptions have landed — the sweep reads all ledger
-  files, `watch-del`s roots claimed only by dead processes (or our own
-  unrecoverable orphans), drops claims guarded by live siblings, and unlinks
-  stale files. Failed `watch-del`s keep the claim so the next sweep retries.
+- Subscriptions are **connection-scoped** (`cmds/subscribe.cpp`,
+  `Client.cpp`): they die with our connection, and `unsubscribe` can only
+  ever touch the calling client's own.
+- The daemon self-GCs roots: no subscriptions, no triggers, and no command
+  activity for `idle_reap_age` → watch cancelled
+  (`root/reap.cpp`), default **5 days** (verified at defaults on this
+  machine). Editors' ~320 roots follow the same protocol — nobody
+  `watch-del`s their own roots.
+- `watch-del` is global and unconditional — exactly the foot-gun the
+  ledger was invented to avoid, so we **never issue it**.
 
-Deleting a root always requires being its sole live claimant. If the ledger
-directory is unwritable, claims are disabled and only the (disabled) sweep
-would delete nothing — no blind deletion without visibility. `pidAlive`
-treats EPERM as alive (foreign-owned process).
+Settled behavior: **unsubscribe at the subscription level, never
+`watch-del`.** "We don't need it anymore" is knowable in-process — the
+Watcher `RcMap`'s 15m idle TTL is the arbiter, and unsubscribe flows from
+TTL expiry, explicit consumer unsubscribe, shutdown, and failure cleanup
+(including interests dropped during an outage: the run loop races
+stop against reconnect, so nothing dropped ever re-establishes). Root-level
+"nobody needs it" is only knowable daemon-side, which is what the reaper
+answers. The in-process demand counter that remains exists solely to gate
+the disconnected-notify loop.
 
 Also on 2026-08-20: reconnection became **unbounded** (exponential backoff,
 100ms → 3.2s cap). A daemon restart no longer risks permanent subscription
@@ -176,14 +178,13 @@ Run from package directories, never repo root:
 
 ```sh
 cd packages/core && bun typecheck
-cd packages/core && bun test test/filesystem/watchman.test.ts test/filesystem/watchman-ledger.test.ts \
-  test/filesystem/watcher.test.ts test/skill.test.ts test/plugin/skill.test.ts \
-  test/config/config.test.ts test/config/skill.test.ts
+cd packages/core && bun test test/filesystem/watchman.test.ts test/filesystem/watcher.test.ts \
+  test/skill.test.ts test/plugin/skill.test.ts test/config/config.test.ts test/config/skill.test.ts
 cd packages/server && bun typecheck && bun test test/options.test.ts
 cd packages/cli && bun typecheck && bun test test/server-connection.test.ts
 ```
 
-Freshened-line results: core/server/cli typechecks clean; 77 pass across the
+Freshened-line results: core/server/cli typechecks clean; 67 pass across the
 focused core suites (1 known flake, below); server options 5/5; CLI
 server-connection 2/2.
 
