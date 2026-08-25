@@ -81,6 +81,11 @@ in the unit. Restart the server to apply.
 
 ## Follow-ups
 
+- [Loading timeline](/home/rektide/src/opencode-cache-time/.design/cache-time/loading-timeline.md)
+  — what gets loaded when, in tabs and sessions: connect waterfall, picker
+  waterfall, measured DB costs (20.5 GB db; list query 0.87s cold / 20ms
+  warm via temp-B-tree sort — no `time_updated` index), and why tab count
+  in the current project doesn't predict the wait.
 - [Prioritizing concurrent location boots](/home/rektide/src/opencode-cache-time/.design/cache-time/prioritization.md)
   — OPTIONAL, explicitly not a priority. Records what asks for which
   projects' locations (TUI tab restore is the multi-project storm), the
