@@ -78,3 +78,12 @@ in the unit. Restart the server to apply.
 - Memory growth if locations are never retired: each stack holds plugin
   hosts/MCP clients; heavy multi-project sweeps would accumulate. If that
   bites, consider a capacity-bounded variant or a long finite default.
+
+## Follow-ups
+
+- [Prioritizing concurrent location boots](/home/rektide/src/opencode-cache-time/.design/cache-time/prioritization.md)
+  — OPTIONAL, explicitly not a priority. Records what asks for which
+  projects' locations (TUI tab restore is the multi-project storm), the
+  observability gap (boots log directory but not the requesting
+  endpoint/session), and option sketches: bounded-concurrency priority
+  queue, client priority hints, staged restore, attribution logging.
