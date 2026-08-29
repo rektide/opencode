@@ -192,3 +192,45 @@ samples), edge flash 1.2s, completion 1.8s, glow release 1.35s / ignition
 
 From `packages/tui`: `bun test test/config-v2.test.tsx` — 17 pass / 0 fail /
 118 expects (object-form cases added); `bun typecheck` clean.
+
+# Addendum 5 — 2026-08-29 — refresh onto e70d667a
+
+## What moved
+
+Duplicate-then-rebase refresh of the whole workspace line (bookmark commit +
+the four `animationSpeed` WIP commits + docs) from old base `044d04df` onto
+the `v2@origin` tip `e70d667a9fe3` ("fix(ai): preserve Anthropic finish
+across usage deltas (#46171)"). Originals and the dated snapshots
+(`pulse-3fps-20260813/-20260817/-20260818`) are untouched; `pulse-3fps` and
+the new same-day `pulse-3fps-20260829` point at the duplicated feature tip
+`nxmmunnlmpmm` / `64535f4d1a0f`.
+
+## Conflicts and adaptations
+
+- No textual rebase conflicts: upstream `044d04df..e70d667a` touched none of
+  the files this line edits (verified per-commit and via the final tree
+  diff, which is unchanged in shape).
+- One semantic adaptation folded into the feature commit: upstream added
+  `packages/tui/src/routes/session/sidebar.tsx` (session sidebar route)
+  whose `title_shimmer` passes `enabled={config.animations ?? true}` into a
+  strictly-boolean prop. The widened `animations: boolean | number` schema
+  broke `bun typecheck` there (`TS2322`). Adapted to
+  `enabled={config.animations !== false}` (sidebar.tsx:56) — the same
+  number-means-enabled convention the feature already uses in
+  `prompt/index.tsx` and `session-tabs.tsx`; the adjacent
+  `config.animations === false` dim check on line 59 needed no change.
+- No upstream equivalent of the feature landed: no `animationSpeed`,
+  `resolvePulseSpeeds`, or pulse-fps throttle exists in `e70d667a`. The only
+  other `targetFps` upstream is the mini runtime's own fixed 30
+  (`src/mini/runtime.lifecycle.ts:163`), which is out of scope here.
+
+## Verification (2026-08-29)
+
+From `packages/tui` (after `bun install` at the workspace root):
+
+- `bun test test/config-v2.test.tsx` — 22 pass, 0 fail, 167 expect() calls
+  (up from 17/118 on 2026-08-20; the delta is upstream test growth plus the
+  animation cases — `validates animation frame rates` and
+  `validates animation playback speed` both pass).
+- `bun typecheck` (`tsgo -b`) — clean, exit 0, verified both at the
+  bookmarked feature commit standalone and at the full workspace tip.
