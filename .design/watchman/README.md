@@ -3,7 +3,7 @@ type: Design
 title: Watchman retained backend — maintenance log
 description: Workspace history, rebase/repair record, verification status, and known flakies for the watchman feature stack.
 status: stable
-generated: { by: llm:gpt-5.6-terra, at: 2026-08-19 }
+generated: { by: llm:gpt-5.6-terra, at: 2026-08-29 }
 sources:
   - id: draft1
     resource: ../watch/draft1.gpt56t.md
@@ -23,12 +23,17 @@ flaky — so that rebases and audits don't have to re-derive it.
 
 ## Current state
 
-- Base: `v2@origin` `33567c57` (`fix(desktop): connect wildcard service
-  through loopback (#43171)`), freshened 2026-08-19 across 504 upstream
-  commits from the original `c29968bf` base.
-- Bookmarks: `watchman` + `watchman-20260819` at `wlqzvnqm` (`298e7db1`).
+- Base: `v2@origin` `e70d667a` (`fix(ai): preserve Anthropic finish across
+  usage deltas (#46171)`), freshened 2026-08-29.
+- Bookmarks: `watchman` + `watchman-20260829` at `vzyvkuwm` (`414f442f`);
+  the dated `watchman-20260819` stays on the pre-freshen line (`qmzwkttz`,
+  `736174b8`) and is immutable.
 - Stack shape: 8 design-doc commits (`tzvzsomw`…`ttmlyrmu` under
-  `.design/watch*`) + 9 code commits:
+  `.design/watch*`) + 10 code/doc commits — 18 bookmarked total, including
+  the maintenance-log doc `swkykyrt` between the skill-routing port and the
+  configuration-surface tip — plus 10 unbookmarked WIP commits riding the
+  same line (unbounded reconnect, notify-seconds options/env, ledger
+  add+drop, research/OTEL docs):
 
 | Commit | Scope |
 | --- | --- |
@@ -40,6 +45,8 @@ flaky — so that rebases and audits don't have to re-derive it.
 | `zpxxqmvn` | fix(core): finalize interrupted Watchman subscriptions — failure-scoped cleanup of subscriptions/queues/unsubscribe, route-cache invalidation on interruption, bounded generation retention |
 | `qulkzzuk` | fix(core): close retired Watchman clients — late-socket guard (`connect` after retire closes), unsupported-backend terminal completion |
 | `wlqzvnqm` | feat(core): port skill watch routing to config plugin — post-rebase port (below) |
+| `swkykyrt` | docs(design): record watchman workspace maintenance log |
+| `qmzwkttz` | docs(design): record watchman configuration surface — bookmarked feature tip |
 
 ## Retention decision (settled)
 
@@ -107,6 +114,64 @@ Upstream's `test/config/skill.test.ts` needed two expectation updates:
 directory, and removal of a duplicate symlink-sentinel re-acquisition entry
 (the retention semantics: reacquiring the same interest inside the TTL hits
 the retained entry rather than re-subscribing).
+
+### Freshen onto `e70d667a` (2026-08-29)
+
+Upstream tip `e70d667a` (`fix(ai): preserve Anthropic finish across usage
+deltas (#46171)`). Duplicate-then-rebase flow (dated bookmarks untouched:
+`watchman-20260819` stays on the old line). The rebase flagged 20 commits
+conflicted, but these were 4 root conflicts propagating down the line —
+jj cleared the other 17 automatically as each root was resolved via
+`jj new <conflicted>` → edit → `jj squash`:
+
+- `zkotzzrk`-dup (`nrxlxxkn`) — `packages/core/package.json` + `bun.lock`:
+  upstream **deleted the `@opencode-ai/shell-scan` workspace package
+  entirely** (directory and dep). Resolution drops the dep line and keeps
+  our `@types/is-glob`/`@types/micromatch`; lock keeps the `@types/is-glob`
+  insertion. A post-install prune of stale transitive entries
+  (`@types/http-errors`, `@types/is-stream`, unreferenced upstream) was
+  folded back into the same commit.
+- `wlqzvnqm`-dup (`tztkqynm`) — the 2026-08-19 repair had re-added the
+  `shell-scan` workspace dep inside the port commit; after upstream's
+  deletion this stalely resurrected the dep (bun install failed). Removed
+  again; no source imports of shell-scan remain anywhere.
+- `llyotvxz`-dup (`xvpnwmqm`) — `test/config/config.test.ts`: upstream added
+  `inFixture()` filtering of `config.entries()` (entries can now surface
+  real outside-fixture sources on dev machines). Combined with our
+  `Watcher.Test` subscription expectations, and applied the same `inFixture`
+  filter to our added directory-subscriptions expectation, matching
+  upstream's own pattern elsewhere in the file.
+- `orqyrztl`-dup (`lmqktswy`) — `packages/server/test/options.test.ts`:
+  upstream's new CORS allowlist test landed at the same spot as our
+  watcher-backend enum test; both kept.
+
+Also noted this round: upstream has an unmerged remote branch
+`config-source-watches@origin` (tip `723150a5`, "test(core): simplify
+source watch fixtures") — config-driven source watching, overlapping our
+watcher-interest routing. It is NOT an ancestor of `v2@origin`; expect
+reconciliation work if it merges.
+
+Pre-existing stack quirk preserved as-is: the bottom six code commits carry
+`.ts`-suffix/extensionless internal imports (the `.js` conversion is folded
+into the `wlqzvnqm` port commit); the tip and upstream both use `.js`.
+`bun install` still needs `--minimum-release-age=0`
+(`@superbfowle/fb-watchman-esm@3.0.0` vs the 3-day window).
+
+Verification on the freshened tip (WIP top, all WIP commits included):
+
+- `test/filesystem/{watchman,watcher}.test.ts` + `test/config/config.test.ts`:
+  **53 pass / 0 fail** (includes the WIP-only `retries forever and resumes
+  once the daemon returns`). The known `.hg/branch` flaky timed out once in
+  an intermediate full-suite run and passed in isolation (75ms) and again
+  in the tip run — still environment timing, not watchman.
+- skill tests (`test/skill.test.ts`, `test/plugin/skill.test.ts`,
+  `test/config/skill.test.ts`): **16 pass / 0 fail** (grew from 11 —
+  upstream added skill tests).
+- `packages/server` `test/options.test.ts`: **6 pass / 0 fail** (grew from
+  4/5 — upstream added CORS + durable-events tests alongside our
+  watcher-backend enum test).
+- `bun typecheck` clean in `packages/core`, `packages/cli`,
+  `packages/server`.
 
 ## Configuration
 
