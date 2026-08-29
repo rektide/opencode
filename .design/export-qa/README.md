@@ -56,3 +56,28 @@ default (answers only, no option list).
 ## Open questions
 
 - Should `/copy` also expose the options toggle, or remain the compact form?
+
+## Refresh log
+
+### 2026-08-29 — freshened onto `e70d667a9fe3`
+
+- New base: upstream `v2@origin` tip `e70d667a9fe3` ("fix(ai): preserve
+  Anthropic finish across usage deltas (#46171)"), replacing `33567c57`.
+- Duplicate-then-rebase of the three feature commits (new ids `bfd4ff50`,
+  `d6a4caf`, `0083c7d8`) rebased **cleanly: zero conflicts**. Upstream
+  neither moved the export formatter nor landed question-answer export
+  natively (`formatSessionTranscript` stays in
+  `packages/tui/src/routes/session/index.tsx` next to
+  `toolDisplay`/`parseQuestions`; the dialog stays in
+  `packages/tui/src/ui/dialog-export-options.tsx`), so no re-homing or
+  resolution was needed.
+- Bookmarks: `export-qa` and `export-qa-20260829` point at the fresh tip
+  (`wttszzyo` / `0083c7d8`); dated `export-qa-20260819` remains untouched on
+  the original line (`xmlpuvzz` / `a709dd8d`).
+- Verification (from `packages/tui` after `bun install` at the workspace
+  root):
+  - `bun test test/cli/tui/transcript-export.test.ts` — 6 pass, 0 fail,
+    15 expect() calls.
+  - `bun test test/cli/tui/inline-tool-wrap-snapshot.test.tsx` — 12 pass,
+    0 fail, 2 snapshots.
+  - `bun typecheck` — clean.
