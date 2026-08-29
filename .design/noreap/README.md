@@ -5,8 +5,8 @@ background service: it stops ordinary clients from killing a merely busy
 service process, and makes eviction — when it finally happens — graceful.
 Workspace `~/src/opencode-noreap` (renamed 2026-08-18 from `opencode-reap`;
 the jj workspace name matches the directory). Floating bookmark
-`service-reap-patience`; immutable snapshots `service-reap-patience-20260817`
-and `service-reap-patience-20260818`. Manifest: "Background service reap
+`service-reap-patience`; immutable snapshots `service-reap-patience-20260817`,
+`service-reap-patience-20260818`, and `service-reap-patience-20260829`. Manifest: "Background service reap
 patience" in the accepted `working` table and "Externally managed background
 service (systemd) + patient reap" under On deck in
 [`patches.md`](/opencode/patches.md).
@@ -41,7 +41,11 @@ unless a deployment opts into patience via options or env vars.
 ## Stack
 
 Freshened 2026-08-18 onto upstream `044d04df` (`fix(cli): preserve clean
-build manifest`, the `v2@origin` tip at that fetch). Floating bookmark
+build manifest`, the `v2@origin` tip at that fetch), and again 2026-08-29
+onto `e70d667a9fe3` (`fix(ai): preserve Anthropic finish across usage
+deltas`, the `v2@origin` tip at that fetch; floating bookmark =
+snapshot `service-reap-patience-20260829` at `b44387a4`, change `kyqsvlux` —
+see Verification). Floating bookmark
 `service-reap-patience` = snapshot `service-reap-patience-20260818` at
 `60d669bab663` (change `moqpypyr`). Inspected from this workspace's clean
 working copy on top of that tip; all line numbers below are from that tree.
@@ -241,6 +245,56 @@ so on this host, where they are set (this is regression-guarded).
   `OPENCODE_SERVICE_KILL_GRACE=240` exports; `bun typecheck` clean in both
   packages. Change IDs preserved through the rebase; both bookmarks moved to
   `60d669bab663` (no backwards move needed).
+- **2026-08-29 freshen onto `e70d667a9fe3`** (third refresh; duplicate-then-rebase
+  from `044d04df`, since `service-reap-patience-20260818` is immutable at
+  `a00ebd8d`): four conflicts, all in the rebase of commits 1 and 2, resolved
+  by adapting the feature to upstream's current shape:
+  - `packages/client/src/service-timing.ts` — upstream sped the ensure poll
+    cadence from `pollInterval: 1_000`/`attempts: 120` to `100`/`1_200`
+    (same 120s window). `timingFromOptions` now derives `pollInterval: 100`
+    and `attempts: Math.round(promiseTimeout / 100)`; with defaults it still
+    reproduces upstream's table exactly (2s probe, 3 strikes, 120s overall,
+    5s stop poll). Per-strike cost is now one probe timeout plus one poll
+    interval (~2.1s per strike, ~6.3s default window) instead of the old 1s
+    spacing; the `evictionStrikes` doc comment now says "one poll interval".
+  - `packages/client/src/effect/service.ts` and
+    `packages/client/src/promise/service.ts` — upstream inlined the
+    `discoverLocal` wrapper into `discover` (and dropped the promise
+    variant's now-unused `probe` wrapper). The feature's parameterized call
+    moved inline: `registered(file, false, ensureTiming(options).requestTimeout)`
+    inside `discover`; `endpointOf` (commit 2) is kept. The effect variant's
+    `probe` wrapper survives — `incumbent` still calls it — and commit 1's
+    timeout threading into `incumbent`'s probe call applied cleanly.
+  - `packages/client/test/fixture/service.ts` — upstream added a `handoff`
+    fixture mode; the version gate is now `old || handoff || reject-stop`,
+    and upstream's `/api/experimental/persistent-pty/handoff` route coexists
+    with the feature's three `/api/service/stop` routes.
+  - `packages/client/test/{service,promise-service}.test.ts` — upstream
+    replaced the per-file `temp()`/`processes`/`waitForFile` helpers with the
+    shared `serviceFixture()` (`await using`, `fixture.spawn/command/track`,
+    async-dispose cleanup). All five feature tests were ported to it:
+    graceful-stop eviction ×2, stall-recovery ×2 (manual `process.kill` +
+    `waitForExit` tails replaced by `fixture.track` + dispose), and the
+    "signals the registered service process" pair now spawn `compatible`
+    instead of `graceful` (upstream reused the name `graceful` for a plain
+    healthy responder; a `graceful` incumbent answers the stop POST and exits
+    cleanly, which would defeat the SIGTERM assertion).
+  Verified from package dirs: `bun test test/service.test.ts
+  test/promise-service.test.ts` from `packages/client` — 31 pass / 0 fail
+  (76 expect calls; the prior 30 plus upstream's new "a concurrent
+  same-version start cannot invalidate a resolved endpoint"); `bun test
+  test/server-connection.test.ts` from `packages/cli` — 3 pass / 0 fail (16
+  expect calls), again with the host's live patience env vars exported;
+  `bun typecheck` clean in both packages; client `import-boundaries` also
+  passes. One observation: upstream's "replaces an incompatible owner that
+  appears during startup" has a 5s test timeout and flaked once (5.04s)
+  under heavy parallel load from sibling freshen workspaces; it runs
+  0.6–0.8s idle on both the feature line and pure `e70d667a`, so the flake
+  is load, not the stack. New feature tip: `b44387a47274` (change
+  `kyqsvlux`, duplicate of `a00ebd8d`'s commit 4); `service-reap-patience`
+  moved sideways to it (`--allow-backwards`) and `service-reap-patience-20260829`
+  was created there. The duplicated docs commits above the feature ride at
+  `01c454dc`/`b5c4561c` with this note on top.
 
 ## Open questions
 
@@ -268,3 +322,13 @@ so on this host, where they are set (this is regression-guarded).
   commit 2 now introduces `requestStop` itself and threads it into
   `terminate`. Expect this seam to keep moving — verify against the diff, not
   this prose.
+- The 2026-08-29 refresh found two more moving seams: the timing table lives
+  in `service-timing.ts` and its cadence is upstream's to tune (100ms polls
+  as of `e70d667a` — re-derive `pollInterval`/`attempts` from upstream on
+  every refresh, and keep the `evictionStrikes` doc comment in sync with the
+  actual poll interval), and the client test files now share the
+  `serviceFixture()` helper, so any new feature tests must be written
+  against `fixture.spawn`/`fixture.command`/`fixture.track` rather than
+  ad-hoc temp dirs. Upstream also owns the fixture mode name `graceful`
+  (plain healthy responder); the feature's stop-aware modes are
+  `graceful`+stop route, `hanging-graceful`, and `reject-stop`.
