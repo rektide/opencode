@@ -32,12 +32,15 @@ elapsed time at readiness.
 
 ## Stack
 
-Freshened 2026-08-18 onto upstream `044d04df` (`fix(cli): preserve clean
-build manifest`, the `v2@origin` tip at that fetch) after repairing the
-mid-restructure chain (see History). Floating bookmark `explicit-port` =
-snapshot `explicit-port-20260818` at `06e8f03a574d` (change `rszvwskr`).
-Inspected from this workspace's clean working copy on top of that tip; all
-line numbers below are from that tree.
+Freshened 2026-08-29 onto upstream `e70d667a9fe3` (`fix(ai): preserve
+Anthropic finish across usage deltas`, the `v2@origin` tip at that fetch);
+see History for the conflict set and resolutions. Floating bookmark
+`explicit-port` = snapshot `explicit-port-20260829` at `26b018bfb814`
+(change `uqtswvow`); prior snapshot `explicit-port-20260818` at `06e8f03a574d`
+(change `rszvwskr`) over base `044d04df` remains the immutable record of the
+previous freshen. Inspected from this workspace's clean working copy on top of
+that tip; line numbers below are from the 2026-08-18 tree over `044d04df` unless
+noted.
 
 | # | Commit | Change | Subject |
 | ---: | --- | --- | --- |
@@ -85,14 +88,16 @@ One-line scopes:
 ## Verification
 
 Run from package directories, never the repo root. Results identical on the
-repaired stack over `b0c3a16e` and on the freshened stack over `044d04df`:
+repaired stack over `b0c3a16e`, on the freshened stack over `044d04df`, and on
+the 2026-08-29 freshen over `e70d667a` (client count rose to 28 with upstream's
+fixture-driven suite growth):
 
 - `packages/cli`: `bun test test/server-connection.test.ts` — **4 pass**
   (resolution groups, version gating, external discover-only fail-fast,
   `OPENCODE_SERVICE_EXTERNAL` override).
 - `packages/client`: `bun test test/service.test.ts test/promise-service.test.ts`
-  — **27 pass** (18 Effect + 9 promise, including "reports contender outcomes
-  with elapsed time").
+  — **27 pass** on `044d04df` / **28 pass** on `e70d667a` (18+9 → 18+10,
+  including "reports contender outcomes with elapsed time").
 - `packages/cli`, `packages/client`: `bun typecheck` (`tsgo --noEmit`) clean;
   `packages/server`: `bun typecheck` (`tsgo -b`) clean.
 
@@ -124,6 +129,38 @@ via `withEnsureTiming` options, not env.
 
 ## History
 
+- 2026-08-29: freshened onto `e70d667a9fe3` via duplicate-and-rebase (the
+  dated snapshots stay on the untouched originals). Four conflicted commits,
+  five conflict sites, all the same shape — upstream evolved the exact lines
+  this stack touches:
+  1. `service-config.ts` keys/configKey/set/unset: upstream added a `cors`
+     config key where this stack adds `external`; merged to
+     `["hostname", "port", "password", "cors", "env", "external"]` and both
+     switch cases, with upstream's new `cors` set/unset bodies adapted to the
+     stack's `stopUnlessExternal()` guard instead of raw `Service.stop`.
+  2. `commands/handlers/service/stop.ts`: upstream now calls
+     `ServerConnection.shutdownPersistentPty(options)` before `Service.stop`;
+     kept that body and prepended the stack's `requireInternal("stop")` guard.
+  3. `client/src/promise/service.ts` spawn site: upstream now
+     `await spawnContender()` before adding to the contender set; kept the
+     await and emit `onContender({ type: "spawned", ... })` after it. The
+     Effect variant merged clean (already `yield* spawnContender`).
+  4. `server/src/process.ts` readiness: upstream renamed
+     `Deferred.await(shutdown)` to `shutdown.await`; kept the new form and the
+     stack's `server ready in Nms` log before the return.
+  5. `client/test/service.test.ts`: upstream rewrote the suite onto the
+     `serviceFixture`/`accelerate` structure (`await using` disposal,
+     `fixture.command(mode)`, `fixture.track(pid)`); the stack's
+     "reports contender outcomes with elapsed time" test was re-expressed
+     against it (`fixture.command("coordinated")`, track+dispose instead of
+     manual kill/waitForExit), still expecting 2 spawned + 1 finished
+     "yielded" with elapsed > 0. An orphaned `>>>>>>>` marker from the first
+     resolution pass was caught by the test run and folded out of the feature
+     tip (`26b018bf`).
+  Verification on the new base: CLI `bun test test/server-connection.test.ts`
+  **4 pass**; client `bun test test/service.test.ts test/promise-service.test.ts`
+  **28 pass**; `bun typecheck` clean in `packages/cli` (`tsgo --noEmit`),
+  `packages/client` (`tsgo --noEmit`), and `packages/server` (`tsgo -b`).
 - 2026-08-18: freshened onto `044d04df` and repaired the incomplete
   restructure. The mid-flight restructure (which split the original 4-commit
   stack into the current shape) had absorbed the final commit `b13d9cf4`
