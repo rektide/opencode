@@ -26,19 +26,20 @@ ship byte-identical on this line.
 
 ## Commit shape
 
-Refreshed 2026-08-18 onto `044d04df` ("fix(cli): preserve clean build
-manifest", the `v2@origin` tip at that fetch); previously built on
-`b0c3a16e`:
+Refreshed 2026-08-29 onto `e70d667a` ("fix(ai): preserve Anthropic finish across
+usage deltas", #46171, the `v2@origin` tip at that fetch); previously built on
+`044d04df` (and before that `b0c3a16e`):
 
 | Commit | Change ID | Subject |
 | --- | --- | --- |
-| `790c84e4` | `rsmkkkku` | feat(core): list recoverable subagent sessions |
-| `cbfd5cda` | `urowystk` | fix(core): report active subagent sessions |
-| `45895a0d` | `squkrnnm` | test(core): register subagent list in focused tests |
+| `a8b2e43f` | `uqxrqvxm` | feat(core): list recoverable subagent sessions |
+| `3b623e2d` | `krporssy` | fix(core): report active subagent sessions |
+| `933eeacc` | `vqspzuon` | test(core): register subagent list in focused tests |
 
-Change IDs are stable across the refresh; commit IDs are the rebased ones.
-Bookmarks `subagent-recovery` and `subagent-recovery-20260818` both point
-at `45895a0d`.
+The 2026-08-29 refresh used duplicate-then-rebase (the dated bookmarks
+`-20260813/-20260817/-20260818` pin the original line and are immutable), so
+this refresh also minted fresh change IDs. Bookmarks `subagent-recovery` and
+`subagent-recovery-20260829` both point at `933eeacc`.
 
 ### 2026-08-18 refresh onto `044d04df`
 
@@ -67,18 +68,50 @@ Adaptations made while dropping the guards:
 
 ## Verification
 
-Re-verified on `044d04df` after the 2026-08-18 refresh (same counts as the
-original `b0c3a16e` build):
+Re-verified on `e70d667a` after the 2026-08-29 refresh:
 
-- `bun test test/tool-subagent.test.ts` from `packages/core`: 11 pass,
-  0 fail (9 upstream tests unmodified — including "steers a running child
-  session in the background" and "rejects unrelated children and switches
-  agents on continuation" — plus 2 `subagent_list` tests: "lists only
-  direct children with durable prompts and honest statuses", "reports when
-  a session has no direct subagent children").
+- `bun test test/tool-subagent.test.ts` from `packages/core`: 12 pass,
+  0 fail — 10 upstream tests byte-identical (the 9 continuation tests
+  plus upstream's new "admits one durable completion across live delivery
+  and restart replay") plus 2 `subagent_list` tests: "lists only direct
+  children with durable prompts and honest statuses", "reports when
+  a session has no direct subagent children".
 - `bun typecheck` from `packages/core`: clean.
 - `packages/core/src/tool/plugin/subagent.ts` on this line is
-  byte-identical to upstream `044d04df`.
+  byte-identical to upstream `e70d667a`.
+
+### 2026-08-29 refresh onto `e70d667a`
+
+The upstream gap (`044d04df..e70d667a9fe3`, ~850 commits) intersects this
+feature in `plugin/runtime.ts` and `test/tool-subagent.test.ts`.
+`fa5ccac7` ("refactor(core): share subagent completion delivery", #46054)
+added the `completionIt` layer and its "admits one durable completion"
+test, and upstream grew `job.completeBackground`, `persistentPty.read`,
+and `session.context` on the plugin runtime. Obsolescence check: upstream
+landed no subagent-listing or visibility tool, so all three feature
+commits were kept.
+
+Conflicts and resolutions (duplicate-then-rebase; each resolution folded
+back with `jj new` + `jj squash`):
+
+- `0e0b07e8` → `a8b2e43f` (feat): `plugin/runtime.ts` — merged the
+  feature's `job` Pick addition (`"get"`) into upstream's
+  `completeBackground` + `persistentPty` lines.
+  `test/tool-subagent.test.ts` — kept both insertions inside
+  `describe("SubagentTool")`: upstream's new completion test followed by
+  the two `subagent_list` tests.
+- `d8f4e477` → `3b623e2d` (fix): `plugin/runtime.ts` — kept upstream's
+  `session.context` entries and appended the feature's `"active"` (Pick
+  and facade). `tool-subagent.test.ts` — merged the feature's
+  `active: Effect.sync(() => new Set(activeSessions))` mock with
+  upstream's new `isActive: () => Effect.succeed(false)`.
+- `423ffcd4` → `933eeacc` (test): no manual conflict — resolving the
+  parents cleared the inherited conflict automatically.
+
+The upstream gap also touched `session.ts` (`Session.Interface.active`
+still exposes the active-ID set the fix commit reports from) and
+`session/execution.ts` (`active` + `isActive` both present), so the
+feature's API usage carried over unchanged.
 
 ## Continuation semantics
 
