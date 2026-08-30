@@ -41,6 +41,14 @@ export const ServerOptions = Schema.Struct({
     Schema.Struct({
       filewatcher: Schema.optional(Schema.Boolean),
       watcherBackend: Schema.optional(Schema.Literals(["watchman", "parcel"])),
+      subscribeTimeoutMs: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
+      watchman: Schema.optional(
+        Schema.Struct({
+          commandTimeoutMs: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
+          retryBaseMs: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
+          retryCapMs: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
+        }),
+      ),
       fff: Schema.optional(Schema.Boolean),
     }),
   ),

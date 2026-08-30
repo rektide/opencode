@@ -1,7 +1,7 @@
 import isGlob from "is-glob"
 import micromatch from "micromatch"
 import path from "node:path"
-import { Deferred, Duration, Effect, Fiber, Queue, RcMap, Schema, Scope, Semaphore } from "effect"
+import { Deferred, Effect, Fiber, Queue, RcMap, Schema, Scope, Semaphore } from "effect"
 import type { Watcher } from "../../watcher.js"
 import { capabilities, command, makeGeneration, type Generation, type RawClientFactory } from "./client.js"
 import { resolve, subscription, type RootIntent, type Route, type SubscriptionRoute } from "./route.js"
@@ -37,7 +37,7 @@ type SubscriptionState = {
 }
 
 export type Options = {
-  readonly commandTimeout?: Duration.Input
+  readonly commandTimeoutMs?: number
   readonly retryBaseMs?: number
   readonly retryCapMs?: number
 }
@@ -100,7 +100,7 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
 
     const requestOptions = (generation: Generation) => ({
       close: (cause?: unknown) => close(generation, cause),
-      timeout: options?.commandTimeout,
+      timeout: options?.commandTimeoutMs,
     })
 
     const create = Effect.gen(function* () {
