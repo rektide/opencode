@@ -36,7 +36,15 @@ test("a disabled pulse stays idle when it becomes active", async () => {
 test("an attention glow becomes idle after ignition", async () => {
   const background = RGBA.fromHex("#101010")
   const app = await testRender(
-    () => <TabPulse active={false} glow color={RGBA.fromHex("#ffcc00")} backgroundColor={background} />,
+    () => (
+      <TabPulse
+        active={false}
+        glow
+        color={RGBA.fromHex("#ffcc00")}
+        backgroundColor={background}
+        speeds={{ sweep: 1, edge: 1, completion: 1, glow: 1 }}
+      />
+    ),
     { width: 8, height: 1 },
   )
 
