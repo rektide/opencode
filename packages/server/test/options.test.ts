@@ -25,6 +25,13 @@ test("accepts durable event persistence configuration", () => {
   expect(Option.getOrThrow(decode({ events: { persist: true } })).events).toEqual({ persist: true })
 })
 
+test("accepts only explicit filesystem watcher backends", () => {
+  expect(Option.getOrThrow(decode({})).fs?.watcherBackend).toBeUndefined()
+  expect(Option.getOrThrow(decode({ fs: { watcherBackend: "parcel" } })).fs?.watcherBackend).toBe("parcel")
+  expect(Option.getOrThrow(decode({ fs: { watcherBackend: "watchman" } })).fs?.watcherBackend).toBe("watchman")
+  expect(Option.isNone(decode({ fs: { watcherBackend: "default" } }))).toBe(true)
+})
+
 test("accepts an optional CORS allowlist", () => {
   expect(Option.getOrThrow(decode({})).cors).toBeUndefined()
   expect(Option.getOrThrow(decode({ cors: [] })).cors).toEqual([])

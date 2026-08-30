@@ -40,6 +40,7 @@ export const ServerOptions = Schema.Struct({
   fs: Schema.optional(
     Schema.Struct({
       filewatcher: Schema.optional(Schema.Boolean),
+      watcherBackend: Schema.optional(Schema.Literals(["watchman", "parcel"])),
       fff: Schema.optional(Schema.Boolean),
     }),
   ),
