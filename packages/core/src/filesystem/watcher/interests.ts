@@ -1,7 +1,7 @@
 export * as WatchInterests from "./interests.js"
 
 import path from "node:path"
-import { Deferred, Effect, FiberMap, Queue, Stream } from "effect"
+import { Effect, FiberMap, Queue, Stream } from "effect"
 import { Watcher } from "../watcher.js"
 import { WatcherInternal } from "./internal.js"
 import { Location } from "../../location.js"
@@ -14,13 +14,16 @@ export type Interface = {
   readonly reconcile: (inputs: readonly Input[]) => Effect.Effect<void>
 }
 
+type Change =
+  | { readonly type: "update"; readonly update: Watcher.Update }
+  | { readonly type: "failure"; readonly error: Error }
+
 export const make = Effect.fn("WatchInterests.make")(function* () {
   const watcher = yield* Watcher.Service
   const location = yield* Location.Service
   const watches = yield* FiberMap.make<string>()
-  const changes = yield* Queue.unbounded<Watcher.Update>()
+  const changes = yield* Queue.unbounded<Change>()
   yield* Effect.addFinalizer(() => Queue.shutdown(changes))
-  const failure = Deferred.makeUnsafe<void, Error>()
 
   const key = (input: Input) => JSON.stringify(WatcherInternal.normalize(input))
 
@@ -31,7 +34,11 @@ export const make = Effect.fn("WatchInterests.make")(function* () {
         if (yield* FiberMap.has(watches, id)) return
         const updates = yield* watcher.subscribe(
           WatcherInternal.attach(input, {
-            ready: () => Queue.offerUnsafe(changes, { path: input.path, type: "update" as const }),
+            ready: () =>
+              Queue.offerUnsafe(changes, {
+                type: "update",
+                update: { path: input.path, type: "update" },
+              }),
             placement:
               input.type === "directory" && contains(location.project.directory, input.path)
                 ? { type: "project", root: path.resolve(location.project.directory) }
@@ -42,8 +49,8 @@ export const make = Effect.fn("WatchInterests.make")(function* () {
           watches,
           id,
           updates.pipe(
-            Stream.runForEach((update) => Queue.offer(changes, update).pipe(Effect.asVoid)),
-            Effect.tapError((error) => Effect.sync(() => Deferred.doneUnsafe(failure, Effect.fail(error)))),
+            Stream.runForEach((update) => Queue.offer(changes, { type: "update", update }).pipe(Effect.asVoid)),
+            Effect.tapError((error) => Queue.offer(changes, { type: "failure", error }).pipe(Effect.asVoid)),
           ),
           { onlyIfMissing: true, startImmediately: true },
         )
@@ -63,7 +70,11 @@ export const make = Effect.fn("WatchInterests.make")(function* () {
   })
 
   return {
-    changes: Stream.fromQueue(changes).pipe(Stream.interruptWhen(Deferred.await(failure))),
+    changes: Stream.fromQueue(changes).pipe(
+      Stream.mapEffect((change) =>
+        change.type === "failure" ? Effect.fail(change.error) : Effect.succeed(change.update),
+      ),
+    ),
     ensure,
     reconcile,
   } satisfies Interface
