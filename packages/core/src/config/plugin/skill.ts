@@ -120,10 +120,19 @@ export const Plugin = define({
       const roots = (yield* Effect.forEach(directories, (directory) => watchDirectory(desired, directory))).flat()
       const skills: Skill.Info[] = []
       for (const directory of directories) {
-        const files = yield* fs
+        if (!(yield* fs.isDir(directory))) continue
+        const scanned = yield* fs
           .scan("{*.md,**/SKILL.md}", { cwd: directory, absolute: true, include: "file", symlink: true, dot: true })
-          .pipe(Effect.orElseSucceed(() => [] as string[]))
-        for (const filepath of files.toSorted()) {
+          .pipe(
+            Effect.map((files) => ({ type: "success" as const, files })),
+            Effect.catchCause((cause) =>
+              Effect.logWarning("failed to scan skill source", { directory, cause }).pipe(
+                Effect.as({ type: "failure" as const }),
+              ),
+            ),
+          )
+        if (scanned.type === "failure") return undefined
+        for (const filepath of scanned.files.toSorted()) {
           const resolved = yield* fs.realPath(filepath).pipe(Effect.orElseSucceed(() => filepath))
           if (!roots.some((root) => FSUtil.contains(root, resolved)))
             yield* watch(desired, path.dirname(resolved), "directory")
@@ -156,7 +165,9 @@ export const Plugin = define({
         const skills = new Map<Skill.ID, Skill.Info>()
         const current = sources()
         for (const source of current) {
-          for (const skill of yield* load(desired, source)) skills.set(skill.id, skill)
+          const next = yield* load(desired, source)
+          if (!next) return
+          for (const skill of next) skills.set(skill.id, skill)
         }
         loaded.skills = Array.from(skills.values())
         yield* interests.reconcile(desired)
@@ -178,6 +189,7 @@ export const Plugin = define({
     yield* interests.changes.pipe(
       Stream.filter((update) => !/^\.watchman-cookie-.+-\d+-\d+$/.test(path.basename(update.path))),
       Stream.runForEach((update) => PubSub.publish(changes, update.path).pipe(Effect.asVoid)),
+      Effect.catch((error) => Effect.logError("skill watch interests failed", { error })),
       Effect.forkScoped({ startImmediately: true }),
     )
     yield* refresh()

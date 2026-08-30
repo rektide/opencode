@@ -1,4 +1,4 @@
-import { Deferred, Duration, Effect, Schema, Semaphore } from "effect"
+import { Deferred, Duration, Effect, Fiber, Schema, Semaphore } from "effect"
 import { CapabilityResponse, GenerationClosed, WatchmanError } from "./schema.js"
 
 const TRANSPORT = "@superbfowle/fb-watchman-esm"
@@ -117,7 +117,13 @@ function admitted<A>(
     )
     return yield* Effect.raceFirst(response, closed(true))
   })
-  return Effect.raceFirst(generation.command.withPermit(execute), closed(false))
+  const submitted = Effect.uninterruptible(
+    Effect.gen(function* () {
+      const fiber = yield* execute.pipe(Effect.forkDetach({ startImmediately: true, uninterruptible: false }))
+      return yield* Fiber.join(fiber)
+    }),
+  )
+  return Effect.raceFirst(generation.command.withPermit(submitted), closed(false))
 }
 
 function isRawClient(value: unknown): value is RawClient {

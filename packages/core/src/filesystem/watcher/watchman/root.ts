@@ -71,7 +71,12 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
     const generations = new Set<Generation>()
     const subscriptions = new Map<number, SubscriptionState>()
     const connection = Semaphore.makeUnsafe(1)
-    const state = { active: undefined as RootGeneration | undefined, fatal: undefined as WatchmanError | undefined }
+    const scope = yield* Effect.scope
+    const state: {
+      active?: RootGeneration
+      fatal?: WatchmanError
+      recovering?: Deferred.Deferred<RootGeneration, WatchmanError>
+    } = {}
     let nextGeneration = 0
     let nextSubscription = 0
 
@@ -134,6 +139,7 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
         Effect.gen(function* () {
           if (state.fatal) return yield* Effect.fail(state.fatal)
           if (state.active && !Deferred.isDoneUnsafe(state.active.generation.closed)) return state.active
+          if (state.recovering) return yield* Deferred.await(state.recovering)
           return yield* create.pipe(
             Effect.tapError((error) =>
               Effect.sync(() => {
@@ -210,12 +216,10 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
         )
       })
 
-    const detach = (established: Established, unsubscribe: boolean) =>
+    const detach = (item: SubscriptionState, established: Established, unsubscribe: boolean) =>
       Effect.sync(() => {
         established.root.generation.subscriptions.delete(established.name)
-        for (const item of subscriptions.values()) {
-          if (item.established === established) item.established = undefined
-        }
+        if (item.established === established) item.established = undefined
         if (!unsubscribe || Deferred.isDoneUnsafe(established.root.generation.closed)) return
         Effect.runFork(
           command(
@@ -237,22 +241,55 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
         !!state.active?.generation &&
         Deferred.isDoneUnsafe(state.active.generation.closed))
 
-    const reconnect = (
-      item: SubscriptionState,
-      previous: Established,
-      attempt = 0,
-    ): Effect.Effect<Established, WatchmanError> => {
+    const recoverRoot = (attempt = 0): Effect.Effect<RootGeneration, WatchmanError> => {
       const interval = Math.min(
         options?.retryCapMs ?? RETRY_CAP_MS,
         (options?.retryBaseMs ?? RETRY_BASE_MS) * 2 ** attempt,
       )
       return Effect.sync(() => interval * (0.7 + Math.random() * 0.6)).pipe(
         Effect.flatMap(Effect.sleep),
-        Effect.andThen(current()),
-        Effect.flatMap((root) => establish(item, root, previous)),
-        Effect.catch((error) => (recoverable(error) ? reconnect(item, previous, attempt + 1) : Effect.fail(error))),
+        Effect.andThen(create),
+        Effect.catch((error) => {
+          if (error.stage === "decode" || error.stage === "route") {
+            state.fatal = error
+            return Effect.fail(error)
+          }
+          return recoverRoot(attempt + 1)
+        }),
       )
     }
+
+    const replacement = () =>
+      Effect.gen(function* () {
+        const result = yield* connection.withPermit(
+          Effect.gen(function* () {
+            if (state.fatal) return yield* Effect.fail(state.fatal)
+            if (state.active && !Deferred.isDoneUnsafe(state.active.generation.closed))
+              return { type: "active" as const, root: state.active }
+            if (state.recovering) return { type: "pending" as const, deferred: state.recovering }
+            const deferred = Deferred.makeUnsafe<RootGeneration, WatchmanError>()
+            state.recovering = deferred
+            yield* recoverRoot().pipe(
+              Deferred.into(deferred),
+              Effect.ensuring(
+                Effect.sync(() => {
+                  if (state.recovering === deferred) state.recovering = undefined
+                }),
+              ),
+              Effect.forkIn(scope),
+            )
+            return { type: "pending" as const, deferred }
+          }),
+        )
+        if (result.type === "active") return result.root
+        return yield* Deferred.await(result.deferred)
+      })
+
+    const reconnect = (item: SubscriptionState, previous: Established): Effect.Effect<Established, WatchmanError> =>
+      replacement().pipe(
+        Effect.flatMap((root) => establish(item, root, previous)),
+        Effect.catch((error) => (recoverable(error) ? reconnect(item, previous) : Effect.fail(error))),
+      )
 
     const wait = (item: SubscriptionState, established: Established) =>
       Effect.raceFirst(
@@ -263,9 +300,9 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
     const loop = (item: SubscriptionState, established: Established): Effect.Effect<void, WatchmanError> =>
       Effect.gen(function* () {
         const result = yield* wait(item, established)
-        if (result.type === "stop") return yield* detach(established, true)
+        if (result.type === "stop") return yield* detach(item, established, true)
         if (result.type === "closed") {
-          yield* detach(established, false)
+          yield* detach(item, established, false)
           const next = yield* Effect.raceFirst(
             reconnect(item, established).pipe(Effect.map((established) => ({ type: "resumed" as const, established }))),
             Deferred.await(item.stop).pipe(Effect.as({ type: "stopped" as const })),
@@ -280,7 +317,7 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
           yield* Effect.logWarning("watchman subscription warning", { name: established.name, warning: pdu.warning })
         if ("canceled" in pdu) {
           item.input.publish({ path: item.input.target, type: "update" })
-          yield* detach(established, false)
+          yield* detach(item, established, false)
           const root = yield* current()
           const next = yield* establish(item, root, established).pipe(
             Effect.catch((error) => (recoverable(error) ? reconnect(item, established) : Effect.fail(error))),
@@ -288,8 +325,11 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
           return yield* loop(item, next)
         }
         item.clock = pdu.clock
-        if (pdu.is_fresh_instance) item.input.publish({ path: item.input.target, type: "update" })
-        else publishFiles(item.input, established.route, pdu.files)
+        if (pdu.is_fresh_instance) {
+          item.input.publish({ path: item.input.target, type: "update" })
+          return yield* loop(item, established)
+        }
+        publishFiles(item.input, established.route, pdu.files)
         return yield* loop(item, established)
       })
 
@@ -307,7 +347,7 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
           const fiber = yield* loop(item, initial).pipe(
             Effect.catch((error) => Effect.sync(() => input.fail(error))),
             Effect.ensuring(
-              Effect.suspend(() => (item.established ? detach(item.established, true) : Effect.void)).pipe(
+              Effect.suspend(() => (item.established ? detach(item, item.established, true) : Effect.void)).pipe(
                 Effect.andThen(Effect.sync(() => subscriptions.delete(item.id))),
                 Effect.andThen(Queue.shutdown(item.queue)),
               ),
@@ -352,19 +392,21 @@ function publishFiles(
 ) {
   const globs = input.ignore.filter((value) => isGlob(value))
   const paths = input.ignore.filter((value) => !isGlob(value)).map((value) => path.resolve(route.eventRoot, value))
-  for (const file of files) {
-    const target = path.resolve(route.eventRoot, file.name)
-    const relative = path.relative(route.eventRoot, target).split(path.sep).join("/")
-    if (paths.some((ignored) => target === ignored || target.startsWith(ignored + path.sep))) continue
-    if (micromatch.isMatch(relative, globs, { dot: true })) continue
-    const type: Watcher.Update["type"] | undefined =
-      file.new && file.exists
-        ? "create"
-        : file.exists && file.type !== "d"
-          ? "update"
-          : !file.new && !file.exists
-            ? "delete"
-            : undefined
-    if (type) input.publish({ path: target, type })
-  }
+  files
+    .flatMap((file) => {
+      const target = path.resolve(route.eventRoot, file.name)
+      const relative = path.relative(route.eventRoot, target).split(path.sep).join("/")
+      if (paths.some((ignored) => target === ignored || target.startsWith(ignored + path.sep))) return []
+      if (micromatch.isMatch(relative, globs, { dot: true })) return []
+      const type: Watcher.Update["type"] | undefined =
+        file.new && file.exists
+          ? "create"
+          : file.exists && file.type !== "d"
+            ? "update"
+            : !file.new && !file.exists
+              ? "delete"
+              : undefined
+      return type ? [{ path: target, type }] : []
+    })
+    .forEach(input.publish)
 }
