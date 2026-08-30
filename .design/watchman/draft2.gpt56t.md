@@ -634,6 +634,15 @@ over `v2@origin` `e70d667a`:
 4. `b5ea2ff2` - `fix(core): enforce root-owned watch recovery`
 5. `c112ae41` - `fix(core): recover source watch failures`
 6. `8b9d867b` - `refactor(core): tighten watcher internals`
+7. `19c88e3d` - `feat: make watcher timeouts configurable`
+
+The timeout commit is a user-directed amendment to the body's "no per-command
+deadline configuration" rule: heavily loaded hosts need to relax deadlines
+instead of churning root generations, so the command deadline defaults to 60
+seconds and all watcher deadlines and reconnect backoff are tunable through
+`OPENCODE_WATCHMAN_COMMAND_TIMEOUT_MS`, `OPENCODE_WATCHMAN_RETRY_BASE_MS`,
+`OPENCODE_WATCHMAN_RETRY_CAP_MS`, `OPENCODE_WATCHER_SUBSCRIBE_TIMEOUT_MS`, and
+their `ServerOptions.fs` equivalents.
 
 The implementation follows the watchwoman amendment: project roots use plain
 `watch`, reconnect intervals have approximately 30 percent jitter,
