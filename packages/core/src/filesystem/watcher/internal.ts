@@ -1,6 +1,7 @@
 export * as WatcherInternal from "./internal.js"
 
 import path from "node:path"
+import type { Watcher } from "../watcher.js"
 
 const metadata = Symbol("WatcherInternal.metadata")
 
@@ -15,9 +16,7 @@ export type Input = {
   readonly [metadata]?: Metadata
 }
 
-export type WatchInput =
-  | { readonly path: string; readonly type: "file" }
-  | { readonly path: string; readonly type: "directory"; readonly ignore?: readonly string[] }
+export type WatchInput = Watcher.WatchInput
 
 export function attach<A extends object>(input: A, value: Metadata): A & Input {
   return Object.assign(input, { [metadata]: value })
