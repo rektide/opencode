@@ -10,6 +10,7 @@ import { lazy } from "../util/lazy.js"
 import { watch } from "node:fs"
 import path from "path"
 import loadBinding from "./watcher-binding.js"
+import { WatcherInternal } from "./watcher/internal.js"
 
 const SUBSCRIBE_TIMEOUT_MS = 10_000
 export const Event = { Updated: FileSystem.Event.Changed }
@@ -114,7 +115,7 @@ export const layer = (options?: Options) =>
             if (!subscription) {
               // Unsupported backend: end subscriber streams instead of hanging them.
               yield* PubSub.shutdown(pubsub)
-              return pubsub
+              return { pubsub, active: false }
             }
             yield* Effect.logInfo("watcher started", {
               path: key.target,
@@ -122,13 +123,15 @@ export const layer = (options?: Options) =>
               backend: subscription.backend,
               ignores: key.ignore.length,
             })
-            return pubsub
+            return { pubsub, active: true }
           }),
       })
 
       const subscribe = (input: WatchInput) => {
         const target = path.resolve(input.path)
         const ignore = [...new Set(input.type === "directory" ? (input.ignore ?? []) : [])].toSorted()
+        const ready = WatcherInternal.read(input)?.ready
+        let acknowledged = false
         return Effect.gen(function* () {
           yield* Effect.logInfo("watcher subscribe", {
             path: target,
@@ -137,8 +140,12 @@ export const layer = (options?: Options) =>
           })
           return Stream.unwrap(
             Effect.gen(function* () {
-              const pubsub = yield* RcMap.get(watchers, { type: input.type, target, ignore })
-              return Stream.fromPubSub(pubsub)
+              const entry = yield* RcMap.get(watchers, { type: input.type, target, ignore })
+              if (entry.active && !acknowledged) {
+                acknowledged = true
+                ready?.()
+              }
+              return Stream.fromPubSub(entry.pubsub)
             }),
           )
         })

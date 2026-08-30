@@ -376,7 +376,6 @@ describe("ConfigSkillPlugin.Plugin", () => {
             { path: first, type: "directory" },
             { path: source, type: "file" },
             { path: second, type: "directory" },
-            { path: source, type: "file" },
           ])
         }),
       ),
