@@ -68,6 +68,15 @@ export interface Interface {
 export const Options = Schema.Struct({
   enabled: Schema.optional(Schema.Boolean),
   backend: Schema.optional(Schema.Literals(["watchman", "parcel"])),
+  // Parcel acquisition deadline in millis.
+  subscribeTimeoutMs: Schema.optional(Schema.Number),
+  watchman: Schema.optional(
+    Schema.Struct({
+      commandTimeoutMs: Schema.optional(Schema.Number),
+      retryBaseMs: Schema.optional(Schema.Number),
+      retryCapMs: Schema.optional(Schema.Number),
+    }),
+  ),
 })
 export type Options = typeof Options.Type
 
@@ -93,7 +102,7 @@ export const layer = (options?: Options) =>
       const native =
         options?.backend === "watchman"
           ? yield* Effect.promise(() => import("./watcher/watchman/backend.js")).pipe(
-              Effect.flatMap(({ make }) => make(fallback)),
+              Effect.flatMap(({ make }) => make(fallback, options?.watchman)),
               Effect.catch((error) =>
                 Effect.logWarning("watchman backend unavailable; using parcel watcher", { error }).pipe(
                   Effect.as(fallback),
@@ -218,34 +227,52 @@ export const testLayer = Layer.effectContext(
   }),
 )
 
-export const nativeLayer = Layer.succeed(
-  Native,
-  Native.of({
-    subscribe: (input) => {
-      if (input.type === "file") {
-        return Effect.sync(() => {
-          const directory = path.dirname(input.target)
-          const subscription = watch(directory, { recursive: false }, (_event, file) => {
-            if (file && path.resolve(directory, file.toString()) !== input.target) return
-            input.publish({ path: input.target, type: "update" } satisfies Update)
+export const nativeLayer = (subscribeTimeoutMs: number = SUBSCRIBE_TIMEOUT_MS) =>
+  Layer.succeed(
+    Native,
+    Native.of({
+      subscribe: (input) => {
+        if (input.type === "file") {
+          return Effect.sync(() => {
+            const directory = path.dirname(input.target)
+            const subscription = watch(directory, { recursive: false }, (_event, file) => {
+              if (file && path.resolve(directory, file.toString()) !== input.target) return
+              input.publish({ path: input.target, type: "update" } satisfies Update)
+            })
+            if ("on" in subscription && typeof subscription.on === "function") {
+              subscription.on("error", (error: unknown) =>
+                input.fail(
+                  error instanceof Error ? error : new Error("File watcher callback failed", { cause: error }),
+                ),
+              )
+            }
+            return { unsubscribe: () => Promise.resolve(subscription.close()), backend: "node" }
           })
-          if ("on" in subscription && typeof subscription.on === "function") {
-            subscription.on("error", (error: unknown) =>
-              input.fail(error instanceof Error ? error : new Error("File watcher callback failed", { cause: error })),
-            )
-          }
-          return { unsubscribe: () => Promise.resolve(subscription.close()), backend: "node" }
-        })
-      }
-      return subscribeDirectory(watcher(), getBackend(), input.target, input.ignore, input.publish, input.fail)
-    },
-  }),
-)
+        }
+        return subscribeDirectory(
+          watcher(),
+          getBackend(),
+          input.target,
+          input.ignore,
+          input.publish,
+          input.fail,
+          subscribeTimeoutMs,
+        )
+      },
+    }),
+  )
 
-export const nativeNode = makeGlobalNode({ service: Native, layer: nativeLayer, deps: [] })
+const nativeNodeWith = (subscribeTimeoutMs: number) =>
+  makeGlobalNode({ service: Native, layer: nativeLayer(subscribeTimeoutMs), deps: [] })
+
+export const nativeNode = nativeNodeWith(SUBSCRIBE_TIMEOUT_MS)
 
 export function configured(options?: Options) {
-  return makeGlobalNode({ service: Service, layer: layer(options), deps: [nativeNode] })
+  return makeGlobalNode({
+    service: Service,
+    layer: layer(options),
+    deps: [nativeNodeWith(options?.subscribeTimeoutMs ?? SUBSCRIBE_TIMEOUT_MS)],
+  })
 }
 
 export const node = configured()
@@ -257,6 +284,7 @@ function subscribeDirectory(
   ignore: readonly string[],
   publish: (update: Update) => void,
   fail: (error: Error) => void,
+  subscribeTimeoutMs: number,
 ): Effect.Effect<Subscription | undefined> {
   if (!native || !backend) {
     return Effect.logError("watcher backend not supported", { directory, platform: process.platform }).pipe(
@@ -279,7 +307,7 @@ function subscribeDirectory(
         pending.then((subscription) => subscription.unsubscribe()).catch(() => {})
       }),
     ),
-    Effect.timeout(SUBSCRIBE_TIMEOUT_MS),
+    Effect.timeout(subscribeTimeoutMs),
     Effect.catchCause((cause) =>
       Effect.logError("failed to subscribe", {
         directory,
