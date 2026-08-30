@@ -121,6 +121,9 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
           },
           fs: {
             filewatcher: !truthy(process.env.OPENCODE_FILEWATCHER_DISABLE ?? process.env.OPENCODE_DISABLE_FILEWATCHER),
+            watcherBackend: yield* Schema.decodeUnknownEffect(Schema.optional(Schema.Literals(["watchman", "parcel"])))(
+              process.env.OPENCODE_WATCHER_BACKEND,
+            ).pipe(Effect.mapError(() => new Error("OPENCODE_WATCHER_BACKEND must be watchman or parcel"))),
             fff:
               process.env.OPENCODE_DISABLE_FFF === undefined
                 ? process.platform !== "win32"
