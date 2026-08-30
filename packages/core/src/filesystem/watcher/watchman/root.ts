@@ -50,7 +50,7 @@ export type Registry = {
 }
 
 const RETRY_BASE_MS = 100
-const RETRY_CAP_MS = 3200
+const RETRY_CAP_MS = 2000
 
 export const makeRegistry = (factory: RawClientFactory, options?: Options) =>
   Effect.gen(function* () {
