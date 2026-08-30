@@ -30,6 +30,7 @@ export const Plugin = define({
       entries: yield* config.entries(),
       skills: [],
     }
+    const snapshots = new Map<string, { readonly inputs: WatchInterests.Input[]; readonly skills: Skill.Info[] }>()
     const changes = yield* PubSub.sliding<string>(1)
     const lock = Semaphore.makeUnsafe(1)
 
@@ -106,17 +107,20 @@ export const Plugin = define({
     }
 
     const load = Effect.fn("ConfigSkillPlugin.load")(function* (desired: WatchInterests.Input[], source: Source) {
-      const directories =
+      const pulled =
         source.type === "directory"
-          ? [source.path]
+          ? { type: "success" as const, directories: [source.path] }
           : yield* discovery.pull(source.url).pipe(
+              Effect.map((directories) => ({ type: "success" as const, directories })),
               Effect.catchCause((cause) =>
                 Effect.logWarning("failed to load skill source", {
                   source: Skill.Source.key(source),
                   cause,
-                }).pipe(Effect.as([] as AbsolutePath[])),
+                }).pipe(Effect.as({ type: "failure" as const })),
               ),
             )
+      if (pulled.type === "failure") return undefined
+      const directories: AbsolutePath[] = pulled.directories
       const roots = (yield* Effect.forEach(directories, (directory) => watchDirectory(desired, directory))).flat()
       const skills: Skill.Info[] = []
       for (const directory of directories) {
@@ -162,14 +166,24 @@ export const Plugin = define({
     const refresh = Effect.fn("ConfigSkillPlugin.refresh")(
       function* (file?: string) {
         const desired: WatchInterests.Input[] = []
+        const nextSnapshots = new Map<
+          string,
+          { readonly inputs: WatchInterests.Input[]; readonly skills: Skill.Info[] }
+        >()
         const skills = new Map<Skill.ID, Skill.Info>()
         const current = sources()
         for (const source of current) {
-          const next = yield* load(desired, source)
-          if (!next) return
-          for (const skill of next) skills.set(skill.id, skill)
+          const planned: WatchInterests.Input[] = []
+          const next = yield* load(planned, source)
+          const snapshot = next ? { inputs: planned, skills: next } : snapshots.get(Skill.Source.key(source))
+          if (!snapshot) continue
+          nextSnapshots.set(Skill.Source.key(source), snapshot)
+          desired.push(...snapshot.inputs)
+          for (const skill of snapshot.skills) skills.set(skill.id, skill)
         }
         loaded.skills = Array.from(skills.values())
+        snapshots.clear()
+        nextSnapshots.forEach((snapshot, key) => snapshots.set(key, snapshot))
         yield* interests.reconcile(desired)
         if (file) {
           yield* Effect.logInfo("skills rescanned", {
@@ -186,12 +200,20 @@ export const Plugin = define({
       Stream.runForEach((file) => refresh(file).pipe(Effect.andThen(ctx.skill.reload()))),
       Effect.forkScoped({ startImmediately: true }),
     )
-    yield* interests.changes.pipe(
-      Stream.filter((update) => !/^\.watchman-cookie-.+-\d+-\d+$/.test(path.basename(update.path))),
-      Stream.runForEach((update) => PubSub.publish(changes, update.path).pipe(Effect.asVoid)),
-      Effect.catch((error) => Effect.logError("skill watch interests failed", { error })),
-      Effect.forkScoped({ startImmediately: true }),
-    )
+    const observeInterests = (): Effect.Effect<void> =>
+      interests.changes.pipe(
+        Stream.filter((update) => !/^\.watchman-cookie-.+-\d+-\d+$/.test(path.basename(update.path))),
+        Stream.runForEach((update) => PubSub.publish(changes, update.path).pipe(Effect.asVoid)),
+        Effect.catch((error) =>
+          Effect.logError("skill watch interests failed", { error }).pipe(
+            Effect.andThen(Effect.yieldNow),
+            Effect.andThen(refresh()),
+            Effect.andThen(ctx.skill.reload()),
+            Effect.andThen(Effect.suspend(observeInterests)),
+          ),
+        ),
+      )
+    yield* observeInterests().pipe(Effect.forkScoped({ startImmediately: true }))
     yield* refresh()
     yield* ctx.skill.transform((draft) => {
       for (const skill of loaded.skills) draft.add(skill)
