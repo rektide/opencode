@@ -386,3 +386,39 @@ read-only recommendation stands because a full sweep would also reach
 `remove` (destructive) and the plugin context is a deliberately curated
 surface; the nested pick costs one expression. This is a one-line decision at
 draft time, not an architectural fork.
+
+# Addendum — carryability adjustments (2026-08-30, follow-up Q)
+
+Carryability = survives duplicate-then-rebase freshens with only
+additive-union conflicts, no semantic-collision bait, and maps onto a clean
+upstream PR. Rules for the drafts:
+
+1. **No protocol/`HttpApi` changes, no client regeneration** (load-bearing;
+   generated diffs are freshen poison). Patch stays in `runtime.ts`,
+   `host.ts`, the two `session.ts` domain files, and `promise/adapter.ts`.
+2. **Client-shaped members** are the collision hedge: upstream's own reads
+   would be the same codegen shapes → droppable or mechanical union, never a
+   supersession decision.
+3. **No riders** — the empty-struct schema fix stays on subagent-recovery.
+4. **New test file** (`plugin-session-reads.test.ts`, runtime-cell pattern)
+   instead of appends to the churning `plugin.test.ts`; behavior assertions
+   only, no `Object.keys(host.session)` key-set locks.
+5. **Pure-widening diffs**: append to `Pick` unions and the host session
+   block; no reordering, no shared-type extraction, no adjacent-member
+   refactors; our host additions contiguous.
+6. **Minimal adapter semantics** — every translated line is a future
+   conflict: `list` forwards 1:1 fields + `workspace→workspaceID`, no
+   location defaulting (bare `list()` = all sessions, as on the wire);
+   cursors return empty with `limit`/`order` honored (commented); `active`
+   set→record one-liner; `messages` wraps `{data, cursor}`. No cursor↔anchor
+   translation duplication of the server handler.
+7. **Green commits**: (1) runtime pick + cell forwarding; (2) effect flavor —
+   domain + host + tests (atomic per the `satisfies` coupling); (3) promise
+   flavor — domain + adapter + `plugin-session.types.ts`. Conventional
+   commit types for later upstream PR splitting.
+8. **Plugin-repo companion change stays out of this line** (separate repo,
+   separate contract).
+
+Residual risk that diff hygiene cannot fix: upstream landing their own read
+exposure with different member choices (the `7188d42b` precedent) — that is a
+semantic-collision bail-out under the manifest guardrails.
