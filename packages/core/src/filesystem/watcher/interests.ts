@@ -5,6 +5,7 @@ import { Effect, FiberMap, Queue, Stream } from "effect"
 import { Watcher } from "../watcher.js"
 import { WatcherInternal } from "./internal.js"
 import { Location } from "../../location.js"
+import { FSUtil } from "@opencode-ai/util/fs-util"
 
 export type Input = Watcher.WatchInput
 
@@ -40,7 +41,7 @@ export const make = Effect.fn("WatchInterests.make")(function* () {
                 update: { path: input.path, type: "update" },
               }),
             placement:
-              input.type === "directory" && contains(location.project.directory, input.path)
+              input.type === "directory" && FSUtil.contains(location.project.directory, input.path)
                 ? { type: "project", root: path.resolve(location.project.directory) }
                 : { type: "exact" },
           }),
@@ -79,8 +80,3 @@ export const make = Effect.fn("WatchInterests.make")(function* () {
     reconcile,
   } satisfies Interface
 })
-
-function contains(root: string, target: string) {
-  const relative = path.relative(root, target)
-  return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
-}
