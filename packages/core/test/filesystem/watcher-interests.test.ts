@@ -1,5 +1,5 @@
 import { expect } from "bun:test"
-import { Effect, Fiber, Layer, Stream } from "effect"
+import { Effect, Exit, Fiber, Layer, Stream } from "effect"
 import { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import { WatchInterests } from "@opencode-ai/core/filesystem/watcher/interests"
 import { Location } from "@opencode-ai/core/location"
@@ -23,9 +23,9 @@ it.effect("retains unchanged interests and starts additions before releasing rem
   })
   return Effect.gen(function* () {
     const interests = yield* WatchInterests.make()
-    const changes = yield* interests.changes.pipe(
-      Stream.take(2),
-      Stream.runCollect,
+    const changes: Watcher.Update[] = []
+    yield* interests.changes.pipe(
+      Stream.runForEach((update) => Effect.sync(() => changes.push(update))),
       Effect.forkScoped({ startImmediately: true }),
     )
     yield* interests.ensure([{ path: "/first", type: "directory", ignore: ["b", "a", "a"] }])
@@ -35,8 +35,9 @@ it.effect("retains unchanged interests and starts additions before releasing rem
     expect(lifecycle).toEqual(["start:/first"])
 
     yield* interests.reconcile([{ path: "/second", type: "directory" }])
+    yield* Effect.yieldNow
     expect(lifecycle).toEqual(["start:/first", "start:/second", "stop:/first"])
-    expect(Array.from(yield* Fiber.join(changes))).toEqual([
+    expect(changes).toEqual([
       { path: "/first", type: "update" },
       { path: "/second", type: "update" },
     ])
@@ -73,6 +74,33 @@ it.effect("preserves the previous plan until reconciliation commits", () => {
     // A failed source refresh never reaches reconcile, so both the prior plan
     // and any safely acquired additions remain available for the retry.
     expect(active).toEqual(new Set(["/previous", "/addition"]))
+  }).pipe(
+    Effect.provide(
+      Layer.merge(
+        Watcher.layer().pipe(Layer.provide(Layer.succeed(Watcher.Native, native))),
+        Layer.succeed(Location.Service, Location.Service.of(location({ directory: AbsolutePath.make("/project") }))),
+      ),
+    ),
+  )
+})
+
+it.effect("propagates a physical subscription failure through the owner stream", () => {
+  const controls: { fail?: (error: Error) => void } = {}
+  const native = Watcher.Native.of({
+    subscribe: (input) =>
+      Effect.sync(() => {
+        controls.fail = input.fail
+        return { unsubscribe: () => Promise.resolve() }
+      }),
+  })
+  return Effect.gen(function* () {
+    const interests = yield* WatchInterests.make()
+    const changes = yield* interests.changes.pipe(Stream.runDrain, Effect.forkScoped({ startImmediately: true }))
+    yield* interests.ensure([{ path: "/failed", type: "directory" }])
+    yield* Effect.yieldNow
+    controls.fail?.(new Error("native failure"))
+
+    expect(Exit.isFailure(yield* Fiber.await(changes))).toBe(true)
   }).pipe(
     Effect.provide(
       Layer.merge(

@@ -93,7 +93,7 @@ export const layer = (options?: Options) =>
       const native =
         options?.backend === "watchman"
           ? yield* Effect.promise(() => import("./watcher/watchman/backend.js")).pipe(
-              Effect.flatMap((backend) => backend.make(fallback)),
+              Effect.flatMap(({ make }) => make(fallback)),
               Effect.catch((error) =>
                 Effect.logWarning("watchman backend unavailable; using parcel watcher", { error }).pipe(
                   Effect.as(fallback),
@@ -150,8 +150,9 @@ export const layer = (options?: Options) =>
       })
 
       const subscribe = (input: WatchInput) => {
-        const target = path.resolve(input.path)
-        const ignore = [...new Set(input.type === "directory" ? (input.ignore ?? []) : [])].toSorted()
+        const normalized = WatcherInternal.normalize(input)
+        const target = normalized.path
+        const ignore = normalized.type === "directory" ? (normalized.ignore ?? []) : []
         const metadata = WatcherInternal.read(input)
         const placement =
           input.type === "file" ? { type: "exact" as const } : (metadata?.placement ?? { type: "exact" as const })
