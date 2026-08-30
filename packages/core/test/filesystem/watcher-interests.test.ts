@@ -2,6 +2,9 @@ import { expect } from "bun:test"
 import { Effect, Fiber, Layer, Stream } from "effect"
 import { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import { WatchInterests } from "@opencode-ai/core/filesystem/watcher/interests"
+import { Location } from "@opencode-ai/core/location"
+import { AbsolutePath } from "@opencode-ai/core/schema"
+import { location } from "../fixture/location"
 import { it } from "../lib/effect"
 
 it.effect("retains unchanged interests and starts additions before releasing removals", () => {
@@ -37,7 +40,14 @@ it.effect("retains unchanged interests and starts additions before releasing rem
       { path: "/first", type: "update" },
       { path: "/second", type: "update" },
     ])
-  }).pipe(Effect.provide(Watcher.layer().pipe(Layer.provide(Layer.succeed(Watcher.Native, native)))))
+  }).pipe(
+    Effect.provide(
+      Layer.merge(
+        Watcher.layer().pipe(Layer.provide(Layer.succeed(Watcher.Native, native))),
+        Layer.succeed(Location.Service, Location.Service.of(location({ directory: AbsolutePath.make("/project") }))),
+      ),
+    ),
+  )
 })
 
 it.effect("preserves the previous plan until reconciliation commits", () => {
@@ -63,5 +73,12 @@ it.effect("preserves the previous plan until reconciliation commits", () => {
     // A failed source refresh never reaches reconcile, so both the prior plan
     // and any safely acquired additions remain available for the retry.
     expect(active).toEqual(new Set(["/previous", "/addition"]))
-  }).pipe(Effect.provide(Watcher.layer().pipe(Layer.provide(Layer.succeed(Watcher.Native, native)))))
+  }).pipe(
+    Effect.provide(
+      Layer.merge(
+        Watcher.layer().pipe(Layer.provide(Layer.succeed(Watcher.Native, native))),
+        Layer.succeed(Location.Service, Location.Service.of(location({ directory: AbsolutePath.make("/project") }))),
+      ),
+    ),
+  )
 })

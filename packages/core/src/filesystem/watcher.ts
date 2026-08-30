@@ -5,7 +5,7 @@ import { createWrapper } from "@parcel/watcher/wrapper"
 import type ParcelWatcher from "@parcel/watcher"
 import { FileSystem } from "@opencode-ai/schema/filesystem"
 import { makeGlobalNode } from "@opencode-ai/util/effect/app-node"
-import { Cause, Context, Effect, Layer, PubSub, RcMap, Schema, Stream } from "effect"
+import { Cause, Context, Deferred, Effect, Layer, PubSub, RcMap, Schema, Scope, Stream } from "effect"
 import { lazy } from "../util/lazy.js"
 import { watch } from "node:fs"
 import path from "path"
@@ -48,8 +48,10 @@ export interface NativeInterface {
     readonly type: WatchInput["type"]
     readonly target: string
     readonly ignore: readonly string[]
+    readonly placement: WatcherInternal.Placement
     readonly publish: (update: Update) => void
-  }) => Effect.Effect<Subscription | undefined>
+    readonly fail: (error: Error) => void
+  }) => Effect.Effect<Subscription | undefined, never, Scope.Scope>
 }
 
 /**
@@ -60,11 +62,12 @@ export interface NativeInterface {
 export class Native extends Context.Service<Native, NativeInterface>()("@opencode/Watcher/Native") {}
 
 export interface Interface {
-  readonly subscribe: (input: WatchInput) => Effect.Effect<Stream.Stream<Update>>
+  readonly subscribe: (input: WatchInput) => Effect.Effect<Stream.Stream<Update, Error>>
 }
 
 export const Options = Schema.Struct({
   enabled: Schema.optional(Schema.Boolean),
+  backend: Schema.optional(Schema.Literals(["watchman", "parcel"])),
 })
 export type Options = typeof Options.Type
 
@@ -86,20 +89,39 @@ export const layer = (options?: Options) =>
       if (options?.enabled === false) {
         return Service.of({ subscribe: () => Effect.succeed(Stream.empty) })
       }
-      const native = yield* Native
+      const fallback = yield* Native
+      const native =
+        options?.backend === "watchman"
+          ? yield* Effect.promise(() => import("./watcher/watchman/backend.js")).pipe(
+              Effect.flatMap((backend) => backend.make(fallback)),
+              Effect.catch((error) =>
+                Effect.logWarning("watchman backend unavailable; using parcel watcher", { error }).pipe(
+                  Effect.as(fallback),
+                ),
+              ),
+            )
+          : fallback
 
       // Keys compare structurally (effect Equal), so equivalent watches share one entry.
-      type Key = { readonly type: WatchInput["type"]; readonly target: string; readonly ignore: readonly string[] }
+      type Key = {
+        readonly type: WatchInput["type"]
+        readonly target: string
+        readonly ignore: readonly string[]
+        readonly placement: WatcherInternal.Placement
+      }
       const watchers = yield* RcMap.make({
         lookup: (key: Key) =>
           Effect.gen(function* () {
             const pubsub = yield* Effect.acquireRelease(PubSub.unbounded<Update>(), (pubsub) => PubSub.shutdown(pubsub))
+            const failure = Deferred.makeUnsafe<void, Error>()
             const subscription = yield* Effect.acquireRelease(
               native.subscribe({
                 type: key.type,
                 target: key.target,
                 ignore: key.ignore,
+                placement: key.placement,
                 publish: (update) => PubSub.publishUnsafe(pubsub, update),
+                fail: (error) => Deferred.doneUnsafe(failure, Effect.fail(error)),
               }),
               (subscription) =>
                 subscription
@@ -115,7 +137,7 @@ export const layer = (options?: Options) =>
             if (!subscription) {
               // Unsupported backend: end subscriber streams instead of hanging them.
               yield* PubSub.shutdown(pubsub)
-              return { pubsub, active: false }
+              return { pubsub, failure, active: false }
             }
             yield* Effect.logInfo("watcher started", {
               path: key.target,
@@ -123,14 +145,17 @@ export const layer = (options?: Options) =>
               backend: subscription.backend,
               ignores: key.ignore.length,
             })
-            return { pubsub, active: true }
+            return { pubsub, failure, active: true }
           }),
       })
 
       const subscribe = (input: WatchInput) => {
         const target = path.resolve(input.path)
         const ignore = [...new Set(input.type === "directory" ? (input.ignore ?? []) : [])].toSorted()
-        const ready = WatcherInternal.read(input)?.ready
+        const metadata = WatcherInternal.read(input)
+        const placement =
+          input.type === "file" ? { type: "exact" as const } : (metadata?.placement ?? { type: "exact" as const })
+        const ready = metadata?.ready
         let acknowledged = false
         return Effect.gen(function* () {
           yield* Effect.logInfo("watcher subscribe", {
@@ -140,12 +165,12 @@ export const layer = (options?: Options) =>
           })
           return Stream.unwrap(
             Effect.gen(function* () {
-              const entry = yield* RcMap.get(watchers, { type: input.type, target, ignore })
+              const entry = yield* RcMap.get(watchers, { type: input.type, target, ignore, placement })
               if (entry.active && !acknowledged) {
                 acknowledged = true
                 ready?.()
               }
-              return Stream.fromPubSub(entry.pubsub)
+              return Stream.fromPubSub(entry.pubsub).pipe(Stream.interruptWhen(Deferred.await(entry.failure)))
             }),
           )
         })
@@ -205,13 +230,13 @@ export const nativeLayer = Layer.succeed(
           })
           if ("on" in subscription && typeof subscription.on === "function") {
             subscription.on("error", (error: unknown) =>
-              Effect.runFork(Effect.logError("watcher callback failed", { path: input.target, error })),
+              input.fail(error instanceof Error ? error : new Error("File watcher callback failed", { cause: error })),
             )
           }
           return { unsubscribe: () => Promise.resolve(subscription.close()), backend: "node" }
         })
       }
-      return subscribeDirectory(watcher(), getBackend(), input.target, input.ignore, input.publish)
+      return subscribeDirectory(watcher(), getBackend(), input.target, input.ignore, input.publish, input.fail)
     },
   }),
 )
@@ -230,6 +255,7 @@ function subscribeDirectory(
   directory: string,
   ignore: readonly string[],
   publish: (update: Update) => void,
+  fail: (error: Error) => void,
 ): Effect.Effect<Subscription | undefined> {
   if (!native || !backend) {
     return Effect.logError("watcher backend not supported", { directory, platform: process.platform }).pipe(
@@ -237,7 +263,7 @@ function subscribeDirectory(
     )
   }
   const callback: ParcelWatcher.SubscribeCallback = (error, updates) => {
-    if (error) Effect.runFork(Effect.logError("watcher callback failed", { error }))
+    if (error) fail(error)
     for (const update of updates) publish(update)
   }
   // Copy `ignore`: it aliases the RcMap key, whose structural hash is cached,
