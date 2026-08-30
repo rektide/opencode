@@ -625,13 +625,14 @@ withdrawal's reason is understood.
 
 # Addendum: implementation record
 
-Implemented 2026-08-30 as a fresh three-commit runtime stack plus one review
-fix over `v2@origin` `e70d667a`:
+Implemented 2026-08-30 as a fresh three-commit runtime stack plus review fixes
+over `v2@origin` `e70d667a`:
 
 1. `1d372ee4` - `refactor(core): reconcile source watch interests`
 2. `e452faa5` - `feat(core): add root-scoped Watchman backend`
 3. `2cfa39b6` - `feat: expose Watchman backend selection`
 4. `b5ea2ff2` - `fix(core): enforce root-owned watch recovery`
+5. `c112ae41` - `fix(core): recover source watch failures`
 
 The implementation follows the watchwoman amendment: project roots use plain
 `watch`, reconnect intervals have approximately 30 percent jitter,

@@ -34,6 +34,8 @@ audit snapshot of the deleted process-global implementation.
 | `lumqklpp` | `docs(watchman): document root-scoped backend` - this corpus and maintenance record |
 | `kpssqtvw` | `fix(core): enforce root-owned watch recovery` - review fixes for submitted-command admission, one shared root reconnect sequence, owner-stream failures, and failed Skill scans |
 | `ppyxukto` | `docs(watchman): trim implementation corpus` - retain only the implemented design and its direct evidence |
+| `upypzslu` | `fix(core): recover source watch failures` - resubscribe failed owner interests and retain per-source URL snapshots |
+| `pklxsmnr` | `docs(watchman): record review fixes` - update the accepted design and verification record |
 
 The source-owner change stays in upstream's current `Config` and
 `ConfigSkillPlugin` modules rather than reviving the withdrawn
@@ -98,7 +100,7 @@ bun typecheck
 Results on 2026-08-30:
 
 - Core typecheck: clean.
-- Focused Watchman, interest-owner, Config, and Skill tests: 55 passed, 0 failed.
+- Focused Watchman, interest-owner, Config, and Skill tests: 56 passed, 0 failed.
 - Opt-in live watchwoman suite: 1 passed, 0 failed against watchwoman 0.7.0.
 - Server typecheck and options tests: clean, 6 passed.
 - CLI typecheck: clean.
