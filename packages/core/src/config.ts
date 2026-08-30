@@ -324,17 +324,24 @@ export const layer = (options?: Options) =>
         (effect) => reloadLock.withPermit(effect),
       )
 
-      yield* interests.changes.pipe(
-        Stream.tap((update) => PubSub.publish(updates, update)),
-        Stream.debounce("100 millis"),
-        Stream.runForEach((update) =>
-          reload().pipe(
-            Effect.catchCause((cause) => Effect.logError("failed to reload config", { path: update.path, cause })),
+      const observeChanges = (): Effect.Effect<void, never, Watcher.Service | FSUtil.Service> =>
+        interests.changes.pipe(
+          Stream.tap((update) => PubSub.publish(updates, update)),
+          Stream.debounce("100 millis"),
+          Stream.runForEach((update) =>
+            reload().pipe(
+              Effect.catchCause((cause) => Effect.logError("failed to reload config", { path: update.path, cause })),
+            ),
           ),
-        ),
-        Effect.catch((error) => Effect.logError("config watch interests failed", { error })),
-        Effect.forkScoped({ startImmediately: true }),
-      )
+          Effect.catch((error) =>
+            Effect.logError("config watch interests failed", { error }).pipe(
+              Effect.andThen(Effect.yieldNow),
+              Effect.andThen(reload()),
+              Effect.andThen(Effect.suspend(observeChanges)),
+            ),
+          ),
+        )
+      yield* observeChanges().pipe(Effect.forkScoped({ startImmediately: true }))
       yield* bus.subscribe(Credential.Event.Switched).pipe(
         Stream.filterEffect((event) =>
           wellknown.entries().pipe(

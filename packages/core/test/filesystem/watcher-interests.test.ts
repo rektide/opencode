@@ -84,11 +84,12 @@ it.effect("preserves the previous plan until reconciliation commits", () => {
   )
 })
 
-it.effect("propagates a physical subscription failure through the owner stream", () => {
-  const controls: { fail?: (error: Error) => void } = {}
+it.effect("propagates a physical failure and allows owner recovery", () => {
+  const controls: { fail?: (error: Error) => void; subscribes: number } = { subscribes: 0 }
   const native = Watcher.Native.of({
     subscribe: (input) =>
       Effect.sync(() => {
+        controls.subscribes++
         controls.fail = input.fail
         return { unsubscribe: () => Promise.resolve() }
       }),
@@ -101,6 +102,15 @@ it.effect("propagates a physical subscription failure through the owner stream",
     controls.fail?.(new Error("native failure"))
 
     expect(Exit.isFailure(yield* Fiber.await(changes))).toBe(true)
+    yield* Effect.yieldNow
+    const resumed = yield* interests.changes.pipe(
+      Stream.take(1),
+      Stream.runHead,
+      Effect.forkScoped({ startImmediately: true }),
+    )
+    yield* interests.ensure([{ path: "/failed", type: "directory" }])
+    expect((yield* Fiber.join(resumed)).valueOrUndefined).toEqual({ path: "/failed", type: "update" })
+    expect(controls.subscribes).toBe(2)
   }).pipe(
     Effect.provide(
       Layer.merge(
