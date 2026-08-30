@@ -4,16 +4,11 @@ title: Watchman resilience through deadline and failure-boundary separation
 description: Independent review of the Watchman timeout incident, correcting the model-readiness, command-clock, and cookie attribution and recommending backend-neutral artifact filtering plus admission-aware command liveness.
 resource: /.design/watchman/timeout0.gpt56s.md
 tags: [opencode, watchman, timeouts, resilience, readiness]
-status: draft
+status: stable
 generated: { by: model:gpt-5.6-sol, at: 2026-08-30T16:44:37Z }
+verified: { by: model:gpt-5.6-terra, at: 2026-08-30T21:10:00Z }
+stale_after: 2026-10-30
 sources:
-  - id: glm-timeout-wave
-    resource: /.design/watchman/timeout0.glm53.md
-    title: Watchman timeout and failure-isolation resilience
-    author: model:glm-5.3
-  - id: opencode-source
-    resource: /packages/core/src/filesystem/watchman/client.ts
-    title: Retained Watchman client implementation
   - id: local-log
     resource: file:///home/rektide/.local/share/opencode/log/opencode-local.log
     title: OpenCode structured log for the August 30 incident
@@ -149,7 +144,7 @@ is the remaining hypothesis that needs measurement.
 
 ## Review of the GLM wave
 
-[`timeout0.glm53.md`](timeout0.glm53.md) is strong forensic work. It found the
+The preceding timeout inventory was strong forensic work. It found the
 right shared-generation blast radius, the hidden FIFO, the blanket
 `establish.tapError(retire)`, the first-acquisition-only fallback boundary, the
 route-cache churn, the five-second model gate, and the logging gap. Its proposed
@@ -200,7 +195,7 @@ fake Watchman client should also be able to prove whether any hidden join remain
 [`sendNextCommand`](https://www.npmjs.com/package/@superbfowle/fb-watchman-esm)
 sends only when `currentCommand` is empty. OpenCode wraps the call in
 `Effect.timeoutOrElse` at
-[`client.ts:75-104`](/packages/core/src/filesystem/watchman/client.ts). The
+`client.ts:75-104` in the historical `watchman-20260829` snapshot. The
 Effect timer therefore starts when the command is appended, not when
 `socket.write` dispatches it. It ends when the callback responds; schema decode
 runs afterward and is not part of this timeout.
@@ -235,7 +230,7 @@ slot and invokes that command's callback. The stream remains synchronized. A
 that one requested root is not allowed; it says nothing about sibling paths or
 the socket.
 
-Today [`native.ts:63-130`](/packages/core/src/filesystem/watchman/native.ts)
+In the historical snapshot, `native.ts:63-130`
 retires the generation for every failure that escapes route/clock/subscribe
 establishment, including decode and policy failures. That blanket is the direct
 policy-poison bug. The
@@ -246,7 +241,7 @@ wrong without invalidation.
 ### The 20-second clock is not OpenCode's clock
 
 OpenCode sends `['clock', route.root]` at
-[`native.ts:69-71`](/packages/core/src/filesystem/watchman/native.ts). Watchman
+`native.ts:69-71` in that snapshot. Watchman
 documents that a clock without `sync_timeout` returns the current logical clock
 without cookie synchronization. The inspected daemon's
 [`SanityCheck.cpp`](https://github.com/facebook/watchman/blob/20966cdb78072eddc70f1e9704454f0e39038a64/watchman/SanityCheck.cpp#L154-L226)
@@ -531,17 +526,11 @@ the timing flakiness this design is intended to remove.
 
 ## Cross-references
 
-- [`timeout0.glm53.md`](timeout0.glm53.md) - the forensic inventory reviewed
-  here; strongest on the shared-generation blast radius and deadline census.
-- [`README.md`](README.md) - retained backend history, current configuration,
+- [`README.md`](/.design/watchman/README.md) - retained backend history, current configuration,
   recovery behavior, and focused test commands.
-- [`../watch/draft1.gpt56t.md`](../watch/draft1.gpt56t.md) - prior transport
+- [`draft1.gpt56t.md`](/.design/watch/draft1.gpt56t.md) - prior transport
   model and the generation-scoped route/subscription invariants this design
   preserves.
-- [`cleanup0.gpt56t.md`](cleanup0.gpt56t.md) - daemon ownership and root-GC
-  contract; explains why timeout handling must never reach for `watch-del`.
-- [`otel0.glm53.md`](otel0.glm53.md) - trace and metric pipeline design; this
-  wave supplies the admission/execution/fallback distinctions it should expose.
 - [Systemd service design](file:///home/rektide/src/opencode-systemd/.design/systemd/systemd.gpt56t.md) -
   separates the coincident one-server catalog failure from mixed-version
   election and requires Watchman to remain an independently supervised,
