@@ -6,10 +6,9 @@ resource: /.design/watchman/draft2.gpt56t.md
 tags: [opencode, watchman, filesystem, architecture, patch-stack]
 status: stable
 generated: { by: model:gpt-5.6-terra, at: 2026-08-30T14:17:11-04:00 }
+verified: { by: model:gpt-5.6-terra, at: 2026-08-30T21:10:00Z }
 stale_after: 2026-10-30
 sources:
-  - id: retained-recommendation
-    resource: /.design/watchman/rec0.gpt56s.md
   - id: timeout-review
     resource: /.design/watchman/timeout0.gpt56s.md
   - id: maintenance-log
@@ -482,14 +481,11 @@ should delete that ownership model.
 
 ## Cross-References
 
-- [`rec0.gpt56s.md`](rec0.gpt56s.md) supplies the admitted-dispatch and failure
-  evidence retained inside each root connection; this draft rejects its
-  process-global generation as the continuing owner.
-- [`timeout0.gpt56s.md`](timeout0.gpt56s.md) documents the cold-crawl FIFO
+- [`timeout0.gpt56s.md`](/.design/watchman/timeout0.gpt56s.md) documents the cold-crawl FIFO
   cascade that root isolation removes.
-- [`../watch/draft1.gpt56t.md`](../watch/draft1.gpt56t.md) supplies the retained
+- [`draft1.gpt56t.md`](/.design/watch/draft1.gpt56t.md) supplies the retained
   one-subscription-per-interest and daemon-root-sharing model.
-- [`README.md`](README.md) records the current implementation and historical
+- [`README.md`](/.design/watchman/README.md) records the current implementation and historical
   line that the four-commit carrier replaces.
 - [OpenCode patch policy](file:///home/rektide/a/doc/opencode/patches.md) defines
   the independent final-state carrier and immutable dated-snapshot rules.
@@ -497,7 +493,7 @@ should delete that ownership model.
 # Addendum: watchwoman validation and routing amendment
 
 Generated 2026-08-30T15:30-04:00, after live validation of the watchwoman
-daemon (source: [`watchwoman0.unknown.md`](watchwoman0.unknown.md), commit
+daemon (source: [`watchwoman0.unknown.md`](/.design/watchman/watchwoman0.unknown.md), commit
 `qruvzyky`; measurements against the socket-activated daemon,
 `~/.local/state/watchman/rektide-state/sock`). Where this section conflicts
 with the body, this section governs.
@@ -629,12 +625,13 @@ withdrawal's reason is understood.
 
 # Addendum: implementation record
 
-Implemented 2026-08-30 as a fresh three-commit runtime stack over
-`v2@origin` `e70d667a`:
+Implemented 2026-08-30 as a fresh three-commit runtime stack plus one review
+fix over `v2@origin` `e70d667a`:
 
 1. `1d372ee4` - `refactor(core): reconcile source watch interests`
 2. `e452faa5` - `feat(core): add root-scoped Watchman backend`
 3. `2cfa39b6` - `feat: expose Watchman backend selection`
+4. `b5ea2ff2` - `fix(core): enforce root-owned watch recovery`
 
 The implementation follows the watchwoman amendment: project roots use plain
 `watch`, reconnect intervals have approximately 30 percent jitter,
@@ -656,4 +653,4 @@ The focused injected tests cover project-root sharing, cross-root isolation,
 root-local command timeout, cursor resume, unsubscribe during outage,
 placement-key separation, exact-interest failure propagation, and source-plan
 reconciliation. The committed opt-in live suite passed against watchwoman
-0.7.0. See [`README.md`](README.md) for commands and the maintenance record.
+0.7.0. See [`README.md`](/.design/watchman/README.md) for commands and the maintenance record.

@@ -6,6 +6,7 @@ resource: /.design/watchman/watchwoman0.unknown.md
 tags: [opencode, watchman, watchwoman, daemon, validation]
 status: stable
 generated: { by: llm:unknown-model, at: 2026-08-30T15:20-04:00 }
+verified: { by: model:gpt-5.6-terra, at: 2026-08-30T21:10:00Z }
 stale_after: 2026-10-30
 sources:
   - id: design-under-validation
@@ -423,15 +424,10 @@ watchman -j <<< '["watch-del","<scratch>"]'             # scratch roots only
 
 ## Cross-references
 
-- [`draft2.gpt56t.md`](draft2.gpt56t.md) — the design under validation; its
-  routing (exact = plain `watch`, project = `watch-project` against an
-  explicit VCS root) is exactly the split that survives the marker-climb
-  hazard found here.
-- [`README.md`](README.md) — maintenance log; its 2026-08-20 "Root cleanup"
-  section cites facebook watchman's 5-day `idle_reap_age`; watchwoman's GC
-  is 1 h stale / 60–120 s dead, which strengthens (not weakens) the settled
-  no-`watch-del` policy.
-- [`cleanup0.gpt56t.md`](cleanup0.gpt56t.md) — the earlier watchman-side
-  self-GC analysis this wave's claim 1 updates for the new daemon.
-- [`timeout0.gpt56s.md`](timeout0.gpt56s.md) — cookie-attribution notes;
+- [`draft2.gpt56t.md`](/.design/watchman/draft2.gpt56t.md) - the design under
+  validation; its governing amendment uses plain `watch` for project and exact
+  intents to avoid the marker-climb hazard found here.
+- [`README.md`](/.design/watchman/README.md) - maintenance and implementation
+  record for the settled no-`watch-del` policy.
+- [`timeout0.gpt56s.md`](/.design/watchman/timeout0.gpt56s.md) - cookie-attribution notes;
   claim 5 makes them moot under watchwoman (no cookies exist).

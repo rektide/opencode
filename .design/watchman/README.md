@@ -6,6 +6,8 @@ resource: /.design/watchman/README.md
 tags: [opencode, watchman, watchwoman, filesystem, maintenance]
 status: stable
 generated: { by: model:gpt-5.6-terra, at: 2026-08-30T20:47:00Z }
+verified: { by: model:gpt-5.6-terra, at: 2026-08-30T21:10:00Z }
+stale_after: 2026-10-30
 sources:
   - id: accepted-design
     resource: /.design/watchman/draft2.gpt56t.md
@@ -18,7 +20,7 @@ sources:
 # Root-scoped Watchman maintenance log
 
 This workspace carries the implementation of
-[`draft2.gpt56t.md`](draft2.gpt56t.md) as an independent stack over
+[`draft2.gpt56t.md`](/.design/watchman/draft2.gpt56t.md) as an independent stack over
 `v2@origin` `e70d667a`. The dated `watchman-20260829` bookmark remains the
 audit snapshot of the deleted process-global implementation.
 
@@ -30,6 +32,8 @@ audit snapshot of the deleted process-global implementation.
 | `vsvwpnto` | `feat(core): add root-scoped Watchman backend` - private placement metadata, exact-interest sharing, one admitted connection per route intent, cursor recovery, initial Parcel fallback, typed response decoding, injected and live tests |
 | `tsvvwozx` | `feat: expose Watchman backend selection` - optional environment and `ServerOptions` plumbing |
 | `lumqklpp` | `docs(watchman): document root-scoped backend` - this corpus and maintenance record |
+| `kpssqtvw` | `fix(core): enforce root-owned watch recovery` - review fixes for submitted-command admission, one shared root reconnect sequence, owner-stream failures, and failed Skill scans |
+| `ppyxukto` | `docs(watchman): trim implementation corpus` - retain only the implemented design and its direct evidence |
 
 The source-owner change stays in upstream's current `Config` and
 `ConfigSkillPlugin` modules rather than reviving the withdrawn
@@ -94,7 +98,7 @@ bun typecheck
 Results on 2026-08-30:
 
 - Core typecheck: clean.
-- Focused Core suites: 51 passed, 0 failed.
+- Focused Watchman, interest-owner, Config, and Skill tests: 55 passed, 0 failed.
 - Opt-in live watchwoman suite: 1 passed, 0 failed against watchwoman 0.7.0.
 - Server typecheck and options tests: clean, 6 passed.
 - CLI typecheck: clean.
@@ -143,13 +147,11 @@ known defect.
 
 ## Cross-references
 
-- [`draft2.gpt56t.md`](draft2.gpt56t.md) is the implemented architecture and
+- [`draft2.gpt56t.md`](/.design/watchman/draft2.gpt56t.md) is the implemented architecture and
   its watchwoman routing amendment governs conflicts with the earlier body.
-- [`watchwoman0.unknown.md`](watchwoman0.unknown.md) validates daemon crawl,
+- [`watchwoman0.unknown.md`](/.design/watchman/watchwoman0.unknown.md) validates daemon crawl,
   query, root persistence, routing, and unsubscribe behavior.
-- [`timeout0.gpt56s.md`](timeout0.gpt56s.md) records the FIFO timeout incident
+- [`timeout0.gpt56s.md`](/.design/watchman/timeout0.gpt56s.md) records the FIFO timeout incident
   that motivated admitted dispatch and failure-domain isolation.
-- [`rec0.gpt56s.md`](rec0.gpt56s.md) is the prior resilience recommendation;
-  draft2 supersedes its process-global ownership.
-- [`../watch/draft1.gpt56t.md`](../watch/draft1.gpt56t.md) is the retained
+- [`draft1.gpt56t.md`](/.design/watch/draft1.gpt56t.md) is the retained
   one-subscription-per-interest design from the earlier wave.
