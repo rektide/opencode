@@ -1,6 +1,6 @@
 export * as LocationActivity from "./location-activity.js"
 
-import { Clock, Context, Duration, Effect, Layer, RcMap, Schema } from "effect"
+import { Clock, Context, Duration, Effect, Layer, Option, RcMap, Schema } from "effect"
 import { Bus } from "./bus.js"
 import { Location } from "./location.js"
 import { LocationServiceMap } from "./location-service-map.js"
@@ -11,6 +11,31 @@ const isSessionEvent = Schema.is(SessionEvent.Durable)
 
 export class Service extends Context.Service<Service, {}>()("@opencode/LocationActivity") {}
 
+const DEFAULT_TIME_TO_LIVE = "60 minutes"
+
+/**
+ * Resolve the location activity time-to-live. When `timeToLive` is not given,
+ * the `OPENCODE_LOCATION_CACHE_TTL` env var is consulted (Duration syntax:
+ * "90 minutes", "2 hours", "7 days", or "Infinity"); invalid values warn and
+ * fall back to the default.
+ */
+export const resolveTimeToLive = Effect.fnUntraced(function* (options: { readonly timeToLive?: Duration.Input }) {
+  if (options.timeToLive !== undefined) return Duration.fromInputUnsafe(options.timeToLive)
+  const raw = process.env.OPENCODE_LOCATION_CACHE_TTL?.trim()
+  if (raw === undefined || raw === "") return Duration.fromInputUnsafe(DEFAULT_TIME_TO_LIVE)
+  // An Infinity TTL means activity entries never expire, so active locations
+  // are never evicted by the sweep. `fromInput` totals over arbitrary runtime
+  // strings (None on bad syntax); the `Duration.Input` type only constrains
+  // what callers can write as literals.
+  const parsed =
+    raw.toLowerCase() === "infinity" ? Option.some(Duration.infinity) : Duration.fromInput(raw as Duration.Input)
+  if (Option.isSome(parsed)) return parsed.value
+  yield* Effect.logWarning(
+    `ignoring invalid OPENCODE_LOCATION_CACHE_TTL ${JSON.stringify(raw)}; using ${DEFAULT_TIME_TO_LIVE}`,
+  )
+  return Duration.fromInputUnsafe(DEFAULT_TIME_TO_LIVE)
+})
+
 export function layer(options: { readonly timeToLive?: Duration.Input; readonly sweepInterval?: Duration.Input } = {}) {
   return Layer.effect(
     Service,
@@ -18,7 +43,7 @@ export function layer(options: { readonly timeToLive?: Duration.Input; readonly 
       const clock = yield* Clock.Clock
       const bus = yield* Bus.Service
       const locations = yield* LocationServiceMap.Service
-      const timeToLive = Duration.toMillis(options.timeToLive ?? "60 minutes")
+      const timeToLive = Duration.toMillis(yield* resolveTimeToLive(options))
       const entries = new Map<string, { readonly ref: Location.Ref; expiresAt: number }>()
       const key = (ref: Location.Ref) => `${ref.directory}\0${ref.workspaceID ?? ""}`
       const touch = (ref: Location.Ref) =>
