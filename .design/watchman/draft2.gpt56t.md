@@ -633,6 +633,7 @@ over `v2@origin` `e70d667a`:
 3. `2cfa39b6` - `feat: expose Watchman backend selection`
 4. `b5ea2ff2` - `fix(core): enforce root-owned watch recovery`
 5. `c112ae41` - `fix(core): recover source watch failures`
+6. `8b9d867b` - `refactor(core): tighten watcher internals`
 
 The implementation follows the watchwoman amendment: project roots use plain
 `watch`, reconnect intervals have approximately 30 percent jitter,

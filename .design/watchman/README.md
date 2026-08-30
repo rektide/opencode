@@ -36,6 +36,7 @@ audit snapshot of the deleted process-global implementation.
 | `ppyxukto` | `docs(watchman): trim implementation corpus` - retain only the implemented design and its direct evidence |
 | `upypzslu` | `fix(core): recover source watch failures` - resubscribe failed owner interests and retain per-source URL snapshots |
 | `pklxsmnr` | `docs(watchman): record review fixes` - update the accepted design and verification record |
+| `8b9d867b` | `refactor(core): tighten watcher internals` - centralize generic watcher types and simplify established-generation access |
 
 The source-owner change stays in upstream's current `Config` and
 `ConfigSkillPlugin` modules rather than reviving the withdrawn
