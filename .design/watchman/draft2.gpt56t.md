@@ -628,13 +628,13 @@ withdrawal's reason is understood.
 Implemented 2026-08-30 as a fresh three-commit runtime stack plus review fixes
 over `v2@origin` `e70d667a`:
 
-1. `1d372ee4` - `refactor(core): reconcile source watch interests`
-2. `e452faa5` - `feat(core): add root-scoped Watchman backend`
-3. `2cfa39b6` - `feat: expose Watchman backend selection`
-4. `b5ea2ff2` - `fix(core): enforce root-owned watch recovery`
-5. `c112ae41` - `fix(core): recover source watch failures`
-6. `8b9d867b` - `refactor(core): tighten watcher internals`
-7. `19c88e3d` - `feat: make watcher timeouts configurable`
+1. `wqlzpxsk` - `refactor(core): reconcile source watch interests`
+2. `vsvwpnto` - `feat(core): add root-scoped Watchman backend`
+3. `tsvvwozx` - `feat: expose Watchman backend selection`
+4. `kpssqtvw` - `fix(core): enforce root-owned watch recovery`
+5. `upypzslu` - `fix(core): recover source watch failures`
+6. `xvvluxnk` - `refactor(core): tighten watcher internals`
+7. `nsrmtxws` - `feat: make watcher timeouts configurable`
 
 The timeout commit is a user-directed amendment to the body's "no per-command
 deadline configuration" rule: heavily loaded hosts need to relax deadlines

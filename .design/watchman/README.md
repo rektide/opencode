@@ -36,8 +36,9 @@ audit snapshot of the deleted process-global implementation.
 | `ppyxukto` | `docs(watchman): trim implementation corpus` - retain only the implemented design and its direct evidence |
 | `upypzslu` | `fix(core): recover source watch failures` - resubscribe failed owner interests and retain per-source URL snapshots |
 | `pklxsmnr` | `docs(watchman): record review fixes` - update the accepted design and verification record |
-| `8b9d867b` | `refactor(core): tighten watcher internals` - centralize generic watcher types and simplify established-generation access |
-| `19c88e3d` | `feat: make watcher timeouts configurable` - 60s default command deadline plus env and `ServerOptions` tuning for all watcher deadlines and reconnect backoff |
+| `xvvluxnk` | `refactor(core): tighten watcher internals` - centralize generic watcher types and simplify established-generation access |
+| `nsrmtxws` | `feat: make watcher timeouts configurable` - 60s default command deadline plus env and `ServerOptions` tuning for all watcher deadlines and reconnect backoff |
+| `vyququtp` | `chore(core): lower default reconnect cap to 2s` - tighten the default ceiling of the jittered root recovery loop |
 
 The source-owner change stays in upstream's current `Config` and
 `ConfigSkillPlugin` modules rather than reviving the withdrawn
@@ -68,17 +69,14 @@ own `WatchInterests` plan, and no caller chooses Watchman routing.
 
 ## Configuration
 
-| Surface | Values | Default |
-| --- | --- | --- |
-| `OPENCODE_WATCHER_BACKEND` | `watchman`, `parcel` | absent, which selects Parcel |
-| `OPENCODE_WATCHMAN_COMMAND_TIMEOUT_MS` | millis, per admitted command before its root generation is retired | 60000 |
-| `OPENCODE_WATCHMAN_RETRY_BASE_MS` / `OPENCODE_WATCHMAN_RETRY_CAP_MS` | millis, reconnect backoff growth and cap (about 30 percent jitter) | 100 / 3200 |
-| `OPENCODE_WATCHER_SUBSCRIBE_TIMEOUT_MS` | millis, Parcel acquisition deadline | 10000 |
-| `ServerOptions.fs.watcherBackend` | `watchman`, `parcel` | absent, which selects Parcel |
-| `ServerOptions.fs.watchman` | same as the watchman env vars | absent |
-| `ServerOptions.fs.subscribeTimeoutMs` | same as the subscribe env var | absent |
-| `OPENCODE_FILEWATCHER_DISABLE` / `OPENCODE_DISABLE_FILEWATCHER` | truthy disables all watching | enabled |
-| `WATCHMAN_SOCK` | transport socket override | transport discovery |
+| Environment | `ServerOptions` | Effect | Default |
+| --- | --- | --- | --- |
+| `OPENCODE_WATCHER_BACKEND` | `fs.watcherBackend` | `watchman` or `parcel` directory backend | absent, which selects Parcel |
+| `OPENCODE_WATCHMAN_COMMAND_TIMEOUT_MS` | `fs.watchman.commandTimeoutMs` | millis before an admitted command retires its root generation | 60000 |
+| `OPENCODE_WATCHMAN_RETRY_BASE_MS` / `OPENCODE_WATCHMAN_RETRY_CAP_MS` | `fs.watchman.retryBaseMs` / `fs.watchman.retryCapMs` | millis reconnect backoff growth and cap, about 30 percent jitter | 100 / 2000 |
+| `OPENCODE_WATCHER_SUBSCRIBE_TIMEOUT_MS` | `fs.subscribeTimeoutMs` | millis Parcel acquisition deadline | 10000 |
+| `OPENCODE_FILEWATCHER_DISABLE` / `OPENCODE_DISABLE_FILEWATCHER` | `fs.filewatcher` | truthy disables all watching (`fs.filewatcher: false` is the options form) | enabled |
+| `WATCHMAN_SOCK` | - | Watchman transport socket override | transport discovery |
 
 Unknown backend values fail CLI startup validation, as do non-positive
 timeout values. There is no `default` enum value, notification interval, or
