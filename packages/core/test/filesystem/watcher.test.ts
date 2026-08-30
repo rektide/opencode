@@ -2,7 +2,7 @@ import { $ } from "bun"
 import { describe, expect } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
-import { Deferred, Duration, Effect, Fiber, Layer, Option, Schedule, Stream } from "effect"
+import { Deferred, Duration, Effect, Exit, Fiber, Layer, Option, Schedule, Stream } from "effect"
 import { Config } from "@opencode-ai/core/config"
 import { ConfigLocationWatcherPlugin } from "@opencode-ai/core/config/plugin/location-watcher"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
@@ -13,6 +13,7 @@ import { FSUtil } from "@opencode-ai/util/fs-util"
 import { LocationWatcher } from "@opencode-ai/core/filesystem/location-watcher"
 import { LocationWatcherPolicy } from "@opencode-ai/core/filesystem/location-watcher-policy"
 import { Watcher } from "@opencode-ai/core/filesystem/watcher"
+import { WatcherInternal } from "@opencode-ai/core/filesystem/watcher/internal"
 import { FileSystem } from "@opencode-ai/schema/filesystem"
 import { Document, Event, Info, type Entry } from "@opencode-ai/schema/config"
 import { Location } from "@opencode-ai/core/location"
@@ -121,6 +122,55 @@ describe("Watcher lifecycle", () => {
       yield* Fiber.join(consumer)
       expect(counts.unsubscribes).toBe(1)
     })
+  })
+
+  it.effect("does not share directory subscriptions across placement roots", () => {
+    const { native, counts } = countingNative()
+    return Effect.gen(function* () {
+      const watcher = yield* Watcher.Service
+      const consume = (root: string) =>
+        watcher
+          .subscribe(
+            WatcherInternal.attach({ path: "/shared", type: "directory" }, { placement: { type: "project", root } }),
+          )
+          .pipe(Effect.flatMap(Stream.runDrain), Effect.forkScoped({ startImmediately: true }))
+      const first = yield* consume("/first")
+      const duplicate = yield* consume("/first")
+      const second = yield* consume("/second")
+      yield* Effect.yieldNow
+
+      expect(counts.subscribes).toBe(2)
+      yield* Fiber.interrupt(first)
+      yield* Fiber.interrupt(duplicate)
+      yield* Fiber.interrupt(second)
+      expect(counts.unsubscribes).toBe(2)
+    }).pipe(withNative(native))
+  })
+
+  it.effect("fails every subscriber to one physical interest", () => {
+    const controls: { fail?: (error: Error) => void } = {}
+    return Effect.gen(function* () {
+      const watcher = yield* Watcher.Service
+      const consume = () =>
+        watcher
+          .subscribe({ path: "/failed", type: "directory" })
+          .pipe(Effect.flatMap(Stream.runDrain), Effect.forkScoped({ startImmediately: true }))
+      const first = yield* consume()
+      const second = yield* consume()
+      yield* Effect.yieldNow
+      controls.fail?.(new Error("native failure"))
+
+      expect(Exit.isFailure(yield* Fiber.await(first))).toBe(true)
+      expect(Exit.isFailure(yield* Fiber.await(second))).toBe(true)
+    }).pipe(
+      withNative({
+        subscribe: (input) =>
+          Effect.sync(() => {
+            controls.fail = input.fail
+            return { unsubscribe: () => Promise.resolve() }
+          }),
+      }),
+    )
   })
 })
 

@@ -4,6 +4,7 @@ import path from "node:path"
 import { Effect, FiberMap, PubSub, Stream } from "effect"
 import { Watcher } from "../watcher.js"
 import { WatcherInternal } from "./internal.js"
+import { Location } from "../../location.js"
 
 export type Input = Watcher.WatchInput
 
@@ -15,6 +16,7 @@ export type Interface = {
 
 export const make = Effect.fn("WatchInterests.make")(function* () {
   const watcher = yield* Watcher.Service
+  const location = yield* Location.Service
   const watches = yield* FiberMap.make<string>()
   const changes = yield* PubSub.unbounded<Watcher.Update>()
 
@@ -35,6 +37,10 @@ export const make = Effect.fn("WatchInterests.make")(function* () {
         const updates = yield* watcher.subscribe(
           WatcherInternal.attach(input, {
             ready: () => PubSub.publishUnsafe(changes, { path: input.path, type: "update" as const }),
+            placement:
+              input.type === "directory" && contains(location.project.directory, input.path)
+                ? { type: "project", root: path.resolve(location.project.directory) }
+                : { type: "exact" },
           }),
         )
         yield* FiberMap.run(
@@ -60,3 +66,8 @@ export const make = Effect.fn("WatchInterests.make")(function* () {
 
   return { changes: Stream.fromPubSub(changes), ensure, reconcile } satisfies Interface
 })
+
+function contains(root: string, target: string) {
+  const relative = path.relative(root, target)
+  return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+}
