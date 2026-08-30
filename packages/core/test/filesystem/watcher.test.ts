@@ -125,7 +125,7 @@ describe("Watcher lifecycle", () => {
   })
 
   it.effect("does not share directory subscriptions across placement roots", () => {
-    const { native, counts } = countingNative()
+    const counted = countingNative()
     return Effect.gen(function* () {
       const watcher = yield* Watcher.Service
       const consume = (root: string) =>
@@ -139,12 +139,12 @@ describe("Watcher lifecycle", () => {
       const second = yield* consume("/second")
       yield* Effect.yieldNow
 
-      expect(counts.subscribes).toBe(2)
+      expect(counted.counts.subscribes).toBe(2)
       yield* Fiber.interrupt(first)
       yield* Fiber.interrupt(duplicate)
       yield* Fiber.interrupt(second)
-      expect(counts.unsubscribes).toBe(2)
-    }).pipe(withNative(native))
+      expect(counted.counts.unsubscribes).toBe(2)
+    }).pipe(withNative(counted.native))
   })
 
   it.effect("fails every subscriber to one physical interest", () => {

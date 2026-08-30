@@ -332,6 +332,7 @@ export const layer = (options?: Options) =>
             Effect.catchCause((cause) => Effect.logError("failed to reload config", { path: update.path, cause })),
           ),
         ),
+        Effect.catch((error) => Effect.logError("config watch interests failed", { error })),
         Effect.forkScoped({ startImmediately: true }),
       )
       yield* bus.subscribe(Credential.Event.Switched).pipe(
