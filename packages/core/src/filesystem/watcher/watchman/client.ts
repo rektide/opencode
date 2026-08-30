@@ -2,7 +2,10 @@ import { Deferred, Duration, Effect, Fiber, Schema, Semaphore } from "effect"
 import { CapabilityResponse, GenerationClosed, WatchmanError } from "./schema.js"
 
 const TRANSPORT = "@superbfowle/fb-watchman-esm"
-const COMMAND_TIMEOUT = "10 seconds"
+// Deadline for one admitted command on a root's serialized socket. Warm local
+// round-trips are milliseconds, but a loaded host or a cold daemon crawl can
+// stall far longer, and retiring the generation early just adds churn.
+const COMMAND_TIMEOUT = 60_000
 
 export type RawClient = {
   readonly end: () => void

@@ -32,6 +32,22 @@ test("accepts only explicit filesystem watcher backends", () => {
   expect(Option.isNone(decode({ fs: { watcherBackend: "default" } }))).toBe(true)
 })
 
+test("accepts watcher deadline tuning and rejects non-positive values", () => {
+  const fs = Option.getOrThrow(
+    decode({
+      fs: {
+        subscribeTimeoutMs: 30_000,
+        watchman: { commandTimeoutMs: 120_000, retryBaseMs: 500, retryCapMs: 10_000 },
+      },
+    }),
+  ).fs
+  expect(fs?.subscribeTimeoutMs).toBe(30_000)
+  expect(fs?.watchman).toEqual({ commandTimeoutMs: 120_000, retryBaseMs: 500, retryCapMs: 10_000 })
+  expect(Option.isNone(decode({ fs: { subscribeTimeoutMs: 0 } }))).toBe(true)
+  expect(Option.isNone(decode({ fs: { watchman: { commandTimeoutMs: -5 } } }))).toBe(true)
+  expect(Option.isNone(decode({ fs: { watchman: { retryBaseMs: "500" } } }))).toBe(true)
+})
+
 test("accepts an optional CORS allowlist", () => {
   expect(Option.getOrThrow(decode({})).cors).toBeUndefined()
   expect(Option.getOrThrow(decode({ cors: [] })).cors).toEqual([])

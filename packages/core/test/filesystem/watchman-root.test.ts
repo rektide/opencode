@@ -102,7 +102,7 @@ it.live("does not let a pending route block another root intent", () =>
         clients.push(raw)
         return raw
       },
-      { commandTimeout: "100 millis" },
+      { commandTimeoutMs: 100 },
     )
     const pending = yield* registry
       .subscribe({ type: "project", project: "/first" }, input("/first"))
@@ -130,7 +130,7 @@ it.live("a submitted timeout closes only its root generation", () =>
         clients.push(raw)
         return raw
       },
-      { commandTimeout: "20 millis" },
+      { commandTimeoutMs: 20 },
     )
     const timedOut = yield* registry
       .subscribe({ type: "project", project: "/first" }, input("/first"))

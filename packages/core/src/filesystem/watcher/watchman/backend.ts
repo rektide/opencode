@@ -1,12 +1,12 @@
 import { Effect } from "effect"
 import { Watcher } from "../../watcher.js"
 import { loadFactory } from "./client.js"
-import { makeRegistry } from "./root.js"
+import { makeRegistry, type Options } from "./root.js"
 
-export const make = (fallback: Watcher.NativeInterface) =>
+export const make = (fallback: Watcher.NativeInterface, options?: Options) =>
   Effect.gen(function* () {
     const factory = yield* loadFactory
-    const registry = yield* makeRegistry(factory)
+    const registry = yield* makeRegistry(factory, options)
     return Watcher.Native.of({
       subscribe: (input) => {
         if (input.type === "file") return fallback.subscribe(input)

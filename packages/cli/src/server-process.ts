@@ -124,6 +124,12 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
             watcherBackend: yield* Schema.decodeUnknownEffect(Schema.optional(Schema.Literals(["watchman", "parcel"])))(
               process.env.OPENCODE_WATCHER_BACKEND,
             ).pipe(Effect.mapError(() => new Error("OPENCODE_WATCHER_BACKEND must be watchman or parcel"))),
+            subscribeTimeoutMs: yield* positiveIntEnv("OPENCODE_WATCHER_SUBSCRIBE_TIMEOUT_MS"),
+            watchman: {
+              commandTimeoutMs: yield* positiveIntEnv("OPENCODE_WATCHMAN_COMMAND_TIMEOUT_MS"),
+              retryBaseMs: yield* positiveIntEnv("OPENCODE_WATCHMAN_RETRY_BASE_MS"),
+              retryCapMs: yield* positiveIntEnv("OPENCODE_WATCHMAN_RETRY_CAP_MS"),
+            },
             fff:
               process.env.OPENCODE_DISABLE_FFF === undefined
                 ? process.platform !== "win32"
@@ -190,6 +196,16 @@ const recognizeIncumbent = Effect.fnUntraced(function* (options: DiscoverOptions
 
 function serviceURL(hostname: string, port: number) {
   return `http://${hostname.includes(":") ? `[${hostname}]` : hostname}:${port}`
+}
+
+function positiveIntEnv(name: string) {
+  const value = process.env[name]
+  if (value === undefined) return Effect.succeed(undefined)
+  const text = value.trim()
+  const parsed = /^\d+$/.test(text) ? Number.parseInt(text, 10) : undefined
+  if (parsed === undefined || parsed < 1)
+    return Effect.fail(new Error(`${name} must be a positive integer number of milliseconds`))
+  return Effect.succeed(parsed)
 }
 
 function truthy(value?: string) {
