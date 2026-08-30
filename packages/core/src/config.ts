@@ -17,6 +17,7 @@ import {
 import { Credential } from "./credential.js"
 import { Bus } from "./bus.js"
 import { Watcher } from "./filesystem/watcher.js"
+import { WatchInterests } from "./filesystem/watcher/interests.js"
 import { FSUtil } from "@opencode-ai/util/fs-util"
 import { Global } from "@opencode-ai/util/global"
 import { Location } from "./location.js"
@@ -85,13 +86,16 @@ export const layer = (options?: Options) =>
       const fs = yield* FSUtil.Service
       const global = yield* Global.Service
       const location = yield* Location.Service
-      const watcher = yield* Watcher.Service
       const bus = yield* Bus.Service
       const credentials = yield* Credential.Service
       const wellknown = yield* WellKnown.Service
       const names = ["opencode.json", "opencode.jsonc"]
       const reloadLock = Semaphore.makeUnsafe(1)
+      const interests = yield* WatchInterests.make()
       const fileTargets = new Set<AbsolutePath>()
+      const directoryTargets = new Set<AbsolutePath>(
+        options?.global === false ? [] : [AbsolutePath.make(global.config)],
+      )
       const decodeOptions = { errors: "all", onExcessProperty: "ignore", propertyOrder: "original" } as const
       const decodeInfo = Schema.decodeUnknownOption(Info, decodeOptions)
       const parseInfo = Effect.fn("Config.parseInfo")(function* (text: string, source: string) {
@@ -231,10 +235,10 @@ export const layer = (options?: Options) =>
           .filter((item) => path.basename(item) === ".opencode")
           .toReversed()
           .map((directory) => AbsolutePath.make(directory))
+        projectDirectories.forEach((directory) => directoryTargets.add(directory))
         const directPaths = visible
           .filter((item) => ![".agents", ".claude", ".opencode"].includes(path.basename(item)))
           .toReversed()
-        fileTargets.clear()
         directPaths.forEach((filepath) => fileTargets.add(AbsolutePath.make(filepath)))
         const direct = yield* Effect.forEach(directPaths, (filepath) => loadFile(filepath)).pipe(
           Effect.orDie,
@@ -282,52 +286,46 @@ export const layer = (options?: Options) =>
         ]
       })
 
-      const initial = yield* discover()
-      let configs = initial
       const updates = yield* PubSub.unbounded<Watcher.Update>()
       // Vendored trees inside config roots (a plugin's node_modules, a nested
       // .git) produce event blizzards that can never change discovery output.
       const ignore = ["node_modules", ".git", "**/{node_modules,.git}/**"]
-      // Watch-once: roots leave discovery only by deletion, so a stale watch is
-      // inert, bounded, and dies with this layer — and keeping a deleted root's
-      // watch alive is exactly what makes its recreation observable.
-      const watched = new Set<string>()
-      const reconcile = Effect.fn("Config.reconcileWatches")(function* (entries: readonly Entry[]) {
-        const directories = entries.flatMap((entry) => (entry.type === "directory" ? [entry.path] : []))
-        const files = [
-          ...entries.flatMap((entry) => (entry.type === "document" && entry.path ? [entry.path] : [])),
-          ...fileTargets,
-        ]
-        const targets = [
-          ...directories.map((path) => ({ path, type: "directory" as const, ignore })),
-          ...files
-            .filter((file) => !directories.some((directory) => FSUtil.contains(directory, file)))
-            .map((path) => ({ path, type: "file" as const })),
-        ]
-        for (const target of targets) {
-          const key = JSON.stringify(target)
-          if (watched.has(key)) continue
-          watched.add(key)
-          const stream = yield* watcher.subscribe(target)
-          yield* stream.pipe(
-            Stream.runForEach((update) => PubSub.publish(updates, update)),
-            Effect.forkScoped({ startImmediately: true }),
-          )
-        }
+      const directoryInput = Effect.fnUntraced(function* (directory: string) {
+        const target = path.resolve(directory)
+        const resolved = yield* fs.realPath(target).pipe(Effect.orElseSucceed(() => undefined))
+        if (!resolved) return [{ path: target, type: "file" as const }]
+        return resolved === target
+          ? [{ path: target, type: "directory" as const, ignore }]
+          : [
+              { path: resolved, type: "directory" as const, ignore },
+              { path: target, type: "file" as const },
+            ]
+      })
+      const primary = Effect.fn("Config.primaryWatches")(function* () {
+        const roots = yield* Effect.forEach(directoryTargets, directoryInput).pipe(
+          Effect.map((inputs) => inputs.flat()),
+        )
+        return [...roots, ...Array.from(fileTargets, (path) => ({ path, type: "file" as const }))]
       })
 
+      let configs: Entry[] = []
       const reload = Effect.fn("Config.reload")(
         function* () {
+          const base = yield* primary()
+          yield* interests.ensure(base)
           const next = yield* discover()
-          yield* reconcile(next)
-          if (isDeepStrictEqual(configs, next)) return
+          const desired = yield* primary()
+          yield* interests.ensure(desired)
+          const changed = !isDeepStrictEqual(configs, next)
           configs = next
-          yield* bus.publish(Event.Updated, {})
+          yield* interests.reconcile(desired)
+          if (changed) yield* bus.publish(Event.Updated, {})
         },
         (effect) => reloadLock.withPermit(effect),
       )
 
-      yield* Stream.fromPubSub(updates).pipe(
+      yield* interests.changes.pipe(
+        Stream.tap((update) => PubSub.publish(updates, update)),
         Stream.debounce("100 millis"),
         Stream.runForEach((update) =>
           reload().pipe(
@@ -373,7 +371,10 @@ export const layer = (options?: Options) =>
         Effect.forever,
         Effect.forkScoped({ startImmediately: true }),
       )
-      yield* reconcile(initial)
+      const base = yield* primary()
+      yield* interests.ensure(base)
+      configs = yield* discover()
+      yield* interests.reconcile(yield* primary())
 
       return Service.of({
         entries: Effect.fnUntraced(function* () {
