@@ -2,8 +2,12 @@
 type: Design
 title: Simple OpenCode V2 Watchman registry
 description: One logical filesystem interest per Watchman subscription, with daemon-managed root sharing, retained subscriptions, and no application-level subscription rollup.
-status: draft
-generated: { by: llm:gpt-5.6-terra, at: 2026-08-18 }
+resource: /.design/watch/draft1.gpt56t.md
+tags: [opencode, watchman, filesystem, architecture]
+status: stable
+generated: { by: model:gpt-5.6-terra, at: 2026-08-18 }
+verified: { by: model:gpt-5.6-terra, at: 2026-08-30T21:10:00Z }
+stale_after: 2026-10-30
 sources:
   - id: watcher
     resource: /packages/core/src/filesystem/watcher.ts
@@ -570,7 +574,7 @@ If that happens, optimize one measured domain/root at a time behind the same `Wa
 
 ## Historical integration and changes
 
-This draft simplifies [`draft0.gpt56t.md`](/.design/watch/draft0.gpt56t.md) after recognizing that Watchman already provides the expensive rollup at the daemon-root layer.
+This draft simplifies an earlier exploratory draft after recognizing that Watchman already provides the expensive rollup at the daemon-root layer.
 
 Retained from draft0:
 
