@@ -1,7 +1,7 @@
 export * as WatchInterests from "./interests.js"
 
 import path from "node:path"
-import { Effect, FiberMap, PubSub, Stream } from "effect"
+import { Deferred, Effect, FiberMap, Queue, Stream } from "effect"
 import { Watcher } from "../watcher.js"
 import { WatcherInternal } from "./internal.js"
 import { Location } from "../../location.js"
@@ -9,7 +9,7 @@ import { Location } from "../../location.js"
 export type Input = Watcher.WatchInput
 
 export type Interface = {
-  readonly changes: Stream.Stream<Watcher.Update>
+  readonly changes: Stream.Stream<Watcher.Update, Error>
   readonly ensure: (inputs: readonly Input[]) => Effect.Effect<void>
   readonly reconcile: (inputs: readonly Input[]) => Effect.Effect<void>
 }
@@ -18,25 +18,20 @@ export const make = Effect.fn("WatchInterests.make")(function* () {
   const watcher = yield* Watcher.Service
   const location = yield* Location.Service
   const watches = yield* FiberMap.make<string>()
-  const changes = yield* PubSub.unbounded<Watcher.Update>()
+  const changes = yield* Queue.unbounded<Watcher.Update>()
+  yield* Effect.addFinalizer(() => Queue.shutdown(changes))
+  const failure = Deferred.makeUnsafe<void, Error>()
 
-  const normalize = (input: Input): Input => {
-    const target = path.resolve(input.path)
-    if (input.type === "file") return { path: target, type: "file" }
-    const ignore = [...new Set(input.ignore ?? [])].toSorted()
-    return ignore.length ? { path: target, type: "directory", ignore } : { path: target, type: "directory" }
-  }
-
-  const key = (input: Input) => JSON.stringify(normalize(input))
+  const key = (input: Input) => JSON.stringify(WatcherInternal.normalize(input))
 
   const ensure = Effect.fn("WatchInterests.ensure")(function* (inputs: readonly Input[]) {
     yield* Effect.forEach(
-      new Map(inputs.map((input) => [key(input), normalize(input)])).entries(),
+      new Map(inputs.map((input) => [key(input), WatcherInternal.normalize(input)])).entries(),
       Effect.fnUntraced(function* ([id, input]) {
         if (yield* FiberMap.has(watches, id)) return
         const updates = yield* watcher.subscribe(
           WatcherInternal.attach(input, {
-            ready: () => PubSub.publishUnsafe(changes, { path: input.path, type: "update" as const }),
+            ready: () => Queue.offerUnsafe(changes, { path: input.path, type: "update" as const }),
             placement:
               input.type === "directory" && contains(location.project.directory, input.path)
                 ? { type: "project", root: path.resolve(location.project.directory) }
@@ -46,7 +41,10 @@ export const make = Effect.fn("WatchInterests.make")(function* () {
         yield* FiberMap.run(
           watches,
           id,
-          updates.pipe(Stream.runForEach((update) => PubSub.publish(changes, update).pipe(Effect.asVoid))),
+          updates.pipe(
+            Stream.runForEach((update) => Queue.offer(changes, update).pipe(Effect.asVoid)),
+            Effect.tapError((error) => Effect.sync(() => Deferred.doneUnsafe(failure, Effect.fail(error)))),
+          ),
           { onlyIfMissing: true, startImmediately: true },
         )
       }),
@@ -64,7 +62,11 @@ export const make = Effect.fn("WatchInterests.make")(function* () {
     )
   })
 
-  return { changes: Stream.fromPubSub(changes), ensure, reconcile } satisfies Interface
+  return {
+    changes: Stream.fromQueue(changes).pipe(Stream.interruptWhen(Deferred.await(failure))),
+    ensure,
+    reconcile,
+  } satisfies Interface
 })
 
 function contains(root: string, target: string) {

@@ -9,7 +9,6 @@ export type RootIntent =
 
 export type Route = {
   readonly root: string
-  readonly requested: string
 }
 
 export type SubscriptionRoute = Route & {
@@ -20,7 +19,7 @@ export type SubscriptionRoute = Route & {
 export function resolve(generation: Generation, intent: RootIntent, options: RequestOptions) {
   const requested = intent.type === "project" ? intent.project : intent.target
   return command(generation, ["watch", requested], WatchResponse, "route", options).pipe(
-    Effect.map((response) => ({ root: response.watch, requested }) satisfies Route),
+    Effect.map((response) => ({ root: response.watch }) satisfies Route),
   )
 }
 
