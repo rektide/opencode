@@ -5,9 +5,10 @@ import type { Entry } from "@opencode-ai/schema/config"
 import { FSUtil } from "@opencode-ai/util/fs-util"
 import { Global } from "@opencode-ai/util/global"
 import path from "path"
-import { Effect, FiberMap, PubSub, Semaphore, Stream } from "effect"
+import { Effect, PubSub, Semaphore, Stream } from "effect"
 import { Config } from "../../config.js"
 import { Watcher } from "../../filesystem/watcher.js"
+import { WatchInterests } from "../../filesystem/watcher/interests.js"
 import { Location } from "../../location.js"
 import { AbsolutePath } from "../../schema.js"
 import { Skill } from "../../skill.js"
@@ -24,24 +25,22 @@ export const Plugin = define({
     const fs = yield* FSUtil.Service
     const global = yield* Global.Service
     const location = yield* Location.Service
-    const watcher = yield* Watcher.Service
+    const interests = yield* WatchInterests.make()
     const loaded: { entries: Entry[]; skills: Skill.Info[] } = {
       entries: yield* config.entries(),
       skills: [],
     }
-    const watches = yield* FiberMap.make<string>()
     const changes = yield* PubSub.sliding<string>(1)
     const lock = Semaphore.makeUnsafe(1)
 
-    const watch = Effect.fn("ConfigSkillPlugin.watch")(function* (directory: string, type: Watcher.WatchInput["type"]) {
+    const watch = Effect.fn("ConfigSkillPlugin.watch")(function* (
+      desired: WatchInterests.Input[],
+      directory: string,
+      type: Watcher.WatchInput["type"],
+    ) {
       const target = path.resolve(directory)
-      const updates = yield* watcher.subscribe({ path: target, type })
-      yield* FiberMap.run(
-        watches,
-        `${type}:${target}`,
-        updates.pipe(Stream.runForEach((update) => PubSub.publish(changes, update.path).pipe(Effect.asVoid))),
-        { onlyIfMissing: true, startImmediately: true },
-      )
+      desired.push({ path: target, type })
+      yield* interests.ensure([{ path: target, type }])
     })
 
     function firstMissing(target: string): Effect.Effect<string | undefined> {
@@ -50,26 +49,25 @@ export const Plugin = define({
       return fs.isDir(parent).pipe(Effect.flatMap((exists) => (exists ? Effect.succeed(target) : firstMissing(parent))))
     }
 
-    const watchDirectory: (directory: string) => Effect.Effect<string[]> = Effect.fn(
+    const watchDirectory: (desired: WatchInterests.Input[], directory: string) => Effect.Effect<string[]> = Effect.fn(
       "ConfigSkillPlugin.watchDirectory",
-    )(function* (directory: string) {
+    )(function* (desired, directory) {
       const target = path.resolve(directory)
       const resolved = yield* fs.realPath(directory).pipe(Effect.orElseSucceed(() => undefined))
       if (resolved) {
-        yield* watch(resolved, "directory")
-        if (resolved !== target) yield* watch(target, "file")
+        yield* watch(desired, resolved, "directory")
+        if (resolved !== target) yield* watch(desired, target, "file")
         return resolved === target ? [target] : [target, resolved]
       }
       const missing = yield* firstMissing(target)
-      if (missing) yield* watch(missing, "file")
+      if (missing) yield* watch(desired, missing, "file")
       if (
         yield* fs.realPath(directory).pipe(
           Effect.as(true),
           Effect.orElseSucceed(() => false),
         )
       ) {
-        if (missing) yield* FiberMap.remove(watches, `file:${path.resolve(missing)}`)
-        return yield* watchDirectory(directory)
+        return yield* watchDirectory(desired, directory)
       }
       return [target]
     })
@@ -107,7 +105,7 @@ export const Plugin = define({
       return result
     }
 
-    const load = Effect.fn("ConfigSkillPlugin.load")(function* (source: Source) {
+    const load = Effect.fn("ConfigSkillPlugin.load")(function* (desired: WatchInterests.Input[], source: Source) {
       const directories =
         source.type === "directory"
           ? [source.path]
@@ -119,7 +117,7 @@ export const Plugin = define({
                 }).pipe(Effect.as([] as AbsolutePath[])),
               ),
             )
-      const roots = (yield* Effect.forEach(directories, watchDirectory)).flat()
+      const roots = (yield* Effect.forEach(directories, (directory) => watchDirectory(desired, directory))).flat()
       const skills: Skill.Info[] = []
       for (const directory of directories) {
         const files = yield* fs
@@ -127,7 +125,8 @@ export const Plugin = define({
           .pipe(Effect.orElseSucceed(() => [] as string[]))
         for (const filepath of files.toSorted()) {
           const resolved = yield* fs.realPath(filepath).pipe(Effect.orElseSucceed(() => filepath))
-          if (!roots.some((root) => FSUtil.contains(root, resolved))) yield* watch(path.dirname(resolved), "directory")
+          if (!roots.some((root) => FSUtil.contains(root, resolved)))
+            yield* watch(desired, path.dirname(resolved), "directory")
           const content = yield* fs.readFileStringSafe(filepath).pipe(Effect.orElseSucceed(() => undefined))
           if (!content) continue
           const parsed = SkillFile.parse(directory, filepath, content)
@@ -153,13 +152,14 @@ export const Plugin = define({
 
     const refresh = Effect.fn("ConfigSkillPlugin.refresh")(
       function* (file?: string) {
-        yield* FiberMap.clear(watches)
+        const desired: WatchInterests.Input[] = []
         const skills = new Map<Skill.ID, Skill.Info>()
         const current = sources()
         for (const source of current) {
-          for (const skill of yield* load(source)) skills.set(skill.id, skill)
+          for (const skill of yield* load(desired, source)) skills.set(skill.id, skill)
         }
         loaded.skills = Array.from(skills.values())
+        yield* interests.reconcile(desired)
         if (file) {
           yield* Effect.logInfo("skills rescanned", {
             file,
@@ -173,6 +173,11 @@ export const Plugin = define({
 
     yield* Stream.fromPubSub(changes).pipe(
       Stream.runForEach((file) => refresh(file).pipe(Effect.andThen(ctx.skill.reload()))),
+      Effect.forkScoped({ startImmediately: true }),
+    )
+    yield* interests.changes.pipe(
+      Stream.filter((update) => !/^\.watchman-cookie-.+-\d+-\d+$/.test(path.basename(update.path))),
+      Stream.runForEach((update) => PubSub.publish(changes, update.path).pipe(Effect.asVoid)),
       Effect.forkScoped({ startImmediately: true }),
     )
     yield* refresh()
