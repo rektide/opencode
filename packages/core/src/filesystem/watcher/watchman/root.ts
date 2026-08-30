@@ -22,7 +22,7 @@ type RootGeneration = {
 }
 
 type Established = {
-  readonly root: RootGeneration
+  readonly generation: Generation
   readonly route: SubscriptionRoute
   readonly name: string
 }
@@ -203,14 +203,16 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
               Effect.flatMap((clock) => subscribe(clock.clock)),
             )
           }),
-          Effect.tap(({ response, clock }) =>
+          Effect.tap((result) =>
             Effect.sync(() => {
-              item.clock = clock
-              if (response.warning)
-                Effect.runFork(Effect.logWarning("watchman subscription warning", { name, warning: response.warning }))
+              item.clock = result.clock
+              if (result.response.warning)
+                Effect.runFork(
+                  Effect.logWarning("watchman subscription warning", { name, warning: result.response.warning }),
+                )
             }),
           ),
-          Effect.map(() => ({ root, route, name }) satisfies Established),
+          Effect.map(() => ({ generation: root.generation, route, name }) satisfies Established),
           Effect.tap((established) => Effect.sync(() => (item.established = established))),
           Effect.onError(() => Effect.sync(() => root.generation.subscriptions.delete(name))),
         )
@@ -218,16 +220,16 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
 
     const detach = (item: SubscriptionState, established: Established, unsubscribe: boolean) =>
       Effect.sync(() => {
-        established.root.generation.subscriptions.delete(established.name)
+        established.generation.subscriptions.delete(established.name)
         if (item.established === established) item.established = undefined
-        if (!unsubscribe || Deferred.isDoneUnsafe(established.root.generation.closed)) return
+        if (!unsubscribe || Deferred.isDoneUnsafe(established.generation.closed)) return
         Effect.runFork(
           command(
-            established.root.generation,
+            established.generation,
             ["unsubscribe", established.route.root, established.name],
             UnsubscribeResponse,
             "command",
-            requestOptions(established.root.generation),
+            requestOptions(established.generation),
           ).pipe(Effect.ignore),
         )
       })
@@ -294,7 +296,7 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
     const wait = (item: SubscriptionState, established: Established) =>
       Effect.raceFirst(
         Queue.take(item.queue).pipe(Effect.map((value) => ({ type: "event" as const, value }))),
-        Deferred.await(established.root.generation.closed).pipe(Effect.as({ type: "closed" as const })),
+        Deferred.await(established.generation.closed).pipe(Effect.as({ type: "closed" as const })),
       ).pipe(Effect.raceFirst(Deferred.await(item.stop).pipe(Effect.as({ type: "stop" as const }))))
 
     const loop = (item: SubscriptionState, established: Established): Effect.Effect<void, WatchmanError> =>
