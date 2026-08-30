@@ -141,6 +141,53 @@ The systemd unit amplified the problem, but mixed-version replacement existed
 before systemd. Rebuilding a binary while old TUIs remain open is sufficient
 to create version ping-pong in client-managed mode.
 
+### Confirmed one-server model catalog failure
+
+A second Aug 30 path produced the model symptom without registration
+displacement or a competing port.
+
+Run `84d0de5c` was the new build on the systemd-configured 49374 endpoint. It
+reported server ready at 05:32:46 UTC and connected Watchman generation 1 at
+05:32:59. The daemon then spent 9.55 seconds establishing the first
+`/home/rektide/.config/opencode` watch. `/api/model` began returning 503 at
+05:33:12. At 05:33:15 the journal recorded the generation retirement cause:
+
+```text
+watchman connection retired {
+  generation: 1,
+  cause: "command timed out: watch-project",
+}
+```
+
+The timing follows directly from two source-level deadlines:
+
+- `model.list` waits for `PluginSupervisor.flush` for only five seconds in
+  [`packages/server/src/handlers/plugin-readiness.ts`](/packages/server/src/handlers/plugin-readiness.ts);
+- every Watchman command has a ten-second timeout in
+  [`packages/core/src/filesystem/watchman/client.ts`](/packages/core/src/filesystem/watchman/client.ts),
+  and any timeout retires the one shared connection generation.
+
+Plugin activation waits on config/internal plugin work that acquires file
+watchers. Several acquisitions start concurrently on one Watchman generation.
+A near-ten-second root crawl leaves later queued commands enough wall-clock
+delay to cross the client timeout. One timeout calls `client.end()`, which
+causes all concurrent generation users to fail with `The client was ended` and
+fall back to Parcel. A later acquisition creates a new generation and repeats
+the burst.
+
+This ready server logged 496 `/api/model` 503 responses through 05:39:26, 40
+Watchman acquisition failures, and four successful Watchman generations. It
+has no registration-replacement log. The following ready server logged 37
+acquisition failures and six connected generations. This is the direct answer
+to how a single working-set server could load with no usable model catalog
+before the systemd port fight.
+
+The provider endpoint does not use the same explicit plugin-readiness barrier,
+but the TUI loads provider and model catalogs together and cannot present a
+usable model selection when model initialization repeatedly returns 503. In
+the displacement windows, `/api/provider` itself also returned 503/500 because
+the whole application was stopping.
+
 ### Older pre-systemd failure mechanism
 
 The existing
@@ -202,7 +249,8 @@ rather than claiming it was healthy or making it the sole root cause.
 | two endpoints wrote one registration namespace | confirmed | registration replacement logs |
 | provider/model absence was caused by interrupted/failed HTTP reads | confirmed | `/api/provider` and `/api/model` 503/500 responses |
 | systemd created the original instability | rejected | pre-systemd postmortem and state artifacts |
-| Watchman was the primary Aug 30 election trigger | unsupported | election failure precedes/operates independently of client reconnect bursts |
+| Watchman caused the port/version election | rejected | election ownership is independent of watcher transport |
+| Watchman caused one-server model catalog 503s | confirmed | 5s plugin flush, 10s command timeout, journaled watch-project retirement |
 | Watchman materially destabilized Aug 30 servers | confirmed | 40 and 37 acquisition-failure bursts plus repeated generations |
 | standalone `watch-list` health represented client transport health | rejected | healthcheck passed while OpenCode clients repeatedly ended |
 | Watchman contributed to older teardown/startup problems | plausible | poison, segfaults, failed subscription and retained-watch history |
@@ -542,6 +590,11 @@ that must precede user work remains part of boot, but it needs bounded
 concurrency and explicit startup spans so one slow repository cannot leave the
 whole process in waiting state indefinitely.
 
+Catalog readiness must also be explicit in the client. A model-catalog 503 is
+"initializing" or "degraded," not an empty successful model/provider list. The
+TUI should preserve the last known catalog where safe and display the service
+and retry state instead of rendering transport/readiness failure as no models.
+
 ## Observability
 
 The existing
@@ -724,6 +777,9 @@ Run `systemd-analyze --user verify` on generated units and assert:
   or signaling the supervisor pid;
 - make `/api/health` wait longer than the historical ~9-second eviction window:
   no contender or signal occurs;
+- make Watchman plugin initialization exceed five seconds: the server remains
+  ready, the client displays catalog initialization/degradation instead of an
+  empty catalog, and retry is bounded;
 - rewrite the supervisor status file: the server remains running;
 - restart Watchman while several locations are subscribed: OpenCode remains
   ready, reports degraded watcher state, and reconnects without process restart;
