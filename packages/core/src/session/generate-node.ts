@@ -1,7 +1,7 @@
 export * as SessionGenerateNode from "./generate-node.js"
 
 import { LLM, LLMClient, Message, SystemPart } from "@opencode-ai/ai"
-import { Effect, Layer } from "effect"
+import { Config, Effect, Layer } from "effect"
 import { Database } from "../database/database.js"
 import { makeLocationNode } from "@opencode-ai/util/effect/app-node"
 import { App } from "../app.js"
@@ -25,6 +25,7 @@ export const layer = Layer.effect(
     const llm = yield* LLMClient.Service
     const models = yield* SessionRunnerModel.Service
     const app = yield* App.Metadata
+    const attribution = yield* Config.boolean("OPENCODE_MODEL_ATTRIBUTION").pipe(Config.withDefault(false), Effect.orDie)
 
     return SessionGenerate.Service.of({
       generate: Effect.fn("SessionGenerate.generate")(function* (input) {
@@ -43,7 +44,7 @@ export const layer = Layer.effect(
             .filter((part) => part.length > 0)
             .map(SystemPart.make),
           messages: [
-            ...toLLMMessages(history.messages, model.ref, providerMetadataKey),
+            ...toLLMMessages(history.messages, model.ref, providerMetadataKey, { attribution }),
             ...(history.instructionUpdate ? [Message.system(history.instructionUpdate)] : []),
             Message.user(input.prompt),
           ],

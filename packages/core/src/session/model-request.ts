@@ -170,6 +170,7 @@ export const layer = Layer.effect(
       Config.withDefault(false),
       Effect.orDie,
     )
+    const attribution = yield* Config.boolean("OPENCODE_MODEL_ATTRIBUTION").pipe(Config.withDefault(false), Effect.orDie)
     const promptCacheSnapshots = diagnostics ? new Map<string, PromptCacheDiagnostics.Snapshot>() : undefined
 
     const prepare = Effect.fn("SessionModelRequest.prepare")(function* (input: PrepareInput) {
@@ -185,7 +186,7 @@ export const layer = Layer.effect(
       const system = [agent.info.system ? agent.info.system : PROMPT_DEFAULT, input.context.initial]
         .filter((part) => part.length > 0)
         .map(SystemPart.make)
-      const history = toLLMMessages(input.context.messages, resolved.ref, providerMetadataKey)
+      const history = toLLMMessages(input.context.messages, resolved.ref, providerMetadataKey, { attribution })
       const messages = stepLimitReached ? [...history, Message.assistant(MAX_STEPS_PROMPT)] : history
       const registry = new Map(tools.definitions.map((tool) => [tool.name, tool]))
       // The definition objects we hand to hooks, mapped back to their tools. Hooks rename a
