@@ -400,6 +400,9 @@ parse, queue, and projection work at the source.
 
 ## Cross-references
 
+- [Focused controlled-SSE draft](/.design/bus-smart/controlled-draft0.gpt56s.md)
+  develops this research into a requested-versus-effective interest model with
+  batch patches and server-announced move coverage.
 - [Initial bus-smart design](/.design/bus-smart/bus-smart.glm53.md) establishes
   the global-firehose diagnosis and Bus-owned routing requirement.
 - [Downstream-patch assessment](/.design/bus-smart/review0.gpt56s.md) establishes
