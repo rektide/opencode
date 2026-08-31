@@ -408,6 +408,10 @@ export function fromPromise(plugin: Plugin) {
                 limit: input.limit,
               }),
             messages: adaptApiMethod(MessageEndpoints["session.messages"], host.session.messages),
+            active: adaptApiMethod(SessionEndpoints["session.active"], host.session.active),
+            inbox: {
+              list: adaptApiMethod(SessionEndpoints["session.inbox.list"], host.session.inbox.list),
+            },
             create: adaptApiMethod(SessionEndpoints["session.create"], host.session.create),
             get: adaptApiMethod(SessionEndpoints["session.get"], host.session.get),
             switchAgent: adaptApiMethod(SessionEndpoints["session.switchAgent"], host.session.switchAgent),
