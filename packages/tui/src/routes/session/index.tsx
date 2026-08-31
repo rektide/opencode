@@ -198,8 +198,9 @@ export function Session(props: {
   createEffect(() => currentLocation.set(location()))
 
   createEffect(() => {
-    const title = Locale.truncate(session()?.title ?? "", 50)
-    setEpilogue(sessionEpilogue({ title, sessionID: session()?.id }))
+    const current = session()
+    const title = Locale.truncate(current?.title ?? "", 50)
+    setEpilogue(() => sessionEpilogue({ title, sessionID: current?.id, updated: current?.time.updated }))
   })
   onCleanup(() => setEpilogue())
   const descendantSessionIDs = createMemo(() => {
