@@ -372,7 +372,14 @@ test("SIGINT prints the session epilogue after cleanup", async () => {
     })
     await switchedTitleSet.promise
     await switchedSessionReady.promise
-    await Bun.sleep(20)
+    events.emit({
+      id: "evt_stale_rename",
+      created: 5,
+      type: "session.renamed",
+      durable: { aggregateID: "dummy", seq: 3, version: 1 },
+      data: { sessionID: "dummy", title: "Stale session" },
+    })
+    await Bun.sleep(50)
     const requestsAtShutdown = sessionRequests
     process.emit("SIGINT")
     await task
@@ -380,6 +387,7 @@ test("SIGINT prints the session epilogue after cleanup", async () => {
 
     expect(stdout.read()).toContain("Other session")
     expect(stdout.read()).not.toContain("Renamed session")
+    expect(stdout.read()).not.toContain("Stale session")
     expect(Bun.stripANSI(stdout.read())).toContain("Active    running")
     expect(stdout.read()).toContain("opencode2 -s other")
     expect(promptRequests).toBe(0)
@@ -389,6 +397,88 @@ test("SIGINT prints the session epilogue after cleanup", async () => {
     await server.stop()
   }
 }, 15000)
+
+test.each(["route exit", "Session deletion"] as const)(
+  "%s clears the current epilogue",
+  async (action) => {
+    await using state = await tmpdir()
+    const setup = await createTestRenderer({ width: 80, height: 24, useThread: false })
+    const entered = Promise.withResolvers<void>()
+    const left = Promise.withResolvers<void>()
+    let active = false
+    const setTitle = setup.renderer.setTerminalTitle.bind(setup.renderer)
+    setup.renderer.setTerminalTitle = (title) => {
+      if (title === "OC | Demo session") {
+        active = true
+        entered.resolve()
+      }
+      if (active && title === "OpenCode") left.resolve()
+      setTitle(title)
+    }
+    const session = {
+      id: "dummy",
+      title: "Demo session",
+      projectID: "project",
+      location: { directory },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      time: { created: 0, updated: 0 },
+    }
+    const events = createEventStream()
+    const calls = createFetch((url) => {
+      if (url.pathname === "/api/session") return json({ data: [session], cursor: {} })
+      if (url.pathname === "/api/session/dummy") return json({ data: session })
+      if (url.pathname === "/api/session/dummy/message") return json({ data: [], cursor: {} })
+      if (url.pathname === "/api/session/dummy/inbox") return json({ data: [] })
+      if (url.pathname === "/api/session/dummy/permission") return json({ data: [] })
+      return undefined
+    }, events)
+    const server = Bun.serve({ port: 0, fetch: (request) => calls.fetch(request) })
+    using stdout = captureStdout()
+
+    try {
+      const { run } = await import("../src/app.tsx")
+      const task = Effect.runPromise(
+        run({
+          app: { name: "test", version: "test", channel: "test" },
+          server: { endpoint: { url: server.url.toString() } },
+          config: { get: async () => ({}), update: async () => ({}) },
+          packages: { resolve: async () => undefined },
+          terminalHandoff: async () => ({ renderer: setup.renderer, mode: "dark", complete: () => {} }),
+          args: { sessionID: "dummy" },
+          log: () => {},
+        }).pipe(Effect.provide(Global.layerWith({ state: state.path })), Effect.provide(FileSystem.layerNoop({}))),
+      )
+
+      await entered.promise
+      if (action === "route exit")
+        events.emit({
+          id: "evt_new_session",
+          created: 1,
+          type: "tui.command.execute",
+          data: { command: "session.new" },
+        })
+      if (action === "Session deletion")
+        events.emit({
+          id: "evt_deleted",
+          created: 1,
+          type: "session.deleted",
+          durable: { aggregateID: "dummy", seq: 1, version: 2 },
+          data: { sessionID: "dummy" },
+        })
+      await left.promise
+      setup.renderer.destroy()
+      await task
+      await Bun.sleep(100)
+
+      expect(stdout.read()).toBe("")
+    } finally {
+      if (!setup.renderer.isDestroyed) setup.renderer.destroy()
+      await server.stop()
+    }
+  },
+  15000,
+)
 
 test("late Session hydration cannot create an epilogue after shutdown", async () => {
   const setup = await createTestRenderer({ width: 80, height: 24, useThread: false })
