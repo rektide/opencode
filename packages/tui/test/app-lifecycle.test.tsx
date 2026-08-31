@@ -322,20 +322,10 @@ test("SIGINT prints the session epilogue after cleanup", async () => {
       promptRequests++
       return json({ data: {} })
     }
+    return undefined
   }, events)
   const server = Bun.serve({ port: 0, fetch: (request) => calls.fetch(request) })
-  const originalWrite = process.stdout.write.bind(process.stdout)
-  let stdout = ""
-  process.stdout.write = ((
-    chunk: string | Uint8Array,
-    encoding?: BufferEncoding | ((error?: Error | null) => void),
-    callback?: (error?: Error | null) => void,
-  ) => {
-    stdout += String(chunk)
-    if (typeof encoding === "function") encoding()
-    else callback?.()
-    return true
-  }) as typeof process.stdout.write
+  using stdout = captureStdout()
 
   try {
     const { run } = await import("../src/app")
@@ -386,15 +376,15 @@ test("SIGINT prints the session epilogue after cleanup", async () => {
     const requestsAtShutdown = sessionRequests
     process.emit("SIGINT")
     await task
+    await Bun.sleep(100)
 
-    expect(stdout).toContain("Other session")
-    expect(stdout).not.toContain("Renamed session")
-    expect(Bun.stripANSI(stdout)).toContain("Active    running")
-    expect(stdout).toContain("opencode2 -s other")
+    expect(stdout.read()).toContain("Other session")
+    expect(stdout.read()).not.toContain("Renamed session")
+    expect(Bun.stripANSI(stdout.read())).toContain("Active    running")
+    expect(stdout.read()).toContain("opencode2 -s other")
     expect(promptRequests).toBe(0)
     expect(sessionRequests).toBe(requestsAtShutdown)
   } finally {
-    process.stdout.write = originalWrite
     if (!setup.renderer.isDestroyed) setup.renderer.destroy()
     await server.stop()
   }
@@ -416,21 +406,10 @@ test("late Session hydration cannot create an epilogue after shutdown", async ()
     return undefined
   }, events)
   const server = Bun.serve({ port: 0, fetch: (request) => calls.fetch(request) })
-  const originalWrite = process.stdout.write.bind(process.stdout)
-  let stdout = ""
-  process.stdout.write = ((
-    chunk: string | Uint8Array,
-    encoding?: BufferEncoding | ((error?: Error | null) => void),
-    callback?: (error?: Error | null) => void,
-  ) => {
-    stdout += String(chunk)
-    if (typeof encoding === "function") encoding()
-    else callback?.()
-    return true
-  }) as typeof process.stdout.write
+  using stdout = captureStdout()
 
   try {
-    const { run } = await import("../src/app")
+    const { run } = await import("../src/app.tsx")
     const task = Effect.runPromise(
       run({
         app: { name: "test", version: "test", channel: "test" },
@@ -460,9 +439,8 @@ test("late Session hydration cannot create an epilogue after shutdown", async ()
     )
     await task
 
-    expect(stdout).toBe("")
+    expect(stdout.read()).toBe("")
   } finally {
-    process.stdout.write = originalWrite
     response.resolve(json({ data: undefined }))
     if (!setup.renderer.isDestroyed) setup.renderer.destroy()
     await server.stop()
@@ -1365,6 +1343,30 @@ async function createAppFixture(
       } finally {
         await server.stop()
       }
+    },
+  }
+}
+
+function captureStdout() {
+  const write = process.stdout.write.bind(process.stdout)
+  let output = ""
+  process.stdout.write = ((
+    chunk: string | Uint8Array,
+    encoding?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void,
+  ) => {
+    output += String(chunk)
+    if (typeof encoding === "function") {
+      encoding()
+      return true
+    }
+    callback?.()
+    return true
+  }) as typeof process.stdout.write
+  return {
+    read: () => output,
+    [Symbol.dispose]() {
+      process.stdout.write = write
     },
   }
 }
