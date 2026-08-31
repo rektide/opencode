@@ -1,4 +1,5 @@
 import { logo } from "../logo"
+import type { SessionEpilogueCandidate } from "../context/epilogue.tsx"
 
 const reset = "\x1b[0m"
 const bold = "\x1b[1m"
@@ -23,14 +24,7 @@ function wordmark(pad = "") {
   })
 }
 
-export function sessionEpilogue(
-  input: {
-    title: string
-    sessionID: string
-    activity: { status: "idle" | "running"; updated: number; idle?: number }
-  },
-  now: number,
-) {
+export function sessionEpilogue(input: SessionEpilogueCandidate, now: number) {
   const weak = (text: string) => `${dim}${text.padEnd(10, " ")}${reset}`
   return [
     ...wordmark("  "),
