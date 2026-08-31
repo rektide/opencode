@@ -21,24 +21,31 @@ sources:
 
 This workspace carries the implementation of
 [`draft2.gpt56t.md`](/.design/watchman/draft2.gpt56t.md) as an independent stack over
-`v2@origin` `e70d667a`. The dated `watchman-20260829` bookmark remains the
-audit snapshot of the deleted process-global implementation.
+`v2@origin` `6a2c3e91`, freshened 2026-08-30 from the previous `e70d667a` base
+(see the freshen record below). The dated `watchman-20260829` bookmark remains
+the audit snapshot of the deleted process-global implementation, and the
+floating `watchman` bookmark now tracks this root-scoped replacement line.
 
 ## Current stack
 
+Change IDs are the freshened (duplicated-then-rebased) line; the pre-freshen
+originals remain in the repo under their old change IDs.
+
 | Change | Scope |
 | --- | --- |
-| `wqlzpxsk` | `refactor(core): reconcile source watch interests` - owner-local `ensure`/`reconcile`, stable Config and Skill subscriptions, post-ack dirty replay, missing and symlink sentinels, Skill cookie filtering |
-| `vsvwpnto` | `feat(core): add root-scoped Watchman backend` - private placement metadata, exact-interest sharing, one admitted connection per route intent, cursor recovery, initial Parcel fallback, typed response decoding, injected and live tests |
-| `tsvvwozx` | `feat: expose Watchman backend selection` - optional environment and `ServerOptions` plumbing |
-| `lumqklpp` | `docs(watchman): document root-scoped backend` - this corpus and maintenance record |
-| `kpssqtvw` | `fix(core): enforce root-owned watch recovery` - review fixes for submitted-command admission, one shared root reconnect sequence, owner-stream failures, and failed Skill scans |
-| `ppyxukto` | `docs(watchman): trim implementation corpus` - retain only the implemented design and its direct evidence |
-| `upypzslu` | `fix(core): recover source watch failures` - resubscribe failed owner interests and retain per-source URL snapshots |
-| `pklxsmnr` | `docs(watchman): record review fixes` - update the accepted design and verification record |
-| `xvvluxnk` | `refactor(core): tighten watcher internals` - centralize generic watcher types and simplify established-generation access |
-| `nsrmtxws` | `feat: make watcher timeouts configurable` - 60s default command deadline plus env and `ServerOptions` tuning for all watcher deadlines and reconnect backoff |
-| `vyququtp` | `chore(core): lower default reconnect cap to 2s` - tighten the default ceiling of the jittered root recovery loop |
+| `srpksroy` | `refactor(core): reconcile source watch interests` - owner-local `ensure`/`reconcile`, stable Config and Skill subscriptions, post-ack dirty replay, missing and symlink sentinels, Skill cookie filtering |
+| `znylspvo` | `feat(core): add root-scoped Watchman backend` - private placement metadata, exact-interest sharing, one admitted connection per route intent, cursor recovery, initial Parcel fallback, typed response decoding, injected and live tests |
+| `wqssnrny` | `feat: expose Watchman backend selection` - optional environment and `ServerOptions` plumbing |
+| `wzzxryxo` | `docs(watchman): document root-scoped backend` - this corpus and maintenance record |
+| `tpnsvulo` | `fix(core): enforce root-owned watch recovery` - review fixes for submitted-command admission, one shared root reconnect sequence, owner-stream failures, and failed Skill scans |
+| `qukmyzry` | `docs(watchman): trim implementation corpus` - retain only the implemented design and its direct evidence |
+| `puwuuxxp` | `fix(core): recover source watch failures` - resubscribe failed owner interests and retain per-source URL snapshots |
+| `pvkvkwlt` | `docs(watchman): record review fixes` - update the accepted design and verification record |
+| `muomvswy` | `refactor(core): tighten watcher internals` - centralize generic watcher types and simplify established-generation access |
+| `nownkqor` | `docs(watchman): finalize maintenance record` - configuration table and verification record |
+| `vsnyruwx` | `feat: make watcher timeouts configurable` - 60s default command deadline plus env and `ServerOptions` tuning for all watcher deadlines and reconnect backoff |
+| `wzqmrknl` | `docs(watchman): record timeout tuning` - timeout rationale in the design and maintenance record |
+| `nxxrysru` | `chore(core): lower default reconnect cap to 2s` - tighten the default ceiling of the jittered root recovery loop |
 
 The source-owner change stays in upstream's current `Config` and
 `ConfigSkillPlugin` modules rather than reviving the withdrawn
@@ -104,19 +111,60 @@ cd ../cli
 bun typecheck
 ```
 
-Results on 2026-08-30:
+Results on 2026-08-30, re-run after the freshen onto `6a2c3e91`:
 
 - Core typecheck: clean.
-- Focused Watchman, interest-owner, Config, and Skill tests: 56 passed, 0 failed.
+- Focused Watchman, interest-owner, Config, Skill, and watcher tests
+  (5 files incl. `watcher.test.ts`): 69 passed, 1 failed — the known
+  `.hg/branch` flake timed out in the combined run and passed twice in
+  isolation (~0.9s), matching its documented behavior.
 - Opt-in live watchwoman suite: 1 passed, 0 failed against watchwoman 0.7.0.
-- Server typecheck and options tests: clean, 6 passed.
+- Server typecheck: clean; options tests 7 passed, 0 failed (the timeouts
+  commit added a 7th case after the previous record of 6).
 - CLI typecheck: clean.
-- Targeted Oxlint: no new errors. Existing warnings remain in pre-existing
-  watcher and server-process code.
-- Full Core suite: 3,998 passed, 31 skipped, with only the known Mercurial
-  watcher timing test failing; that test passed immediately in isolation.
-- Full Server suite: 46 passed, 3 skipped, 0 failed.
-- Full CLI suite: 232 passed, 0 failed.
+- Full Server suite as a bonus check: 53 tests, 0 failed, 3 skipped (up from
+  46+3 because upstream added RPC tests).
+- Pre-freshen full-suite runs from the implementation review (identical line
+  content): full Core 3,998 passed / 31 skipped with only the same `.hg/branch`
+  flake (passing in isolation); full CLI 232 passed; targeted Oxlint reported
+  no new errors. Full Core/CLI were not repeated after this mechanical,
+  zero-conflict freshen.
+
+## Freshen onto `6a2c3e91` (2026-08-30)
+
+Upstream tip `6a2c3e91` (`feat(plugin): add typed rpc and custom events
+(#46105)`), 18 upstream commits past the previous `e70d667a` base.
+Duplicate-then-rebase: the 13-commit line `srpksroy..nxxrysru` was duplicated
+and the duplicate bottom rebased onto the upstream tip by explicit commit ID,
+so the pre-freshen originals and `watchman-20260829` remain untouched.
+
+- **Conflicts: zero.** The upstream delta (typed plugin RPC, AI provider
+  fixes, plugin supervisor changes) intersects the feature's files only in
+  `bun.lock`, and there the two sides edited disjoint regions: upstream
+  bumped unrelated dependencies while the feature inserts
+  `@superbfowle/fb-watchman-esm@3.0.0`, `@superbfowle/bser-esm@3.0.0`,
+  `is-glob`, `micromatch`, `@types/is-glob`, and `@types/micromatch`. The
+  merged lockfile keeps both sides; `bun install --minimum-release-age=0`
+  reported no changes, confirming lockfile consistency.
+- **Old-vs-new diffstat:** the changed-file list is byte-identical between the
+  pre-freshen (`e70d667a..00d76007`) and freshened (`6a2c3e91..c4b2b22c`)
+  lines — 27 files, 4066 insertions, 113 deletions on both. No file the old
+  line did not touch; no diff creep.
+- **Floating bookmark move:** `watchman` previously pointed at `41597e37`
+  ("watchman timeout resilience wave", one superseded design-wave doc
+  (`timeout0.glm53.md`) atop the old process-global 29-commit line whose tip
+  is `watchman-20260829`). That line is the deleted implementation this stack
+  replaces per [`draft2.gpt56t.md`](/.design/watchman/draft2.gpt56t.md), and
+  its timeout-resistance conclusions were re-landed here as the admitted-
+  dispatch and failure-domain design. The bookmark therefore moved to the
+  freshened root-scoped tip; `watchman-20260829` (and the older
+  `watchman-20260819`) are untouched.
+- **Bookmarks:** `watchman` + `watchman-20260830` at the freshened tip
+  (this docs commit).
+- **Confidence:** high. The rebase was conflict-free, the diffstat is
+  identical, and all focused verification matches the pre-freshen record.
+  The only judgment call is the floating-bookmark move off the stale
+  alternate tip, which the workspace lineage and design corpus both support.
 
 ## Known flaky test
 
