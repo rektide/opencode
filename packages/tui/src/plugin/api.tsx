@@ -86,6 +86,7 @@ export function createPluginContext(input: {
   const host = input.host
   let context: Context
   let claims = 0
+  let epilogues = 0
   // Every dialog and registered render is wrapped so plugin components can
   // reach their own context through usePlugin().
   const provide = (render: () => JSX.Element) => (
@@ -153,6 +154,13 @@ export function createPluginContext(input: {
     ui: {
       dialog: dialogApi,
       toast: toastApi,
+      epilogue: {
+        register(project) {
+          const key = `epilogue#${epilogues++}`
+          input.registry.set("epilogue", key, project)
+          return registration("epilogue", key)
+        },
+      },
       format: {
         path: (value) => abbreviateHome(value, host.paths.home),
       },

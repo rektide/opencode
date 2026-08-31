@@ -439,9 +439,28 @@ export interface Keymap {
   }
 }
 
+export type EpilogueValue =
+  | { readonly type: "text"; readonly text: string }
+  | { readonly type: "relative-time"; readonly timestamp: number }
+
+export type EpilogueRow = {
+  readonly label: string
+  readonly value: EpilogueValue
+}
+
+export interface Epilogue {
+  /**
+   * Registers one cheap synchronous projection of live cached Session state.
+   * Returning undefined omits the row. The host tracks, validates, and copies
+   * accepted values while the TUI is live, before shutdown begins.
+   */
+  register(project: (scope: { readonly sessionID: string }) => EpilogueRow | undefined): () => void
+}
+
 export interface UI {
   readonly dialog: Dialog
   readonly toast: Toast
+  readonly epilogue: Epilogue
   readonly format: {
     path(value: string): string
   }
