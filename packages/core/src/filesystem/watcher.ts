@@ -75,6 +75,7 @@ export const Options = Schema.Struct({
       commandTimeoutMs: Schema.optional(Schema.Number),
       retryBaseMs: Schema.optional(Schema.Number),
       retryCapMs: Schema.optional(Schema.Number),
+      binary: Schema.optional(Schema.String),
     }),
   ),
 })

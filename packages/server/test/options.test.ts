@@ -48,6 +48,13 @@ test("accepts watcher deadline tuning and rejects non-positive values", () => {
   expect(Option.isNone(decode({ fs: { watchman: { retryBaseMs: "500" } } }))).toBe(true)
 })
 
+test("accepts a Watchman CLI binary override", () => {
+  expect(
+    Option.getOrThrow(decode({ fs: { watchman: { binary: "/opt/watchman/bin/watchman" } } })).fs?.watchman?.binary,
+  ).toBe("/opt/watchman/bin/watchman")
+  expect(Option.isNone(decode({ fs: { watchman: { binary: 5 } } }))).toBe(true)
+})
+
 test("accepts an optional CORS allowlist", () => {
   expect(Option.getOrThrow(decode({})).cors).toBeUndefined()
   expect(Option.getOrThrow(decode({ cors: [] })).cors).toEqual([])

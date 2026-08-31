@@ -5,7 +5,7 @@ import { makeRegistry, type Options } from "./root.js"
 
 export const make = (fallback: Watcher.NativeInterface, options?: Options) =>
   Effect.gen(function* () {
-    const factory = yield* loadFactory
+    const factory = yield* loadFactory(options?.binary)
     const registry = yield* makeRegistry(factory, options)
     return Watcher.Native.of({
       subscribe: (input) => {
