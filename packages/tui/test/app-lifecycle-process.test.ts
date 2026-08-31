@@ -72,6 +72,7 @@ export default {
         OPENCODE_EPILOGUE_SERVER: server.url.toString(),
         OPENCODE_EPILOGUE_READY: ready,
         OPENCODE_EPILOGUE_PLUGIN: plugin,
+        OPENCODE_EPILOGUE_STATE: tmp.path,
       },
       stdin: "ignore",
       stdout: "pipe",
