@@ -6,7 +6,7 @@ import { EventManifest } from "@opencode-ai/schema/event-manifest"
 import type { Event } from "@opencode-ai/schema/event"
 import { ServerConfig } from "@opencode-ai/schema/mcp"
 import { App } from "../app.js"
-import { DateTime, Effect, Schema, Stream } from "effect"
+import { DateTime, Effect, Encoding, Result, Schema, Stream } from "effect"
 import { Agent } from "../agent.js"
 import { AISDK } from "../aisdk.js"
 import { Catalog } from "../catalog.js"
@@ -22,7 +22,7 @@ import { PluginRuntime } from "./runtime.js"
 import { Provider } from "../provider.js"
 import { Reference } from "../reference.js"
 import { Rpc } from "../rpc.js"
-import { AbsolutePath, type DeepMutable } from "../schema.js"
+import { AbsolutePath, RelativePath, type DeepMutable } from "../schema.js"
 import { Skill } from "../skill.js"
 import { Tool } from "../tool.js"
 import { Workspace } from "../workspace.js"
@@ -32,6 +32,7 @@ import { Generate } from "../generate.js"
 import { Permission } from "../permission.js"
 import { PluginHooks } from "./hooks.js"
 import type { Interface } from "../plugin.js"
+import { Project } from "../project.js"
 import { Session } from "../session.js"
 import { SessionMessage } from "../session/message.js"
 
@@ -44,13 +45,37 @@ type RpcEvent = Event.Payload & {
 const isRpcEvent = (event: Event.Payload): event is RpcEvent => event.type.startsWith("rpc.")
 
 type SessionListInput = Exclude<Parameters<Plugin.Context["session"]["list"]>[0], undefined>
-type SessionListCursor = Exclude<SessionListInput["cursor"], undefined>
+const PluginSessionCursor = Schema.String.pipe(Schema.brand("SessionsCursor"))
+const SessionCursorFields = {
+  workspace: Workspace.ID.pipe(Schema.optional),
+  search: Schema.String.pipe(Schema.optional),
+  order: Schema.Literals(["asc", "desc"]).pipe(Schema.optional),
+  parentID: Schema.NullOr(Session.ID).pipe(Schema.optional),
+  anchor: Session.ListAnchor,
+}
+const SessionCursor = Schema.Union([
+  Schema.Struct({
+    ...SessionCursorFields,
+    directory: AbsolutePath,
+    project: Project.ID,
+    subpath: RelativePath.pipe(Schema.optional),
+  }),
+  Schema.Struct({ ...SessionCursorFields, directory: AbsolutePath }),
+  Schema.Struct({ ...SessionCursorFields, project: Project.ID, subpath: RelativePath.pipe(Schema.optional) }),
+  Schema.Struct(SessionCursorFields),
+])
+const SessionCursorJson = Schema.fromJsonString(SessionCursor)
+const encodeSessionCursorJson = Schema.encodeSync(SessionCursorJson)
+const decodeSessionCursorJson = Schema.decodeUnknownEffect(SessionCursorJson)
 
 const MessageCursor = Schema.Struct({
   id: SessionMessage.ID,
   order: Schema.Literals(["asc", "desc"]),
   direction: Schema.Literals(["previous", "next"]),
 })
+const MessageCursorJson = Schema.fromJsonString(MessageCursor)
+const encodeMessageCursorJson = Schema.encodeSync(MessageCursorJson)
+const decodeMessageCursorJson = Schema.decodeUnknownEffect(MessageCursorJson)
 
 export const make = Effect.fn("PluginHost.make")(function* (plugin: Interface, pluginID: string = "test") {
   const app = yield* App.Metadata
@@ -93,6 +118,8 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: Interface, p
     effect.pipe(Effect.map((data) => ({ location: locationInfo(), data })))
   const sessionList = (input?: SessionListInput, parentID?: Session.ID) =>
     Effect.gen(function* () {
+      if (input?.limit !== undefined && (!Number.isInteger(input.limit) || input.limit < 1))
+        return yield* Effect.fail(new Error("Invalid limit"))
       const decoded = input?.cursor === undefined ? sessionListQuery(input) : yield* decodeSessionCursor(input.cursor)
       const query = parentID === undefined ? decoded : { ...decoded, parentID }
       const page = yield* runtime.session.list({ ...query, limit: input?.limit ?? 50 })
@@ -122,6 +149,8 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: Interface, p
     })
   const sessionMessages = (input: Parameters<Plugin.Context["session"]["messages"]>[0]) =>
     Effect.gen(function* () {
+      if (input.limit !== undefined && (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 200))
+        return yield* Effect.fail(new Error("Invalid limit"))
       if (input.cursor !== undefined && input.order !== undefined)
         return yield* Effect.fail(new Error("Invalid cursor"))
       const decoded = input.cursor === undefined ? undefined : yield* decodeMessageCursor(input.cursor)
@@ -534,12 +563,14 @@ function sessionListQuery(input?: SessionListInput): Session.ListInput {
     order: input?.order,
     parentID: input?.parentID,
   }
+  if (input?.directory !== undefined && input.project !== undefined)
+    return { ...common, directory: input.directory, project: input.project, subpath: input.subpath }
   if (input?.directory !== undefined) return { ...common, directory: input.directory }
   if (input?.project !== undefined) return { ...common, project: input.project, subpath: input.subpath }
   return common
 }
 
-function encodeSessionCursor(query: Session.ListInput, anchor: Session.ListAnchor): SessionListCursor {
+function encodeSessionCursor(query: Session.ListInput, anchor: Session.ListAnchor) {
   const value = {
     workspace: query.workspaceID,
     search: query.search,
@@ -549,37 +580,31 @@ function encodeSessionCursor(query: Session.ListInput, anchor: Session.ListAncho
     ...("directory" in query ? { directory: query.directory } : {}),
     ...("project" in query ? { project: query.project, subpath: query.subpath } : {}),
   }
-  return Buffer.from(JSON.stringify(value)).toString("base64url") as SessionListCursor
+  return PluginSessionCursor.make(Encoding.encodeBase64Url(encodeSessionCursorJson(value)))
 }
 
 function decodeSessionCursor(input: string) {
-  return Effect.try({
-    try: () => JSON.parse(Buffer.from(input, "base64url").toString("utf8")),
-    catch: () => new Error("Invalid cursor"),
+  return Effect.suspend(() => {
+    const decoded = Encoding.decodeBase64UrlString(input)
+    if (Result.isFailure(decoded)) return Effect.fail(new Error("Invalid cursor"))
+    return decodeSessionCursorJson(decoded.success)
   }).pipe(
-    Effect.flatMap((value) => {
-      if (typeof value !== "object" || value === null) return Effect.fail(new Error("Invalid cursor"))
-      return Schema.decodeUnknownEffect(Session.ListInput)({
-        ...value,
-        workspaceID: "workspace" in value ? value.workspace : undefined,
-      })
-    }),
+    Effect.map((value) => ({ ...sessionListQuery(value), anchor: value.anchor })),
     Effect.mapError(() => new Error("Invalid cursor")),
   )
 }
 
 function encodeMessageCursor(message: SessionMessage.Info, order: "asc" | "desc", direction: "previous" | "next") {
-  return Buffer.from(JSON.stringify({ id: message.id, order, direction })).toString("base64url")
+  return Encoding.encodeBase64Url(encodeMessageCursorJson({ id: message.id, order, direction }))
 }
 
 function decodeMessageCursor(input: string) {
-  return Effect.try({
-    try: () => JSON.parse(Buffer.from(input, "base64url").toString("utf8")),
-    catch: () => new Error("Invalid cursor"),
-  }).pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(MessageCursor)),
-    Effect.mapError(() => new Error("Invalid cursor")),
-  )
+  return Effect.suspend(() => {
+    const decoded = Encoding.decodeBase64UrlString(input)
+    return Result.isFailure(decoded)
+      ? Effect.fail(new Error("Invalid cursor"))
+      : decodeMessageCursorJson(decoded.success)
+  }).pipe(Effect.mapError(() => new Error("Invalid cursor")))
 }
 
 export function storage(kv: KV.Interface, pluginID: string): Plugin.Context["storage"] {
