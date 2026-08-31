@@ -60,6 +60,13 @@ is the alternative shared-codec design. If either proposal lands, drop the
 equivalent carried history code rather than preserving a competing interface.
 The inbox and active reads remain a small additive commit above either shape.
 
+The private list codec mirrors Protocol's directory, project, and unscoped
+cursor branches exactly. The public first-page query currently permits both
+`directory` and `project`, while the canonical cursor codec retains only its
+directory branch on continuation. This existing server behavior is preserved
+for cursor interoperability rather than fixed locally through Protocol/codegen
+churn.
+
 ## Commit shape
 
 The OpenCode line is intentionally replaceable by capability:
@@ -69,6 +76,7 @@ The OpenCode line is intentionally replaceable by capability:
 | `vyrrvour` | `feat(plugin): expose paginated session history reads` | Drop when upstream history reads land. |
 | `uvlkpnnr` | `feat(plugin): expose session inbox and active reads` | Retain unless upstream exposes both reads. |
 | `lsyyqtws` | `fix(plugin): preserve session read pagination semantics` | Cursor and cross-flavor parity hardening. |
+| `rxvpnmzq` | `fix(plugin): align session cursor with protocol` | Preserve branded-cursor interoperability with the canonical codec. |
 
 The companion plugin uses every cursor page, deduplicates children by Session
 ID as mutable list ordering moves, reads messages oldest-first, and calls
