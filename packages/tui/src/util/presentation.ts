@@ -1,4 +1,14 @@
 import { logo } from "../logo"
+import { stringWidth } from "./string-width.ts"
+
+export type EpilogueValue =
+  | { readonly type: "text"; readonly text: string }
+  | { readonly type: "relative-time"; readonly timestamp: number }
+
+export type EpilogueRow = {
+  readonly label: string
+  readonly value: EpilogueValue
+}
 
 export type SessionEpilogueCandidate = {
   readonly title: string
@@ -33,8 +43,9 @@ function wordmark(pad = "") {
   })
 }
 
-export function sessionEpilogue(input: SessionEpilogueCandidate, now: number) {
-  const weak = (text: string) => `${dim}${text.padEnd(10, " ")}${reset}`
+export function sessionEpilogue(input: SessionEpilogueCandidate, now: number, rows: readonly EpilogueRow[] = []) {
+  const weak = (text: string) => `${dim}${text}${" ".repeat(Math.max(1, 10 - stringWidth(text)))}${reset}`
+  const value = (row: EpilogueRow) => (row.value.type === "text" ? row.value.text : activeAgo(row.value.timestamp, now))
   return [
     ...wordmark("  "),
     "",
@@ -44,6 +55,7 @@ export function sessionEpilogue(input: SessionEpilogueCandidate, now: number) {
         ? "running"
         : activeAgo(Math.max(input.activity.updated, input.activity.idle ?? input.activity.updated), now)
     }${reset}`,
+    ...rows.map((row) => `  ${weak(row.label)}${bold}${value(row)}${reset}`),
     `  ${weak("Continue")}${bold}opencode2 -s ${input.sessionID}${reset}`,
     "",
   ].join("\n")
