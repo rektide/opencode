@@ -4,6 +4,7 @@ import { describe, expect } from "bun:test"
 import { Config } from "@opencode-ai/schema/config"
 import { Money } from "@opencode-ai/schema/money"
 import {
+  Context,
   DateTime,
   Deferred,
   Duration,
@@ -23,9 +24,10 @@ import { Plugin as EffectPlugin } from "@opencode-ai/plugin/effect"
 import { Agent } from "@opencode-ai/core/agent"
 import { Catalog } from "@opencode-ai/core/catalog"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { makeGlobalNode } from "@opencode-ai/util/effect/app-node"
 import { LayerNode } from "@opencode-ai/util/effect/layer-node"
 import { Global } from "@opencode-ai/util/global"
-import { LocationServiceMap, type LocationServices } from "@opencode-ai/core/location-services"
+import { LocationServiceMap, buildLocationServiceMap, type LocationServices } from "@opencode-ai/core/location-services"
 import { LocationActivity } from "@opencode-ai/core/location-activity"
 import { Location } from "@opencode-ai/core/location"
 import { Plugin } from "@opencode-ai/core/plugin"
@@ -38,6 +40,7 @@ import { Provider } from "@opencode-ai/core/provider"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Session } from "@opencode-ai/core/session"
 import { Workspace } from "@opencode-ai/core/workspace"
+import { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import { SessionEvent } from "@opencode-ai/core/session/event"
 import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
 import { tmpdir } from "./fixture/tmpdir"
@@ -81,7 +84,64 @@ const itWithActivity = testEffect(
   ]),
 )
 
+// Counting replacement for Watcher.node inside location graphs: increments once
+// per Watcher layer build so tests can pin how many registries exist.
+const watcherBuilds = { count: 0 }
+const countingWatcher = makeGlobalNode({
+  service: Watcher.Service,
+  layer: Layer.effect(
+    Watcher.Service,
+    Effect.sync(() => {
+      watcherBuilds.count++
+      return Watcher.Service.of({ subscribe: () => Effect.succeed(Stream.empty) })
+    }),
+  ),
+  deps: [],
+})
+const itCountingWatcher = testEffect(
+  AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node, LocationServiceMap.node]), [
+    Global.node.replace(tempGlobalLayer),
+    LocationServiceMap.node.replace(
+      makeGlobalNode({
+        service: LocationServiceMap.Service,
+        layer: buildLocationServiceMap([Watcher.node.replace(countingWatcher)]),
+        deps: [Database.node, Bus.node],
+      }),
+    ),
+  ]),
+)
+
 describe("LocationServiceMap", () => {
+  // The hoisted global slice must build once per process: every location graph
+  // (and therefore every Config/Skill watch owner and every session or
+  // subagent inside them) has to funnel into one Watcher registry, or the
+  // Watchman backend would open duplicate connections per location.
+  itCountingWatcher.effect("shares one Watcher service across distinct location graphs", () =>
+    Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const firstDirectory = path.join(tmp.path, "one")
+          const secondDirectory = path.join(tmp.path, "two")
+          yield* Effect.promise(() => fs.mkdir(firstDirectory, { recursive: true }))
+          yield* Effect.promise(() => fs.mkdir(secondDirectory, { recursive: true }))
+          watcherBuilds.count = 0
+          const locations = yield* LocationServiceMap.Service
+          const first = yield* locations.contextEffect(
+            Location.Ref.make({ directory: AbsolutePath.make(firstDirectory) }),
+          )
+          const second = yield* locations.contextEffect(
+            Location.Ref.make({ directory: AbsolutePath.make(secondDirectory) }),
+          )
+
+          expect(Context.get(first, Location.Service).directory).not.toBe(
+            Context.get(second, Location.Service).directory,
+          )
+          expect(watcherBuilds.count).toBe(1)
+        }),
+      ),
+    ),
+  )
+
   itWithActivity.effect("does not refresh lifetime from inferred Session routing", () =>
     Effect.gen(function* () {
       const locations = yield* LocationServiceMap.Service
