@@ -2,7 +2,8 @@
 
 ## Current direction
 
-- [Pluggable TUI epilogues: research wave synthesis](/.design/term-v2/epilogue-plugins1-syn0.gpt56s.md): current staged recommendation after independent interface, plugin-surface, runtime, and carryability research.
+- [Epilogue implementation primer](/.design/term-v2/epilogue-implementation.md): accepted execution entry point for a fresh implementation session.
+- [Pluggable TUI epilogues: research wave synthesis](/.design/term-v2/epilogue-plugins1-syn0.gpt56s.md): rationale and staged recommendation after independent interface, plugin-surface, runtime, and carryability research.
 - [Research wave index](/.design/term-v2/research/index.md): six independent reports on implementation options and current behavior.
 
 ## Earlier framing
