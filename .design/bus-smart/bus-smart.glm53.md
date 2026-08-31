@@ -338,6 +338,10 @@ flowchart LR
 
 ## Cross-references
 
+- [Downstream-patch assessment](/.design/bus-smart/review0.gpt56s.md) accepts
+  the firehose diagnosis but identifies multi-Location TUI semantics, generated
+  client churn, and an initial tracked-Session projection guard as reasons not
+  to implement this draft end-to-end as written.
 - `packages/core/src/bus.ts` — routing owner; `local()` is the predicate this
   design extracts (`deliversTo`), `routes` WeakMap is the source of truth.
 - `packages/core/test/bus-session-routing.test.ts` — the delivery-matrix
