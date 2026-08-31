@@ -293,6 +293,9 @@ For an upstream-quality full-TUI change:
 
 ## Cross-references
 
+- [Location streams and controlled subscriptions](/.design/bus-smart/location-streams0.gpt56s.md)
+  designs dedicated global and per-Location streams, a barriered union
+  handoff, and the recommended mutable single-SSE interest set.
 - [Original bus-smart design](/.design/bus-smart/bus-smart.glm53.md) provides
   the diagnosis, routing matrix, and proposed single-Location transport change
   reviewed here.

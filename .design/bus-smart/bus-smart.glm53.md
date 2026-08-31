@@ -338,6 +338,9 @@ flowchart LR
 
 ## Cross-references
 
+- [Location streams and controlled subscriptions](/.design/bus-smart/location-streams0.gpt56s.md)
+  replaces the single static Location assumption with three multi-Location
+  transport designs and recommends one controlled SSE with a mutable union.
 - [Downstream-patch assessment](/.design/bus-smart/review0.gpt56s.md) accepts
   the firehose diagnosis but identifies multi-Location TUI semantics, generated
   client churn, and an initial tracked-Session projection guard as reasons not
