@@ -1,5 +1,5 @@
 import { createSimpleContext } from "./helper"
-import { sessionEpilogue } from "../util/presentation"
+import { sessionEpilogue } from "../util/presentation.ts"
 
 export type SessionEpilogueCandidate = {
   readonly title: string
@@ -35,7 +35,7 @@ export function createEpilogue() {
       }
     },
     take() {
-      if (state.status !== "frozen") return
+      if (state.status !== "frozen") return undefined
       const output = state.output
       state = { status: "written" }
       return output

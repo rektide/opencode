@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { destroyRenderer } from "../../src/util/renderer"
+import { destroyRenderer } from "../../src/util/renderer.ts"
 
 test("clears the terminal title before destroying the renderer", () => {
   const calls: string[] = []
@@ -15,7 +15,7 @@ test("clears the terminal title before destroying the renderer", () => {
   expect(calls).toEqual(["title:", "destroy"])
 })
 
-test("still clears the title after renderer destruction", () => {
+test("does not access the renderer after destruction", () => {
   const calls: string[] = []
   destroyRenderer({
     isDestroyed: true,
@@ -26,5 +26,5 @@ test("still clears the title after renderer destruction", () => {
       calls.push("destroy")
     },
   })
-  expect(calls).toEqual(["title:"])
+  expect(calls).toEqual([])
 })
