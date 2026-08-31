@@ -1,4 +1,5 @@
 import { Deferred, Duration, Effect, Fiber, Schema, Semaphore } from "effect"
+import type { ChannelMetrics } from "./metrics.js"
 import { CapabilityResponse, GenerationClosed, WatchmanError } from "./schema.js"
 
 const TRANSPORT = "@superbfowle/fb-watchman-esm"
@@ -25,6 +26,8 @@ export type Generation = {
   readonly command: Semaphore.Semaphore
   readonly closed: Deferred.Deferred<void>
   readonly subscriptions: Map<string, (value: unknown) => void>
+  /** Channel telemetry for commands issued through this generation. */
+  readonly metrics?: ChannelMetrics
 }
 
 export type RequestOptions = {
@@ -51,13 +54,14 @@ export const loadFactory = (binary?: string) =>
     }
   })
 
-export function makeGeneration(id: number, client: RawClient): Generation {
+export function makeGeneration(id: number, client: RawClient, metrics?: ChannelMetrics): Generation {
   return {
     id,
     client,
     command: Semaphore.makeUnsafe(1),
     closed: Deferred.makeUnsafe<void>(),
     subscriptions: new Map(),
+    metrics,
   }
 }
 
@@ -97,21 +101,28 @@ function admitted<A>(
   stage: WatchmanError["stage"],
   options: RequestOptions,
 ) {
+  const metrics = generation.metrics
+  metrics?.commandOut(label)
   const closed = (submitted: boolean) =>
     Deferred.await(generation.closed).pipe(Effect.andThen(Effect.fail(new GenerationClosed(submitted))))
   const execute = Effect.gen(function* () {
     if (Deferred.isDoneUnsafe(generation.closed)) return yield* Effect.fail(new GenerationClosed(false))
     const response = Effect.callback<unknown, WatchmanError>((resume) => {
+      const started = performance.now()
       submit((error, value) => {
-        if (error) return resume(Effect.fail(new WatchmanError(stage, error.message, error)))
+        if (error) {
+          metrics?.commandError()
+          return resume(Effect.fail(new WatchmanError(stage, error.message, error)))
+        }
+        metrics?.commandOk(performance.now() - started)
         resume(Effect.succeed(value))
       })
     }).pipe(
       Effect.timeoutOrElse({
         duration: options.timeout ?? COMMAND_TIMEOUT,
         orElse: () =>
-          options
-            .close(`${label} timed out`)
+          Effect.sync(() => metrics?.commandTimeout())
+            .pipe(Effect.andThen(options.close(`${label} timed out`)))
             .pipe(Effect.andThen(Effect.fail(new WatchmanError(stage, `Watchman command timed out: ${label}`)))),
       }),
       Effect.flatMap((value) =>
