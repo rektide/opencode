@@ -32,22 +32,24 @@ export type RequestOptions = {
   readonly timeout?: Duration.Input
 }
 
-export const loadFactory = Effect.gen(function* () {
-  const loaded: unknown = yield* Effect.tryPromise({
-    try: () => import(TRANSPORT) as Promise<unknown>,
-    catch: (cause) => new WatchmanError("connect", "Failed to load Watchman transport", cause),
+export const loadFactory = (binary?: string) =>
+  Effect.gen(function* () {
+    const loaded: unknown = yield* Effect.tryPromise({
+      try: () => import(TRANSPORT) as Promise<unknown>,
+      catch: (cause) => new WatchmanError("connect", "Failed to load Watchman transport", cause),
+    })
+    if (!loaded || typeof loaded !== "object")
+      return yield* Effect.fail(new WatchmanError("connect", "Invalid Watchman transport module"))
+    const Client = Reflect.get(loaded, "Client")
+    if (typeof Client !== "function")
+      return yield* Effect.fail(new WatchmanError("connect", "Watchman transport has no client export"))
+    const args = binary === undefined ? [] : [{ watchmanBinaryPath: binary }]
+    return () => {
+      const client: unknown = Reflect.construct(Client, args)
+      if (!isRawClient(client)) throw new WatchmanError("connect", "Watchman transport returned an invalid client")
+      return client
+    }
   })
-  if (!loaded || typeof loaded !== "object")
-    return yield* Effect.fail(new WatchmanError("connect", "Invalid Watchman transport module"))
-  const Client = Reflect.get(loaded, "Client")
-  if (typeof Client !== "function")
-    return yield* Effect.fail(new WatchmanError("connect", "Watchman transport has no client export"))
-  return () => {
-    const client: unknown = Reflect.construct(Client, [])
-    if (!isRawClient(client)) throw new WatchmanError("connect", "Watchman transport returned an invalid client")
-    return client
-  }
-})
 
 export function makeGeneration(id: number, client: RawClient): Generation {
   return {

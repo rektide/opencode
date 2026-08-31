@@ -17,7 +17,7 @@ suite("Watchman live", () => {
       const file = path.join(source, "skill.md")
       yield* Effect.promise(() => fs.mkdir(source))
       const update = yield* Deferred.make<string, Error>()
-      const registry = yield* loadFactory.pipe(Effect.flatMap((factory) => makeRegistry(factory)))
+      const registry = yield* loadFactory().pipe(Effect.flatMap((factory) => makeRegistry(factory)))
       const subscription = yield* registry.subscribe(
         { type: "project", project: tmp.path },
         {

@@ -40,6 +40,7 @@ export type Options = {
   readonly commandTimeoutMs?: number
   readonly retryBaseMs?: number
   readonly retryCapMs?: number
+  readonly binary?: string
 }
 
 export type Registry = {
@@ -93,6 +94,7 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
             Effect.logWarning("watchman root connection closed", {
               intent,
               generation: generation.id,
+              subscriptions: subscriptions.size,
               cause,
             }),
           )
@@ -129,7 +131,12 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
         const route = yield* resolve(generation, intent, requestOptions(generation))
         const active = { generation, route } satisfies RootGeneration
         state.active = active
-        yield* Effect.logInfo("watchman root connected", { intent, generation: generation.id, root: route.root })
+        yield* Effect.logInfo("watchman root connected", {
+          intent,
+          generation: generation.id,
+          root: route.root,
+          subscriptions: subscriptions.size,
+        })
         return active
       }).pipe(Effect.onError(() => close(generation)))
     })
