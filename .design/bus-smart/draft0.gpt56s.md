@@ -94,14 +94,14 @@ make unnecessary.
 | --- | --- | --- |
 | Bus audience | Inline routed observation; guard-gated Session identity; exact parity with `Bus.subscribe()` for the Location dimension | Keeps the seam, clarifies Session following as an orthogonal recipient dimension |
 | Controlled feed module | New controlled sibling with one registry and queue-admission cut, guarded by one Effect semaphore | Keeps legacy EventFeed frozen rather than combining two failure contracts |
-| Interest mutation | `PUT` one complete canonical desired set | Replaces patch/add/remove plus replace |
-| Retry safety | Never retry an indeterminate PUT on the same subscription; reconnect and install latest state on a fresh ID | Removes command ID, all revisions, conflict recovery, and the 256-entry cache |
+| Interest mutation | `PUT` one complete canonical transport target | Replaces patch/add/remove plus replace |
+| Retry safety | Never retry an indeterminate PUT on the same subscription; reconnect and install the current transport target on a fresh ID | Removes command ID, all revisions, conflict recovery, and the 256-entry cache |
 | Move coverage | Private `derivedLocations` map updated before `session.moved` admission | Removes `event-feed.effective.changed` frames |
 | TUI moves | No special handling | Removes `admitMove`, `releaseMove`, pending-move persistence, timeout, and edits to both move call sites |
 | TUI policy | One declarative desired-set function; Client handles coalescing and removal grace | Replaces the S1-S18 imperative patch map as implementation structure while preserving its facts |
 | Client connection | A controlled stream adapter plugged into the existing reconnect loop | Avoids copying the reconnect loop into a sibling connection implementation |
 | Protocol group | Additive methods in the existing `server.event` group | Removes a new group and `groupNames` touchpoint |
-| Initial interest | Ready, body-encoded PUT, then expose the already-queued `server.connected` | Removes GET query encoding and mount-order dependence |
+| Initial interest | Ready, then a body-encoded PUT atomically installs interest, queues `server.connected`, and activates publication | Removes GET query encoding and mount-order dependence without selective startup loss |
 | Legacy feed | Existing module, Bus listener, path, generated method, frames, heartbeat, and overflow behavior | Frozen |
 
 The important deletion is move preparation. The server-side follow mechanism
@@ -112,8 +112,8 @@ timeout without strengthening the guarantee.
 
 ## Goals
 
-- Stop foreign project and Session activity from entering the TUI's queue,
-  network parser, event emitter, and Solid projection.
+- Stop events whose Bus audience lies wholly outside the TUI's requested or
+  derived interest from entering its queue, parser, emitter, and projection.
 - Preserve one selected-event FIFO and one logical connection boundary.
 - Preserve exact Location identity, including `workspaceID`.
 - Follow open or visible Sessions across moves before their destination suffix
@@ -128,6 +128,8 @@ timeout without strengthening the guarantee.
 - Durable replay, resumable offsets, or delivery across disconnection.
 - Clustered subscription ownership.
 - Event-type filters or authorization through interest.
+- Suppressing Bus-global events or unrelated Sessions that share a retained
+  Location; both remain intentionally admitted.
 - Changes to public event payloads or the Session event manifest.
 - Converting app, desktop, mini, CLI, ACP, SDK, or plugin consumers.
 - Reworking Session movement beyond closing its one immediate publish gap, or
@@ -259,14 +261,20 @@ export interface Interface {
   readonly replaceInterests: (input: {
     readonly subscriptionID: EventSubscriptionID
     readonly interest: EventInterest
-  }) => Effect.Effect<void, SubscriptionNotFoundError | InvalidInterestError>
+  }) => Effect.Effect<void, EventSubscriptionNotFoundError | InvalidRequestError>
 }
 ```
 
-`subscribe` registers an empty requested set and atomically enqueues
-`event-feed.ready` followed by `server.connected`. The HTTP handler returns that
-stream. `replaceInterests` installs one complete canonical representation and
-returns only after installation.
+`subscribe` creates a pending record, enqueues only `event-feed.ready`, and
+makes the record addressable to control without making it visible to event
+publication. The HTTP handler returns that stream.
+
+The first successful `replaceInterests` is the activation cut. In one admission
+section it installs the complete canonical representation, enqueues
+`server.connected`, marks the record active, and returns. A publisher before
+that cut sees no subscriber; a publisher after it sees the installed interest
+and queues behind connected. This makes pre-activation loss uniform rather than
+routing-dependent.
 
 ### Subscriber state
 
@@ -275,6 +283,7 @@ The new service owns one registry of controlled records:
 ```ts
 type ControlledState = {
   readonly id: EventSubscriptionID
+  active: boolean
   requested: InterestSet
   readonly derivedLocations: Map<SessionID, Location.Ref>
 }
@@ -296,7 +305,8 @@ normalization and matching.
 
 ### Admission predicate
 
-A controlled subscriber accepts a public event when any of these is true:
+An active controlled subscriber accepts a public event when any of these is
+true:
 
 1. Its audience is global.
 2. Its Location audience intersects requested or derived Locations.
@@ -350,14 +360,22 @@ The semaphore protects the architectural cut and future multi-operation
 sections, not JavaScript memory safety. Network, database, queue backpressure,
 and JSON encoding never run while holding it.
 
-Registration, publication, replacement, removal, overflow, and move following
-all use this cut. An offer failure removes and fails only that subscriber. A
-replacement mutates only the requested set and returns after the mutation;
-there is no queue marker to coordinate.
+Registration, activation, publication, replacement, removal, overflow, and move
+following all use this cut. An offer failure removes and fails only that
+subscriber. Publication ignores pending records. On every replacement, set
+requested interest and remove every `derivedLocations` entry whose Session is
+absent from the new requested Session set. Retain derived entries for Sessions
+that remain followed, even when requested Locations also cover them.
 
-When there are no subscribers, the routed observer performs only the existing
-size fast path. Do not add first/last-subscriber registration choreography to
-Bus to save one call and one branch.
+On first replacement, offer `server.connected` before flipping `active` to
+true. If that offer fails, remove and fail the pending subscriber without
+activation. Later replacements mutate requested state and prune derived state
+without queueing a marker.
+
+When there are no active subscribers, the routed observer performs only a size
+or active-count fast path. Pending registrations do not force encoding. Do not
+add first/last-subscriber registration choreography to Bus to save one call and
+one branch.
 
 ### Legacy preservation
 
@@ -395,17 +413,68 @@ them in `server.event` avoids a new handler layer and `groupNames` entry. The
 experimental path communicates stability without coupling the methods to the
 unrelated `server.experimental` persistent-PTY group.
 
+The resulting endpoint definitions are structurally:
+
 ```ts
+HttpApiEndpoint.get("event.controlled.subscribe", "/api/experimental/event", {
+  success: HttpApiSchema.StreamSse({ data: ControlledFeedItem }),
+})
+
+HttpApiEndpoint.put(
+  "event.controlled.replaceInterests",
+  "/api/experimental/event/subscriptions/:subscriptionID/interests",
+  {
+    params: { subscriptionID: EventSubscriptionID },
+    payload: EventInterest,
+    success: HttpApiSchema.NoContent,
+    error: [EventSubscriptionNotFoundError, InvalidRequestError],
+  },
+)
+```
+
+`ControlledFeedItem` is built inside the existing dynamic event-group factory,
+after `EventSchema` exists; its definition appears below.
+
+```ts
+export const EventSubscriptionID = Schema.String.check(
+  Schema.isStartsWith("evsub_"),
+).pipe(Schema.brand("EventSubscription.ID")).annotate({ identifier: "EventSubscription.ID" })
+export type EventSubscriptionID = typeof EventSubscriptionID.Type
+
+export class EventSubscriptionNotFoundError extends Schema.TaggedError<EventSubscriptionNotFoundError>()(
+  "EventSubscriptionNotFoundError",
+  {
+    subscriptionID: EventSubscriptionID,
+    message: Schema.String,
+  },
+  { httpApiStatus: 404 },
+) {}
+
+export interface EventInterest extends Schema.Schema.Type<typeof EventInterest> {}
 export const EventInterest = Schema.Struct({
   locations: Schema.Array(Location.Ref),
   sessions: Schema.Array(Session.ID),
-})
+}).annotate({ identifier: "EventInterest" })
 ```
 
+Generate IDs with the exact `evsub_` prefix and a random 128-bit-or-stronger
+suffix. The ID is opaque and non-secret. Keep these endpoint-specific transport
+contracts in Protocol; they do not belong in the Schema package's domain
+surface.
+
+The PUT declares `EventSubscriptionNotFoundError` and the existing
+[`InvalidRequestError`](/packages/protocol/src/errors.ts#L4-L12). Missing or
+closed subscription is 404. Decoded interest that exceeds byte/cardinality
+bounds is `InvalidRequestError` (400) with `field: "interest"`; ordinary
+HttpApi payload decoding also remains a deterministic 400. Normal API
+middleware supplies authentication errors. Generated clients can therefore
+distinguish a server rejection from a transport result that is genuinely
+indeterminate.
+
 Both arrays are required in the canonical wire shape. The GET has no interest
-input; a new controlled subscriber begins with an empty requested set, meaning
-global events only. The client sends the latest full interest in the first PUT
-before it exposes the connection to domain consumers.
+input; a new controlled subscriber remains pending and receives no Bus events.
+The client sends the current transport target in the first PUT, whose admission
+section activates the subscriber.
 
 Keeping structured arrays in the JSON body avoids a real generator ambiguity:
 the current Promise query encoder repeats unindexed nested keys for arrays of
@@ -422,24 +491,26 @@ truncates.
 ### Feed items
 
 The controlled stream carries ordinary public events plus one transport-local
-frame:
+frame. Define it as a real Protocol schema, not only a TypeScript type:
 
 ```ts
-export type ControlledFeedItem = OpenCodeEvent | EventFeedReady
+export interface EventFeedReady extends Schema.Schema.Type<typeof EventFeedReady> {}
+export const EventFeedReady = Schema.Struct({
+  type: Schema.Literal("event-feed.ready"),
+  data: Schema.Struct({ subscriptionID: EventSubscriptionID }),
+}).annotate({ identifier: "EventFeedReady" })
 
-export type EventFeedReady = {
-  readonly type: "event-feed.ready"
-  readonly data: {
-    readonly subscriptionID: EventSubscriptionID
-  }
-}
+// Inside make(...), so custom event manifests remain supported.
+const ControlledFeedItem = Schema.Union([EventSchema, EventFeedReady]).annotate({
+  identifier: "ControlledFeedItem",
+})
 ```
 
-The first physical frame is `event-feed.ready`; the second is the ordinary
-`server.connected`, admitted atomically during registration. The Client adapter
-consumes ready, installs current desired interest, and only then yields the
-already-queued `server.connected`. It remains the first domain frame seen by
-the existing connection loop, emitter, and Solid projection.
+The first physical frame is `event-feed.ready`. No domain frame exists yet. The
+Client adapter consumes ready and PUTs the current transport target. That first
+PUT atomically enqueues `server.connected` and activates publication, so
+connected is the second physical frame and the first domain frame seen by the
+existing connection loop, emitter, and Solid projection.
 
 The tagged JSON in SSE `data:` is authoritative. Named SSE event fields may be
 added for diagnostics but are not part of correctness.
@@ -456,9 +527,12 @@ receive the global feed.
 The PUT body is `EventInterest`; success is `204 No Content`. Decode,
 canonicalize, and bound the complete set before acquiring the admission permit.
 Under the permit, ControlledEventFeed finds the live subscription, replaces
-requested state, and returns. Events whose admission section ran earlier used
-the old set; events whose section runs later use the new set. Already queued
-old-interest frames may still drain as accepted bounded overdelivery.
+requested state, prunes derived entries for Sessions no longer followed, and
+returns. If the record is pending, the same section queues `server.connected`
+and activates it. Events whose admission section ran earlier used the old set
+(or saw no active subscriber); events whose section runs later use the new set.
+Already queued old-interest frames after a later replacement may still drain as
+accepted bounded overdelivery.
 
 There are no command IDs, revisions, conflicts, caches, or applied markers. The
 official controller is the only writer and keeps exactly one PUT in flight. If
@@ -467,7 +541,7 @@ a PUT result is indeterminate, it never retries against that subscription:
 1. Abort the SSE generation.
 2. Let scoped cleanup remove the old subscription.
 3. Reconnect and receive a new random subscription ID.
-4. Install the latest complete desired set before yielding `server.connected`.
+4. Install the current transport target before `server.connected` can be queued.
 
 A late request can then affect only the abandoned subscription. The stream
 generation is the fence, reusing lifecycle state the connection already owns
@@ -480,7 +554,11 @@ instead of adding a second distributed coordination protocol.
   detached owner. If PUT wins, cleanup may immediately discard its state; both
   outcomes are safe.
 - Server restart loses all subscription state and closes SSE. Reconnect creates
-  a fresh subscription and installs current desired interest.
+  a fresh pending subscription and activates it with the current transport
+  target.
+- A declared 400/404 is a determinate rejection and never triggers legacy
+  fallback. It terminates the controlled generation with a visible error; the
+  client does not claim that the transport target was installed.
 - An indeterminate PUT aborts the generation and is observable in connection
   diagnostics; it is not silently retried in place.
 - Control frames never enter Bus, the public Event manifest, or ordinary client
@@ -547,11 +625,14 @@ implementation remains single-owner.
 Add a sibling module such as
 `packages/client/src/solid/controlled-event-feed.ts`. It owns:
 
-- current desired interest;
-- current transmitted canonical state;
+- **desired interest**, the product set declared by EventInterestProvider;
+- **transport target**, desired interest plus removals still inside their grace
+  window;
+- **installed interest**, the last transport target acknowledged by 204 for the
+  active subscription;
 - subscription ID for the active generation;
 - exactly one PUT in flight;
-- coalescing to the latest complete desired state;
+- coalescing to the latest complete transport target;
 - immediate additions and delayed removals;
 - generation invalidation after an indeterminate PUT;
 - ready-frame interception and initial installation before connect;
@@ -569,19 +650,20 @@ export interface ControlledEventFeed {
 }
 ```
 
-`setDesired` is synchronous. The controller normalizes locally and avoids PUTs
-for equal state. After each ready frame it installs whatever desired state is
-current before yielding `server.connected`; startup and reconnect therefore use
-the same path. `flush()` resolves when the active controlled subscription has
-installed the latest transport target. In legacy fallback it is an explicit
-no-op. Product code never sees subscription IDs or generations.
+`setDesired` is synchronous. The controller normalizes locally, derives the
+transport target, and avoids PUTs when installed interest already equals that
+target. After each ready frame it installs the current transport target before
+the Server activates and queues `server.connected`; startup and reconnect
+therefore use the same path. `flush()` resolves when installed interest equals
+the transport target current at resolution. In legacy fallback it is an
+explicit no-op. Product code never sees subscription IDs or generations.
 
-Removal grace belongs here, not in `SessionTabsProvider`. Adds transmit on the
-next coalesced replacement immediately. A key absent from desired state remains in
-the transmitted set for a short trailing grace (start with 3 seconds), then all
-expired removals leave in one replacement. Re-adding during the grace cancels
-removal. On reconnect, initial PUT uses the currently held transmitted set, and
-pending grace timers may narrow it later.
+Removal grace belongs here, not in `SessionTabsProvider`. Adds enter the next
+coalesced transport target immediately. A key absent from desired interest
+remains in the transport target for a short trailing grace (start with 3
+seconds), then all expired removals leave in one replacement. Re-adding during
+the grace cancels removal. On reconnect, initial PUT uses the current transport
+target, including grace-held keys; pending grace timers may narrow it later.
 
 ## 5. TUI desired-interest policy
 
@@ -634,9 +716,10 @@ is seeded with directory only and initially drops explicit workspace identity
 Persisted tab storage loads synchronously during `SessionTabsProvider` init.
 Publish the initial desired set synchronously once, then maintain it reactively.
 The GET itself carries no interest, so correctness does not depend on exact
-provider/onMount ordering: when ready arrives, the source PUTs the latest value
-and withholds `server.connected` until installation succeeds. Known tab and
-family Locations join as HTTP hydration resolves them.
+provider/onMount ordering: when ready arrives, the source PUTs the current
+transport target, and the successful PUT causes the Server to queue
+`server.connected` and activate the subscription. Known tab and family Locations
+join as HTTP hydration resolves them.
 
 ### Moves
 
@@ -662,7 +745,7 @@ sequenceDiagram
     Feed->>TUI: session.moved
     Note over Feed,TUI: destination Location events are already covered
     TUI->>TUI: projection updates Session Location
-    TUI->>Feed: PUT recomputed complete desired set
+    TUI->>Feed: controller PUTs updated transport target
     Bus-->>Initiator: publish returns only after admission
 ```
 
@@ -713,17 +796,19 @@ The implementation must preserve these invariants:
 4. Requested state changes only at a serialized replacement cut.
 5. A followed Session's move installs destination coverage before the move
    frame and before causally later destination publication.
-6. The initial full replacement succeeds before `server.connected` becomes
-   visible to domain consumers.
-7. An indeterminate replacement invalidates that subscription generation; it is
+6. Unfollowing a Session removes its derived Location in the same replacement
+   section; retained follows keep their derived Location through overlap.
+7. The initial transport target is installed in the same section that queues
+   `server.connected` and activates publication.
+8. An indeterminate replacement invalidates that subscription generation; it is
    never retried against the same ID.
-8. Exact Session admission uses only Bus's `SessionEvent.All` classification.
-9. Empty Location audience never becomes global.
-10. Location equality always includes optional workspace identity.
-11. The ready frame never enters the domain emitter or Solid projection.
-12. Reconnect creates a fresh subscription ID and installs current desired
-    interest before connecting; it makes no replay claim.
-13. Legacy subscribers retain match-all wire behavior.
+9. Exact Session admission uses only Bus's `SessionEvent.All` classification.
+10. Empty Location audience never becomes global.
+11. Location equality always includes optional workspace identity.
+12. The ready frame never enters the domain emitter or Solid projection.
+13. Reconnect creates a fresh subscription ID and installs the current transport
+    target at activation; it makes no replay claim.
+14. Legacy subscribers retain match-all wire behavior.
 
 The selected FIFO is a ControlledEventFeed admission order, not a new global
 domain order. Unrelated concurrent publishers may reach the admission cut in
@@ -801,17 +886,33 @@ TUI commit is the only behavior flip.
 - The runner, cancellation-bearing immediate, and no-cancellation immediate
   move paths all complete routed observation before returning from publication.
 
+### Protocol
+
+- `EventSubscriptionID` accepts the exact `evsub_` prefix emitted by the Server
+  and rejects other prefixes.
+- Interest body round-trips multiple workspace-distinct Locations without query
+  encoding.
+- Missing subscription decodes as `EventSubscriptionNotFoundError` with 404;
+  malformed or over-limit interest decodes as `InvalidRequestError` with 400.
+- Promise and Effect clients expose both additive controlled methods while the
+  legacy `event.subscribe(requestOptions?)` signature is unchanged.
+
 ### ControlledEventFeed
 
 - Existing legacy tests pass without changed expectations.
 - One controlled subscriber receives global plus the union of requested
   Locations and exact Sessions, with no global duplication.
 - Same-directory/different-workspace events remain isolated.
-- Initial ready and connected frames precede a concurrently published event.
+- Pending registration enqueues ready only and admits no Bus event, global or
+  routed.
+- First PUT installs interest, enqueues connected, and activates in one section;
+  a later concurrent publication queues behind connected under that interest.
 - A successful PUT is the admission cut; a causally later publish uses the new
   set while already queued old-interest tail may drain.
 - PUT racing cleanup is either installed-then-discarded or not-found, never a
   hang.
+- Replacing a set prunes derived entries for every unfollowed Session and keeps
+  entries for retained Sessions even when requested Location coverage overlaps.
 - Queue overflow removes only one subscriber.
 - A followed move updates derived destination before move admission; immediate
   destination permission/form and Session suffix events arrive.
@@ -822,14 +923,16 @@ TUI commit is the only behavior flip.
 ### Client
 
 - Ready never reaches `onEvent`; `server.connected` remains first.
-- Current desired interest is installed by the first PUT before connected on
-  startup and reconnect.
-- One PUT is in flight; rapid changes coalesce to the latest full state.
+- Current transport target is installed by the activation PUT on startup and
+  reconnect.
+- One PUT is in flight; rapid changes coalesce to the latest transport target.
 - Adds transmit immediately; removal grace coalesces and cancels on re-add.
 - An indeterminate PUT aborts its generation; a fresh subscription receives
-  exactly one latest-state initial PUT.
+  exactly one current-target activation PUT.
 - Late responses and frames from an obsolete generation cannot mutate current
   state.
+- Declared PUT 400/404 is surfaced as a determinate rejection; transport failure
+  invalidates the generation as indeterminate.
 - One pre-ready 404 falls back to legacy and surfaces legacy mode; non-404
   failures do not downgrade.
 - A later server generation attempts controlled mode again.
@@ -858,10 +961,12 @@ and after:
 - controlled versus fallback mode.
 
 Run `bun run dev:live` against both a matching server and an older elected
-server. The matching server should show no foreign streaming events. The older
-server should remain functional in explicit legacy mode. A projection-only
-guard remains a separate follow-up if controlled transport removes wire volume
-but same-interest work is still expensive.
+server. The matching server should show no event whose audience is solely a
+foreign, unretained Location or unfollowed Session. Bus-global events and
+unrelated Sessions at retained Locations remain expected. The older server
+should remain functional in explicit legacy mode. A projection-only guard
+remains a separate follow-up if controlled transport removes wire volume but
+same-interest work is still expensive.
 
 ## Open items
 
@@ -897,7 +1002,7 @@ client seam, and TUI interest owner are not open in this draft.
 | Command IDs, revisions, and retained command cache | One writer plus abortable subscription generations fence the only indeterminate-write case |
 | Public effective-interest state | Exposes a transport cache and creates a second revision domain with no product caller |
 | Client move preparation | Duplicates the stronger server guarantee and spreads failure cleanup into move call sites |
-| Prepared subscription ticket | Adds expiry and attach races when ready-then-PUT can withhold connected just as safely |
+| Prepared subscription ticket | Adds expiry and attach races when ready-then-PUT can establish the same pre-connected activation cut |
 | WebSocket | Bidirectionality, ticketing, and lifecycle cost are unjustified for infrequent complete replacements |
 | Projection-only filtering | Leaves queue, network, parse, emitter, and overflow costs intact |
 | Durable per-Session streams | Promising future architecture, but changes persistence, replay, retention, and connection topology |
