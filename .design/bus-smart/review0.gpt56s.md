@@ -226,6 +226,8 @@ should recognize at least:
 
 - a Session already present in `store.session.info`;
 - an optimistic local Session in `sessionOutbox`;
+- a newly created Session whose Location is already loaded (the launch/current
+  Location or one represented by an open tab);
 - an explicit Session or message synchronization currently in flight;
 - a Session whose transcript/pending/permission/form state was explicitly
   loaded for an open tab or visible route.
