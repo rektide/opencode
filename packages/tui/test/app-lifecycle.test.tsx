@@ -306,8 +306,14 @@ test("SIGINT prints the session epilogue after cleanup", async () => {
   const server = Bun.serve({ port: 0, fetch: (request) => calls.fetch(request) })
   const originalWrite = process.stdout.write.bind(process.stdout)
   let stdout = ""
-  process.stdout.write = ((chunk: string | Uint8Array) => {
+  process.stdout.write = ((
+    chunk: string | Uint8Array,
+    encoding?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void,
+  ) => {
     stdout += String(chunk)
+    if (typeof encoding === "function") encoding()
+    else callback?.()
     return true
   }) as typeof process.stdout.write
 
