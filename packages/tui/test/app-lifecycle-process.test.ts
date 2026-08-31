@@ -9,17 +9,40 @@ const signals = [
   ["SIGTERM", 130],
 ] as const
 
+test.skipIf(process.platform === "win32")(
+  "app.exit writes one complete epilogue after cleanup and delayed stdout",
+  () => runCase("fixture", "app.exit", 0),
+  30_000,
+)
+
 test.skipIf(process.platform === "win32").each(signals)(
   "%s writes one complete epilogue after cleanup and delayed stdout",
-  async (signal, expectedExit) => {
-    await using tmp = await tmpdir()
-    const ready = path.join(tmp.path, "ready")
-    const cleanup = path.join(tmp.path, "cleanup")
-    const gate = path.join(tmp.path, "gate")
-    const plugin = path.join(tmp.path, "plugin.ts")
-    await Bun.write(
-      plugin,
-      `
+  (signal, expectedExit) => runCase("fixture", signal, expectedExit),
+  30_000,
+)
+
+test.skipIf(process.platform === "win32").each(signals)(
+  "actual CLI handles %s after cleanup with one complete epilogue",
+  (signal, expectedExit) => runCase("cli", signal, expectedExit),
+  30_000,
+)
+
+async function runCase(
+  mode: "fixture" | "cli",
+  trigger: (typeof signals)[number][0] | "app.exit",
+  expectedExit: number,
+) {
+  await using tmp = await tmpdir()
+  const ready = path.join(tmp.path, "ready")
+  const cleanup = path.join(tmp.path, "cleanup")
+  const gate = path.join(tmp.path, "gate")
+  const exit = path.join(tmp.path, "exit")
+  const serverPlugin = path.join(tmp.path, "index.ts")
+  const tuiPlugin = path.join(tmp.path, "tui.ts")
+  await Bun.write(serverPlugin, "export default {}\n")
+  await Bun.write(
+    tuiPlugin,
+    `
 import { appendFile } from "node:fs/promises"
 
 export default {
@@ -34,88 +57,121 @@ export default {
   },
 }
 `,
-    )
-    const session = {
-      id: "dummy",
-      title: "Demo session",
-      projectID: "project",
-      location: { directory },
-      cost: 0,
-      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-      time: { created: 0, updated: 0 },
+  )
+  const session = {
+    id: "dummy",
+    title: "Demo session",
+    projectID: "project",
+    location: { directory },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 0, updated: 0 },
+  }
+  const sessionReady = Promise.withResolvers<void>()
+  const requests: string[] = []
+  const calls = createFetch((url) => {
+    requests.push(url.pathname)
+    if (url.pathname === "/api/health") return json({ healthy: true, version: "local", pid: process.pid })
+    if (url.pathname === "/api/server") return json({ urls: [] })
+    if (url.pathname === "/api/plugin")
+      return json({
+        location: { directory, project: { id: "project", directory, canonical: directory } },
+        data: [
+          {
+            id: "test.epilogue",
+            source: { type: "local", path: serverPlugin },
+            state: { status: "active" },
+            features: { server: true, tui: true },
+          },
+        ],
+      })
+    if (url.pathname === "/api/session") return json({ data: [session], cursor: {} })
+    if (url.pathname === "/api/session/dummy") return json({ data: session })
+    if (url.pathname === "/api/session/dummy/message") return json({ data: [], cursor: {} })
+    if (url.pathname === "/api/session/dummy/inbox") return json({ data: [] })
+    if (url.pathname === "/api/session/dummy/permission") {
+      sessionReady.resolve()
+      return json({ data: [] })
     }
-    const calls = createFetch((url) => {
-      if (url.pathname === "/api/plugin")
-        return json({
-          location: { directory, project: { id: "project", directory, canonical: directory } },
-          data: [
-            {
-              id: "test.epilogue",
-              source: { type: "package", package: "test-epilogue@1.0.0" },
-              state: { status: "active" },
-              features: { server: true, tui: true },
-            },
-          ],
-        })
-      if (url.pathname === "/api/session") return json({ data: [session], cursor: {} })
-      if (url.pathname === "/api/session/dummy") return json({ data: session })
-      if (url.pathname === "/api/session/dummy/message") return json({ data: [], cursor: {} })
-      if (url.pathname === "/api/session/dummy/inbox") return json({ data: [] })
-      if (url.pathname === "/api/session/dummy/permission") return json({ data: [] })
-      return undefined
-    }, createEventStream())
-    const server = Bun.serve({ port: 0, fetch: (request) => calls.fetch(request) })
-    const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "fixture/app-lifecycle-process.ts")], {
-      cwd: path.join(import.meta.dir, ".."),
-      env: {
-        ...process.env,
-        OPENCODE_EPILOGUE_SERVER: server.url.toString(),
-        OPENCODE_EPILOGUE_READY: ready,
-        OPENCODE_EPILOGUE_PLUGIN: plugin,
-        OPENCODE_EPILOGUE_STATE: tmp.path,
-      },
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-    })
-    const stdout: string[] = []
-    const stderr: string[] = []
-    const readStdout = collect(child.stdout, stdout)
-    const readStderr = collect(child.stderr, stderr)
+    return undefined
+  }, createEventStream())
+  const server = Bun.serve({ port: 0, fetch: (request) => calls.fetch(request) })
+  const command =
+    mode === "fixture"
+      ? [process.execPath, path.join(import.meta.dir, "fixture/app-lifecycle-process.ts")]
+      : [
+          process.execPath,
+          path.join(import.meta.dir, "../../cli/src/index.ts"),
+          "--server",
+          server.url.toString(),
+          "--session",
+          "dummy",
+        ]
+  const child = Bun.spawn(command, {
+    cwd: path.join(import.meta.dir, ".."),
+    env: {
+      ...process.env,
+      OPENCODE_DISABLE_AUTOUPDATE: "true",
+      OPENCODE_EPILOGUE_SERVER: server.url.toString(),
+      OPENCODE_EPILOGUE_READY: ready,
+      OPENCODE_EPILOGUE_PLUGIN: tuiPlugin,
+      OPENCODE_EPILOGUE_STATE: tmp.path,
+      OPENCODE_EPILOGUE_EXIT: exit,
+      OPENCODE_CONFIG_DIR: path.join(tmp.path, "config"),
+      XDG_CACHE_HOME: path.join(tmp.path, "cache"),
+      XDG_CONFIG_HOME: path.join(tmp.path, "config-home"),
+      XDG_DATA_HOME: path.join(tmp.path, "data"),
+      XDG_STATE_HOME: path.join(tmp.path, "state"),
+    },
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const stdout: string[] = []
+  const stderr: string[] = []
+  const readStdout = collect(child.stdout, stdout)
+  const readStderr = collect(child.stderr, stderr)
 
-    try {
-      await Promise.race([
-        waitForFile(ready, "TUI did not become ready"),
-        child.exited.then((code) => {
-          throw new Error(`TUI exited before becoming ready (${code}): ${stderr.join("")}`)
-        }),
-      ])
-      await waitForText(cleanup, "setup\n", "plugin did not finish setup")
-      child.kill(signal)
-      await waitForText(cleanup, "cleanup:start\n", "plugin cleanup did not start")
-      await Bun.sleep(150)
-      expect(stdout.join("")).toBe("")
+  try {
+    await Promise.race([
+      mode === "fixture" ? waitForFile(ready, "TUI did not become ready") : sessionReady.promise,
+      child.exited.then((code) => {
+        throw new Error(`TUI exited before becoming ready (${code}): ${stderr.join("")}`)
+      }),
+    ])
+    await waitForText(cleanup, "setup\n", "plugin did not finish setup")
+    if (mode === "cli") await Bun.sleep(500)
+    if (trigger === "app.exit") await Bun.write(exit, "exit\n")
+    if (trigger !== "app.exit") child.kill(trigger)
+    await waitForText(cleanup, "cleanup:start\n", "plugin cleanup did not start")
+    await Bun.sleep(150)
+    if (mode === "fixture") expect(stdout.join("")).toBe("")
+    if (mode === "cli") expect(Bun.stripANSI(stdout.join(""))).not.toContain("opencode2 -s dummy")
 
-      await Bun.write(gate, "continue\n")
-      expect(await Promise.race([child.exited, Bun.sleep(10_000).then(() => -1)])).toBe(expectedExit)
-      await Promise.all([readStdout, readStderr])
+    await Bun.write(gate, "continue\n")
+    expect(await Promise.race([child.exited, Bun.sleep(10_000).then(() => -1)])).toBe(expectedExit)
+    await Promise.all([readStdout, readStderr])
 
-      const output = Bun.stripANSI(stdout.join(""))
-      expect(output.match(/Session\s+Demo session/g) ?? []).toHaveLength(1)
-      expect(output).toContain("Active")
-      expect(output).toContain("opencode2 -s dummy")
-      expect(output.endsWith("\n\n")).toBe(true)
-      expect(stderr.join("")).toBe("")
-      expect(await Bun.file(cleanup).text()).toBe("setup\ncleanup:start\ncleanup:end\n")
-    } finally {
-      await Bun.write(gate, "continue\n")
-      if (child.exitCode === null) child.kill("SIGKILL")
-      await child.exited
-      await server.stop()
-    }
-  },
-  30_000,
-)
+    const raw = stdout.join("")
+    const output = Bun.stripANSI(raw)
+    if (!output.includes("opencode2 -s dummy"))
+      throw new Error(
+        `Missing epilogue: ${JSON.stringify({ output: output.slice(-1000), stderr: stderr.join(""), requests })}`,
+      )
+    expect(output.match(/opencode2 -s dummy/g) ?? []).toHaveLength(1)
+    expect(output).toContain("Demo session")
+    expect(output).toContain("Active")
+    if (mode === "fixture") expect(output.endsWith("\n\n")).toBe(true)
+    if (mode === "cli") expect(raw).toContain("\x1b]0;\x07")
+    expect(stderr.join("")).toBe("")
+    expect(await Bun.file(cleanup).text()).toBe("setup\ncleanup:start\ncleanup:end\n")
+  } finally {
+    await Bun.write(gate, "continue\n")
+    if (child.exitCode === null) child.kill("SIGKILL")
+    await child.exited
+    await server.stop()
+  }
+}
 
 async function collect(stream: ReadableStream<Uint8Array>, chunks: string[]) {
   const decoder = new TextDecoder()
