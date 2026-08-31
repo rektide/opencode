@@ -129,6 +129,7 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
               commandTimeoutMs: yield* positiveIntEnv("OPENCODE_WATCHMAN_COMMAND_TIMEOUT_MS"),
               retryBaseMs: yield* positiveIntEnv("OPENCODE_WATCHMAN_RETRY_BASE_MS"),
               retryCapMs: yield* positiveIntEnv("OPENCODE_WATCHMAN_RETRY_CAP_MS"),
+              binary: process.env.OPENCODE_WATCHMAN_BINARY,
             },
             fff:
               process.env.OPENCODE_DISABLE_FFF === undefined

@@ -46,6 +46,7 @@ originals remain in the repo under their old change IDs.
 | `vsnyruwx` | `feat: make watcher timeouts configurable` - 60s default command deadline plus env and `ServerOptions` tuning for all watcher deadlines and reconnect backoff |
 | `wzqmrknl` | `docs(watchman): record timeout tuning` - timeout rationale in the design and maintenance record |
 | `nxxrysru` | `chore(core): lower default reconnect cap to 2s` - tighten the default ceiling of the jittered root recovery loop |
+| `sokysuus` | `feat: expose watchman binary override` - passthrough to the transport's existing CLI path option, plus per-root subscription counts in connection logs |
 
 The source-owner change stays in upstream's current `Config` and
 `ConfigSkillPlugin` modules rather than reviving the withdrawn
@@ -82,6 +83,7 @@ own `WatchInterests` plan, and no caller chooses Watchman routing.
 | `OPENCODE_WATCHMAN_COMMAND_TIMEOUT_MS` | `fs.watchman.commandTimeoutMs` | millis before an admitted command retires its root generation | 60000 |
 | `OPENCODE_WATCHMAN_RETRY_BASE_MS` / `OPENCODE_WATCHMAN_RETRY_CAP_MS` | `fs.watchman.retryBaseMs` / `fs.watchman.retryCapMs` | millis reconnect backoff growth and cap, about 30 percent jitter | 100 / 2000 |
 | `OPENCODE_WATCHER_SUBSCRIBE_TIMEOUT_MS` | `fs.subscribeTimeoutMs` | millis Parcel acquisition deadline | 10000 |
+| `OPENCODE_WATCHMAN_BINARY` | `fs.watchman.binary` | Watchman CLI path for socket discovery when `WATCHMAN_SOCK` is unset | `watchman` on `PATH` |
 | `OPENCODE_FILEWATCHER_DISABLE` / `OPENCODE_DISABLE_FILEWATCHER` | `fs.filewatcher` | truthy disables all watching (`fs.filewatcher: false` is the options form) | enabled |
 | `WATCHMAN_SOCK` | - | Watchman transport socket override | transport discovery |
 
@@ -201,6 +203,9 @@ known defect.
 - Consider extracting upstream's withdrawn `SkillSourceObserver` only if that
   ownership move is revived independently; the Watchman seam does not require
   it.
+- A fork PR adding a `sock` constructor option to the transport would let
+  `WATCHMAN_SOCK` move behind `ServerOptions`; env-only until then, since the
+  constructor accepts only `watchmanBinaryPath`.
 
 ## Cross-references
 
