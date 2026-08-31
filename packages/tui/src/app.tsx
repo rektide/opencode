@@ -223,7 +223,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
         restart: managed.restart,
       }
     : undefined
-  const exit = { epilogue: undefined as string | undefined, reason: undefined as unknown }
+  const exit = { epilogue: undefined as (() => string) | undefined, reason: undefined as unknown }
   const result = yield* Effect.scoped(
     Effect.gen(function* () {
       const options = {
@@ -454,7 +454,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
   yield* Effect.sync(() => {
     if (result.reason !== undefined)
       process.stderr.write((cliErrorMessage(result.reason) ?? errorFormat(result.reason)) + "\n")
-    if (result.epilogue) process.stdout.write(result.epilogue + "\n")
+    if (result.epilogue) process.stdout.write(result.epilogue() + "\n")
   })
 })
 
