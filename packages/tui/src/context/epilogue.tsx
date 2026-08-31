@@ -4,7 +4,11 @@ import { sessionEpilogue } from "../util/presentation"
 export type SessionEpilogueCandidate = {
   readonly title: string
   readonly sessionID: string
-  readonly updated: number
+  readonly activity: {
+    readonly status: "idle" | "running"
+    readonly updated: number
+    readonly idle?: number
+  }
 }
 
 type State =
@@ -18,6 +22,10 @@ export function createEpilogue() {
     set(candidate?: SessionEpilogueCandidate) {
       if (state.status !== "live") return
       state = { status: "live", candidate }
+    },
+    clear(sessionID: string) {
+      if (state.status !== "live" || state.candidate?.sessionID !== sessionID) return
+      state = { status: "live" }
     },
     freeze(now: number) {
       if (state.status !== "live") return
@@ -37,5 +45,5 @@ export function createEpilogue() {
 
 export const { use: useEpilogue, provider: EpilogueProvider } = createSimpleContext({
   name: "Epilogue",
-  init: (props: { set(value?: SessionEpilogueCandidate): void }) => props.set,
+  init: (props: { value: Pick<ReturnType<typeof createEpilogue>, "set" | "clear"> }) => props.value,
 })

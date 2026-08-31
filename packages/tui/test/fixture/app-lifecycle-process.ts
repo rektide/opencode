@@ -1,6 +1,5 @@
 import { NodeRuntime } from "@effect/platform-node"
 import { createTestRenderer } from "@opentui/core/testing"
-import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { Global } from "@opencode-ai/util/global"
 import { Effect, FileSystem } from "effect"
 import { pathToFileURL } from "node:url"
@@ -9,7 +8,8 @@ import { run } from "../../src/app.tsx"
 const server = process.env.OPENCODE_EPILOGUE_SERVER
 const ready = process.env.OPENCODE_EPILOGUE_READY
 const plugin = process.env.OPENCODE_EPILOGUE_PLUGIN
-if (!server || !ready || !plugin) throw new Error("Missing epilogue process fixture configuration")
+const state = process.env.OPENCODE_EPILOGUE_STATE
+if (!server || !ready || !plugin || !state) throw new Error("Missing epilogue process fixture configuration")
 
 const setup = await createTestRenderer({ width: 80, height: 24, useThread: false })
 const setTitle = setup.renderer.setTerminalTitle.bind(setup.renderer)
@@ -43,7 +43,7 @@ run({
   args: { sessionID: "dummy" },
   log: () => {},
 }).pipe(
-  Effect.provide(AppNodeBuilder.build(Global.node)),
+  Effect.provide(Global.layerWith({ state })),
   Effect.provide(FileSystem.layerNoop({})),
   Effect.scoped,
   Effect.tap(() => Effect.sync(() => process.exit(process.exitCode ?? 0))),
