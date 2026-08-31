@@ -4,7 +4,7 @@ import { createStore } from "solid-js/store"
 import { createEpilogue, epilogueLimits, trackEpilogueRows } from "../../src/context/epilogue.tsx"
 import type { EpilogueRow } from "../../src/util/presentation.ts"
 
-test("tracks ordered projections from live dependencies without following renderer frames", () => {
+test("tracks ordered projections and exposes the accepted hot-reload missing-row interval", () => {
   const [state, setState] = createStore({ first: "first", second: "second", active: true, unrelated: 0 })
   const [sessionID, setSessionID] = createSignal("ses_a")
   const [frame, setFrame] = createSignal(0)

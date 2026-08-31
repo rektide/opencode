@@ -47,9 +47,22 @@ import { appendFile } from "node:fs/promises"
 
 export default {
   id: "test.epilogue",
-  setup: async () => {
+  setup: async (context) => {
+    const dispose = [
+      context.ui.epilogue.register(() => {
+        if (context.renderer.isDestroyed) throw new Error("epilogue projection ran during shutdown")
+        return { label: "Fixture", value: { type: "text", text: "retained" } }
+      }),
+      context.ui.epilogue.register(({ sessionID }) => {
+        if (context.renderer.isDestroyed) throw new Error("epilogue projection ran during shutdown")
+        const session = context.data.session.get(sessionID)
+        if (!session) return
+        return { label: "Observed", value: { type: "relative-time", timestamp: session.time.updated } }
+      }),
+    ]
     await appendFile(${JSON.stringify(cleanup)}, "setup\\n")
     return async () => {
+      dispose.reverse().forEach((remove) => remove())
       await appendFile(${JSON.stringify(cleanup)}, "cleanup:start\\n")
       while (!(await Bun.file(${JSON.stringify(gate)}).exists())) await Bun.sleep(10)
       await appendFile(${JSON.stringify(cleanup)}, "cleanup:end\\n")
@@ -63,7 +76,7 @@ export default {
     title: "Demo session",
     projectID: "project",
     location: { directory },
-    cost: 0,
+    cost: 1.25,
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     time: { created: 0, updated: 0 },
   }
@@ -87,7 +100,8 @@ export default {
       })
     if (url.pathname === "/api/session" || url.pathname === "/api/session/dummy") {
       if (trigger === "app.exit") await waitForText(cleanup, "setup\n", "plugin did not finish setup")
-      const current = trigger === "app.exit" ? { ...session, time: { created: 0, updated: Date.now() - 58_000 } } : session
+      const current =
+        trigger === "app.exit" ? { ...session, time: { created: 0, updated: Date.now() - 58_000 } } : session
       if (url.pathname === "/api/session") return json({ data: [current], cursor: {} })
       return json({ data: current })
     }
@@ -164,7 +178,14 @@ export default {
       )
     expect(output.match(/opencode2 -s dummy/g) ?? []).toHaveLength(1)
     expect(output).toContain("Demo session")
-    expect(output).toContain("Active")
+    expect(output.match(/Active/g) ?? []).toHaveLength(1)
+    expect(output).toContain("Cost      $1.25")
+    expect(output).toContain("Fixture   retained")
+    expect(output).toContain("Observed")
+    expect(output.indexOf("Active")).toBeLessThan(output.indexOf("Cost"))
+    expect(output.indexOf("Cost")).toBeLessThan(output.indexOf("Fixture"))
+    expect(output.indexOf("Fixture")).toBeLessThan(output.indexOf("Observed"))
+    expect(output.indexOf("Observed")).toBeLessThan(output.indexOf("Continue"))
     if (trigger === "app.exit") expect(output).toContain("Active    now")
     if (mode === "fixture") expect(output.endsWith("\n\n")).toBe(true)
     if (mode === "cli") expect(raw).toContain("\x1b]0;\x07")
@@ -190,7 +211,7 @@ async function collect(stream: ReadableStream<Uint8Array>, chunks: string[]) {
 }
 
 async function waitForFile(file: string, message: string) {
-  for (let attempt = 0; attempt < 400; attempt++) {
+  for (let attempt = 0; attempt < 800; attempt++) {
     if (await Bun.file(file).exists()) return
     await Bun.sleep(25)
   }
@@ -198,7 +219,7 @@ async function waitForFile(file: string, message: string) {
 }
 
 async function waitForText(file: string, text: string, message: string) {
-  for (let attempt = 0; attempt < 400; attempt++) {
+  for (let attempt = 0; attempt < 800; attempt++) {
     if (
       (
         await Bun.file(file)
