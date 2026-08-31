@@ -338,6 +338,7 @@ test("SIGINT prints the session epilogue after cleanup", async () => {
     await task
 
     expect(stdout).toContain("Renamed session")
+    expect(stdout).toContain("Active")
     expect(stdout).toContain("opencode2 -s dummy")
     expect(promptRequests).toBe(0)
   } finally {
