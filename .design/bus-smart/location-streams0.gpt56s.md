@@ -696,6 +696,9 @@ or overlapping handoff. It is the recommended real fix.
 
 ## Cross-references
 
+- [Focused controlled-SSE draft](/.design/bus-smart/controlled-draft0.gpt56s.md)
+  specifies batch add/remove/replace control, server-derived move coverage,
+  transport-local messages, and the carryable Effect v4 EventFeed shape.
 - [Initial bus-smart design](/.design/bus-smart/bus-smart.glm53.md) establishes
   the firehose diagnosis and Bus routing source of truth.
 - [Downstream-patch assessment](/.design/bus-smart/review0.gpt56s.md) identifies
