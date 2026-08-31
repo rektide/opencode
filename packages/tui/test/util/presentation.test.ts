@@ -19,6 +19,34 @@ test("formats session continuation summary", () => {
   expect(epilogue).toContain("opencode2 -s ses_123")
 })
 
+test("formats supplemental rows before Continue with one freeze clock", () => {
+  const now = 2_000_000_000_000
+  const epilogue = Bun.stripANSI(
+    sessionEpilogue(
+      {
+        title: "A session",
+        sessionID: "ses_123",
+        activity: { status: "idle", updated: now },
+      },
+      now,
+      [
+        { label: "Cost", value: { type: "text", text: "$1.25" } },
+        { label: "Last synchronized", value: { type: "relative-time", timestamp: now - 17 * 60_000 } },
+      ],
+    ),
+  )
+  const rows = epilogue.split("\n").filter((line) => /Session|Active|Cost|Last synchronized|Continue/.test(line))
+
+  expect(rows).toEqual([
+    "  Session   A session",
+    "  Active    now",
+    "  Cost      $1.25",
+    "  Last synchronized 17m ago",
+    "  Continue  opencode2 -s ses_123",
+  ])
+  expect(epilogue.match(/Active/g)).toHaveLength(1)
+})
+
 test.each([
   ["running activity", "running", 17 * 60_000, undefined, "running"],
   ["current activity", "idle", 0, undefined, "now"],
