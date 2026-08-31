@@ -1,5 +1,14 @@
 import { logo } from "../logo"
-import type { SessionEpilogueCandidate } from "../context/epilogue.tsx"
+
+export type SessionEpilogueCandidate = {
+  readonly title: string
+  readonly sessionID: string
+  readonly activity: {
+    readonly status: "idle" | "running"
+    readonly updated: number
+    readonly idle?: number
+  }
+}
 
 const reset = "\x1b[0m"
 const bold = "\x1b[1m"

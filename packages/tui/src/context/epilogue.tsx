@@ -1,15 +1,5 @@
 import { createSimpleContext } from "./helper"
-import { sessionEpilogue } from "../util/presentation.ts"
-
-export type SessionEpilogueCandidate = {
-  readonly title: string
-  readonly sessionID: string
-  readonly activity: {
-    readonly status: "idle" | "running"
-    readonly updated: number
-    readonly idle?: number
-  }
-}
+import { sessionEpilogue, type SessionEpilogueCandidate } from "../util/presentation.ts"
 
 type State =
   | { readonly status: "live"; readonly candidate?: SessionEpilogueCandidate }
