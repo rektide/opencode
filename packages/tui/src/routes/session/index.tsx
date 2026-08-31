@@ -160,7 +160,7 @@ export function Session(props: {
   visibleTerminalID?: string
   width?: number
 }) {
-  const setEpilogue = useEpilogue()
+  const epilogue = useEpilogue()
   const clipboard = useClipboard()
   const writeExport = async (file: string, content: string) => {
     await mkdir(path.dirname(file), { recursive: true })
@@ -198,14 +198,18 @@ export function Session(props: {
 
   createEffect(() => {
     const current = session()
-    if (!current) return setEpilogue()
-    setEpilogue({
+    if (!current) return epilogue.set()
+    epilogue.set({
       title: Locale.truncate(current.title ?? "", 50),
       sessionID: current.id,
-      updated: current.time.updated,
+      activity: {
+        status: data.session.status(current.id),
+        updated: current.time.updated,
+        idle: current.time.idle,
+      },
     })
   })
-  onCleanup(() => setEpilogue())
+  onCleanup(() => epilogue.clear(sessionID))
   const descendantSessionIDs = createMemo(() => {
     if (session()?.parentID) return []
     return data.session.family(route.sessionID).filter((id) => id !== route.sessionID)
