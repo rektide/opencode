@@ -234,3 +234,57 @@ From `packages/tui` (after `bun install` at the workspace root):
   `validates animation playback speed` both pass).
 - `bun typecheck` (`tsgo -b`) — clean, exit 0, verified both at the
   bookmarked feature commit standalone and at the full workspace tip.
+
+# Addendum 6 — 2026-08-30 — refresh onto 6a2c3e91c780
+
+## What moved
+
+Duplicate-then-rebase refresh of the whole workspace line (8 commits: feature
+code, test pin, and docs) from old base `e70d667a9fe3` onto the `v2@origin`
+tip `6a2c3e91c780` ("feat(plugin): add typed rpc and custom events
+(#46105)"). The originals and all dated snapshots
+(`pulse-3fps-20260813/-20260817/-20260818/-20260829`) are untouched;
+`pulse-3fps` and the new same-day `pulse-3fps-20260830` point at the
+duplicated line's tip (this docs commit included, per the bookmark
+convention).
+
+## Overlap with upstream plugin/RPC work — both intents preserved
+
+Upstream `6a2c3e91c780` also touches `packages/tui/src/app.tsx`: it renames
+`tuiPluginDirectories` → `localPluginDirectories` (the import and the
+`pluginDirectories` call), part of the typed-RPC/custom-events plugin
+rework. The feature's `app.tsx` hunks live in the distinct renderer-options
+region (`targetFps` fallback and the `handoff.renderer.targetFps`
+propagation). The regions do not overlap, so the rebase merged cleanly with
+**zero textual conflicts**, and the merged tree was inspected to confirm
+both sides: the renamed `localPluginDirectories` import/call (upstream
+intent) alongside `targetFps: typeof config.animations === "number" ?
+config.animations : 8` and the handoff assignment (feature intent). No other
+upstream commit in `e70d667a..6a2c3e91` touches any file this line edits
+(verified per-file with `files()` revsets).
+
+## Diffstat
+
+Freshened line vs `6a2c3e91c780` is identical in shape to the previous line
+vs `e70d667a9fe3`: the same 9 files, +356/−17, before this docs commit.
+No file the old line did not touch; no diff creep. Upstream `6a2c3e91c780`
+and `4df30295366b` changed `package.json`/`bun.lock`, so `bun install` was
+re-run at the workspace root before verification.
+
+## Verification (2026-08-30)
+
+From `packages/tui`:
+
+- `bun test test/config-v2.test.tsx` — 22 pass, 0 fail, 167 expect() calls
+  (identical to the 2026-08-29 baseline; the animation frame-rate and
+  playback-speed cases pass).
+- `bun test test/component/tab-pulse.test.tsx` — 8 pass, 0 fail, 170
+  expect() calls (matches the manifest's tab-pulse count).
+- `bun typecheck` (`tsgo -b`) — clean, exit 0.
+
+## Confidence
+
+High. Mechanical rebase with zero conflicts; the one same-file overlap
+(`app.tsx`, plugin/RPC rename vs renderer throttle) is a trivial
+region-disjoint union verified in the merged tree; focused-test and
+typecheck counts match the previously recorded baseline exactly.
