@@ -490,6 +490,15 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: Interface, p
       list: sessionList,
       children: (input) => sessionList({ cursor: input.cursor, limit: input.limit }, input.sessionID),
       messages: sessionMessages,
+      active: () =>
+        runtime.session.active.pipe(
+          Effect.map((active) =>
+            Object.fromEntries(Array.from(active, (sessionID) => [sessionID, { type: "running" as const }])),
+          ),
+        ),
+      inbox: {
+        list: (input) => runtime.session.inbox(input.sessionID),
+      },
       create: (input) =>
         runtime.session.create({
           id: input?.id,

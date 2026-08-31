@@ -656,12 +656,16 @@ const page = await ctx.session.list({ directory: ctx.location.directory, limit: 
 const children = await ctx.session.children({ sessionID, limit: 50 })
 const history = await ctx.session.messages({ sessionID, order: "asc", limit: 50 })
 const context = await ctx.session.context({ sessionID })
+const pending = await ctx.session.inbox.list({ sessionID })
+const active = await ctx.session.active()
 ```
 
 `list`, `children`, and `messages` return `cursor.previous` and `cursor.next`
 values for pagination. `messages` reads retained history across completed
 compactions, while `context` returns only the messages in the active model
-context after the last completed compaction.
+context after the last completed compaction. `inbox.list` returns durable work
+that has not yet been delivered. `active` reports sessions currently running in
+this OpenCode process. The plugin inbox surface is read-only.
 
 Change the agent or model used by subsequent requests.
 
@@ -697,6 +701,10 @@ interface SessionContext {
   list(input?: SessionListInput, requestOptions?: RequestOptions): Promise<SessionListOutput>
   children(input: SessionChildrenInput): Promise<SessionListOutput>
   messages(input: MessageListInput, requestOptions?: RequestOptions): Promise<MessageListOutput>
+  active(requestOptions?: RequestOptions): Promise<SessionActiveOutput>
+  inbox: {
+    list(input: SessionInboxListInput, requestOptions?: RequestOptions): Promise<readonly SessionInboxInfo[]>
+  }
   create(input?: SessionCreateInput, requestOptions?: RequestOptions): Promise<SessionInfo>
   get(input: SessionGetInput, requestOptions?: RequestOptions): Promise<SessionInfo>
   context(input: SessionContextInput, requestOptions?: RequestOptions): Promise<readonly SessionMessageInfo[]>
