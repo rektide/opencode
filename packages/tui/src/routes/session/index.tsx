@@ -75,7 +75,6 @@ import { PermissionPrompt } from "./permission"
 import { FormPrompt } from "./form"
 import { DialogExportOptions } from "../../ui/dialog-export-options"
 import { DialogExportResult } from "../../ui/dialog-export-result"
-import { sessionEpilogue } from "../../util/presentation"
 import { useConfig } from "../../config"
 import { useClipboard } from "../../context/clipboard"
 import { nextThinkingMode, reasoningSummary, type ThinkingMode } from "../../context/thinking"
@@ -202,8 +201,12 @@ export function Session(props: {
 
   createEffect(() => {
     const current = session()
-    const title = Locale.truncate(current?.title ?? "", 50)
-    setEpilogue(() => sessionEpilogue({ title, sessionID: current?.id, updated: current?.time.updated }))
+    if (!current) return setEpilogue()
+    setEpilogue({
+      title: Locale.truncate(current.title ?? "", 50),
+      sessionID: current.id,
+      updated: current.time.updated,
+    })
   })
   onCleanup(() => setEpilogue())
   const descendantSessionIDs = createMemo(() => {

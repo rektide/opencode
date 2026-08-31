@@ -23,20 +23,20 @@ function wordmark(pad = "") {
   })
 }
 
-export function sessionEpilogue(input: { title: string; sessionID?: string; updated?: number }) {
+export function sessionEpilogue(input: { title: string; sessionID: string; updated: number }, now: number) {
   const weak = (text: string) => `${dim}${text.padEnd(10, " ")}${reset}`
   return [
     ...wordmark("  "),
     "",
     `  ${weak("Session")}${bold}${input.title}${reset}`,
-    ...(input.updated === undefined ? [] : [`  ${weak("Active")}${bold}${activeAgo(input.updated)}${reset}`]),
+    `  ${weak("Active")}${bold}${activeAgo(input.updated, now)}${reset}`,
     `  ${weak("Continue")}${bold}opencode2 -s ${input.sessionID}${reset}`,
     "",
   ].join("\n")
 }
 
-function activeAgo(updated: number) {
-  const minutes = Math.max(0, Math.floor((Date.now() - updated) / 60_000))
+function activeAgo(updated: number, now: number) {
+  const minutes = Math.max(0, Math.floor((now - updated) / 60_000))
   if (minutes < 1) return "now"
 
   const hours = Math.floor(minutes / 60)
