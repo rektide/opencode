@@ -23,13 +23,24 @@ function wordmark(pad = "") {
   })
 }
 
-export function sessionEpilogue(input: { title: string; sessionID: string; updated: number }, now: number) {
+export function sessionEpilogue(
+  input: {
+    title: string
+    sessionID: string
+    activity: { status: "idle" | "running"; updated: number; idle?: number }
+  },
+  now: number,
+) {
   const weak = (text: string) => `${dim}${text.padEnd(10, " ")}${reset}`
   return [
     ...wordmark("  "),
     "",
     `  ${weak("Session")}${bold}${input.title}${reset}`,
-    `  ${weak("Active")}${bold}${activeAgo(input.updated, now)}${reset}`,
+    `  ${weak("Active")}${bold}${
+      input.activity.status === "running"
+        ? "running"
+        : activeAgo(Math.max(input.activity.updated, input.activity.idle ?? input.activity.updated), now)
+    }${reset}`,
     `  ${weak("Continue")}${bold}opencode2 -s ${input.sessionID}${reset}`,
     "",
   ].join("\n")

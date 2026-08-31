@@ -7,7 +7,10 @@ test("formats session continuation summary", () => {
     {
       title: "A session",
       sessionID: "ses_123",
-      updated: now - (3 * 24 + 4) * 60 * 60_000,
+      activity: {
+        status: "idle",
+        updated: now - (3 * 24 + 4) * 60 * 60_000,
+      },
     },
     now,
   )
@@ -17,12 +20,27 @@ test("formats session continuation summary", () => {
 })
 
 test.each([
-  ["current activity", 0, "now"],
-  ["minutes", 17 * 60_000, "17m ago"],
-  ["hours and minutes", (4 * 60 + 17) * 60_000, "4hr 17m ago"],
-  ["whole days", 3 * 24 * 60 * 60_000, "3d ago"],
-])("formats %s", (_, elapsed, expected) => {
+  ["running activity", "running", 17 * 60_000, undefined, "running"],
+  ["current activity", "idle", 0, undefined, "now"],
+  ["minutes", "idle", 17 * 60_000, undefined, "17m ago"],
+  ["later idle time", "idle", 17 * 60_000, 3 * 60_000, "3m ago"],
+  ["later updated time", "idle", 3 * 60_000, 17 * 60_000, "3m ago"],
+  ["hours and minutes", "idle", (4 * 60 + 17) * 60_000, undefined, "4hr 17m ago"],
+  ["whole days", "idle", 3 * 24 * 60 * 60_000, undefined, "3d ago"],
+  ["future activity", "idle", -60_000, undefined, "now"],
+] as const)("formats %s", (_, status, updated, idle, expected) => {
   const now = 2_000_000_000_000
-  const epilogue = sessionEpilogue({ title: "A session", sessionID: "ses_123", updated: now - elapsed }, now)
+  const epilogue = sessionEpilogue(
+    {
+      title: "A session",
+      sessionID: "ses_123",
+      activity: {
+        status,
+        updated: now - updated,
+        idle: idle === undefined ? undefined : now - idle,
+      },
+    },
+    now,
+  )
   expect(Bun.stripANSI(epilogue)).toContain(`Active    ${expected}`)
 })
