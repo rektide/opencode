@@ -76,6 +76,8 @@ export const Options = Schema.Struct({
       retryBaseMs: Schema.optional(Schema.Number),
       retryCapMs: Schema.optional(Schema.Number),
       binary: Schema.optional(Schema.String),
+      metricsIntervalMs: Schema.optional(Schema.Number),
+      metricsMode: Schema.optional(Schema.Literals(["wide", "lines"])),
     }),
   ),
 })

@@ -4,6 +4,7 @@ import path from "node:path"
 import { Deferred, Effect, Fiber, Queue, RcMap, Schema, Scope, Semaphore } from "effect"
 import type { Watcher } from "../../watcher.js"
 import { capabilities, command, makeGeneration, type Generation, type RawClientFactory } from "./client.js"
+import { WatchmanMetrics, type MetricsMode, type SubMetrics } from "./metrics.js"
 import { resolve, subscription, type RootIntent, type Route, type SubscriptionRoute } from "./route.js"
 import {
   ClockResponse,
@@ -32,6 +33,7 @@ type SubscriptionState = {
   readonly input: Input
   readonly queue: Queue.Queue<unknown>
   readonly stop: Deferred.Deferred<void>
+  readonly sub: SubMetrics
   clock?: string
   established?: Established
 }
@@ -41,6 +43,12 @@ export type Options = {
   readonly retryBaseMs?: number
   readonly retryCapMs?: number
   readonly binary?: string
+  /** Console dump period in millis; zero or absent disables metric emission. */
+  readonly metricsIntervalMs?: number
+  /** `wide` logs one JSON line per dump, `lines` adds one line per channel. */
+  readonly metricsMode?: MetricsMode
+  /** Emission sink; defaults to `console.log`. Test seam. */
+  readonly metricsLog?: (line: string) => void
 }
 
 export type Registry = {
@@ -48,6 +56,7 @@ export type Registry = {
     intent: RootIntent,
     input: Input,
   ) => Effect.Effect<Watcher.Subscription, WatchmanError, Scope.Scope>
+  readonly metrics: WatchmanMetrics
 }
 
 const RETRY_BASE_MS = 100
@@ -55,20 +64,43 @@ const RETRY_CAP_MS = 2000
 
 export const makeRegistry = (factory: RawClientFactory, options?: Options) =>
   Effect.gen(function* () {
+    const metrics = new WatchmanMetrics(options?.metricsLog)
     const roots = yield* RcMap.make({
-      lookup: (intent: RootIntent) => makeConnection(intent, factory, options),
+      lookup: (intent: RootIntent) => makeConnection(intent, factory, options, metrics),
     })
+    const intervalMs = options?.metricsIntervalMs ?? 0
+    if (intervalMs > 0) {
+      const mode = options?.metricsMode ?? "wide"
+      yield* Effect.gen(function* () {
+        while (true) {
+          yield* Effect.sleep(intervalMs)
+          metrics.emit("interval", intervalMs, mode)
+        }
+      }).pipe(Effect.forkScoped)
+      // Epilogue: one last dump when the registry's scope closes, so short-lived
+      // processes still surface their counters.
+      yield* Effect.addFinalizer(() => Effect.sync(() => metrics.emit("final", intervalMs, mode)))
+    }
     return {
-      subscribe: (intent, input) =>
+      subscribe: (intent: RootIntent, input: Input) =>
         Effect.gen(function* () {
+          metrics.acquire()
           const connection = yield* RcMap.get(roots, intent)
           return yield* connection.subscribe(input)
         }),
+      metrics,
     } satisfies Registry
   })
 
-const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?: Options) =>
+const makeConnection = (
+  intent: RootIntent,
+  factory: RawClientFactory,
+  options: Options | undefined,
+  metrics: WatchmanMetrics,
+) =>
   Effect.gen(function* () {
+    const channel = metrics.channel(intent)
+    channel.connection()
     const generations = new Set<Generation>()
     const subscriptions = new Map<number, SubscriptionState>()
     const connection = Semaphore.makeUnsafe(1)
@@ -85,6 +117,7 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
       Effect.sync(() => {
         if (Deferred.isDoneUnsafe(generation.closed)) return
         Deferred.doneUnsafe(generation.closed, Effect.void)
+        channel.generationEnd()
         generation.client.end()
         generation.subscriptions.clear()
         generations.delete(generation)
@@ -110,8 +143,9 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
         try: factory,
         catch: (cause) => new WatchmanError("connect", "Failed to create Watchman client", cause),
       })
-      const generation = makeGeneration(++nextGeneration, client)
+      const generation = makeGeneration(++nextGeneration, client, channel)
       generations.add(generation)
+      channel.generationStart(generation.id)
       const disconnect = (cause?: unknown) => Effect.runFork(close(generation, cause))
       client.on("subscription", (value: unknown) => {
         if (!value || typeof value !== "object" || !("subscription" in value)) return
@@ -150,7 +184,10 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
           return yield* create.pipe(
             Effect.tapError((error) =>
               Effect.sync(() => {
-                if (error.stage === "decode" || error.stage === "route") state.fatal = error
+                if (error.stage === "decode" || error.stage === "route") {
+                  state.fatal = error
+                  channel.fatalChange()
+                }
               }),
             ),
           )
@@ -213,6 +250,7 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
           Effect.tap((result) =>
             Effect.sync(() => {
               item.clock = result.clock
+              item.sub.atClock(result.clock)
               if (result.response.warning)
                 Effect.runFork(
                   Effect.logWarning("watchman subscription warning", { name, warning: result.response.warning }),
@@ -220,7 +258,14 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
             }),
           ),
           Effect.map(() => ({ generation: root.generation, route, name }) satisfies Established),
-          Effect.tap((established) => Effect.sync(() => (item.established = established))),
+          Effect.tap((established) =>
+            Effect.sync(() => {
+              item.established = established
+              const resubscribe = previous !== undefined
+              channel.establishedOnce(resubscribe)
+              if (resubscribe) item.sub.resubscribed()
+            }),
+          ),
           Effect.onError(() => Effect.sync(() => root.generation.subscriptions.delete(name))),
         )
       })
@@ -230,6 +275,7 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
         established.generation.subscriptions.delete(established.name)
         if (item.established === established) item.established = undefined
         if (!unsubscribe || Deferred.isDoneUnsafe(established.generation.closed)) return
+        channel.unsubscribed()
         Effect.runFork(
           command(
             established.generation,
@@ -251,6 +297,7 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
         Deferred.isDoneUnsafe(state.active.generation.closed))
 
     const recoverRoot = (attempt = 0): Effect.Effect<RootGeneration, WatchmanError> => {
+      channel.attempt()
       const interval = Math.min(
         options?.retryCapMs ?? RETRY_CAP_MS,
         (options?.retryBaseMs ?? RETRY_BASE_MS) * 2 ** attempt,
@@ -261,6 +308,7 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
         Effect.catch((error) => {
           if (error.stage === "decode" || error.stage === "route") {
             state.fatal = error
+            channel.fatalChange()
             return Effect.fail(error)
           }
           return recoverRoot(attempt + 1)
@@ -278,11 +326,13 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
             if (state.recovering) return { type: "pending" as const, deferred: state.recovering }
             const deferred = Deferred.makeUnsafe<RootGeneration, WatchmanError>()
             state.recovering = deferred
+            channel.recoveringChange(true)
             yield* recoverRoot().pipe(
               Deferred.into(deferred),
               Effect.ensuring(
                 Effect.sync(() => {
                   if (state.recovering === deferred) state.recovering = undefined
+                  channel.recoveringChange(false)
                 }),
               ),
               Effect.forkIn(scope),
@@ -326,6 +376,7 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
           yield* Effect.logWarning("watchman subscription warning", { name: established.name, warning: pdu.warning })
         if ("canceled" in pdu) {
           item.input.publish({ path: item.input.target, type: "update" })
+          item.sub.pdu({ canceled: true, fresh: false, files: 0, published: 1 })
           yield* detach(item, established, false)
           const root = yield* current()
           const next = yield* establish(item, root, established).pipe(
@@ -334,21 +385,26 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
           return yield* loop(item, next)
         }
         item.clock = pdu.clock
+        item.sub.atClock(pdu.clock)
         if (pdu.is_fresh_instance) {
           item.input.publish({ path: item.input.target, type: "update" })
+          item.sub.pdu({ canceled: false, fresh: true, files: pdu.files.length, published: 1 })
           return yield* loop(item, established)
         }
-        publishFiles(item.input, established.route, pdu.files)
+        const published = publishFiles(item.input, established.route, pdu.files)
+        item.sub.pdu({ canceled: false, fresh: false, files: pdu.files.length, published })
         return yield* loop(item, established)
       })
 
     const subscribe = (input: Input) =>
       Effect.gen(function* () {
+        const id = ++nextSubscription
         const item: SubscriptionState = {
-          id: ++nextSubscription,
+          id,
           input,
           queue: yield* Queue.unbounded<unknown>(),
           stop: Deferred.makeUnsafe<void>(),
+          sub: channel.sub(id, subTarget(intent, input.target)),
         }
         subscriptions.set(item.id, item)
         return yield* Effect.gen(function* () {
@@ -356,10 +412,10 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
           const fiber = yield* loop(item, initial).pipe(
             Effect.catch((error) => Effect.sync(() => input.fail(error))),
             Effect.ensuring(
-              Effect.suspend(() => (item.established ? detach(item, item.established, true) : Effect.void)).pipe(
-                Effect.andThen(Effect.sync(() => subscriptions.delete(item.id))),
-                Effect.andThen(Queue.shutdown(item.queue)),
-              ),
+              Effect.suspend(() => (item.established ? detach(item, item.established, true) : Effect.void))
+                .pipe(Effect.andThen(Effect.sync(() => item.sub.end())))
+                .pipe(Effect.andThen(Effect.sync(() => subscriptions.delete(item.id))))
+                .pipe(Effect.andThen(Queue.shutdown(item.queue))),
             ),
             Effect.forkScoped({ startImmediately: true }),
           )
@@ -372,14 +428,27 @@ const makeConnection = (intent: RootIntent, factory: RawClientFactory, options?:
           } satisfies Watcher.Subscription
         }).pipe(
           Effect.onError(() =>
-            Effect.sync(() => subscriptions.delete(item.id)).pipe(Effect.andThen(Queue.shutdown(item.queue))),
+            Effect.sync(() => channel.acquisitionFailure())
+              .pipe(Effect.andThen(Effect.sync(() => item.sub.end())))
+              .pipe(Effect.andThen(Effect.sync(() => subscriptions.delete(item.id))))
+              .pipe(Effect.andThen(Queue.shutdown(item.queue))),
           ),
         )
       })
 
-    yield* Effect.addFinalizer(() => Effect.forEach(generations, (generation) => close(generation)).pipe(Effect.asVoid))
+    yield* Effect.addFinalizer(() =>
+      Effect.forEach(generations, (generation) => close(generation))
+        .pipe(Effect.andThen(Effect.sync(() => channel.closed())))
+        .pipe(Effect.asVoid),
+    )
     return { subscribe }
   })
+
+function subTarget(intent: RootIntent, target: string) {
+  if (intent.type === "exact") return target
+  const relative = path.relative(intent.project, target).split(path.sep).join("/")
+  return relative.startsWith("../") ? target : relative
+}
 
 function expression(route: SubscriptionRoute, ignore: readonly string[]): readonly unknown[] {
   const terms = ignore.flatMap((value) => {
@@ -394,6 +463,7 @@ function expression(route: SubscriptionRoute, ignore: readonly string[]): readon
   return terms.length === 0 ? ["true"] : ["not", ["anyof", ...terms]]
 }
 
+/** Publishes non-ignored updates for one PDU and returns how many were published. */
 function publishFiles(
   input: Input,
   route: SubscriptionRoute,
@@ -401,7 +471,7 @@ function publishFiles(
 ) {
   const globs = input.ignore.filter((value) => isGlob(value))
   const paths = input.ignore.filter((value) => !isGlob(value)).map((value) => path.resolve(route.eventRoot, value))
-  files
+  const updates = files
     .flatMap((file) => {
       const target = path.resolve(route.eventRoot, file.name)
       const relative = path.relative(route.eventRoot, target).split(path.sep).join("/")
@@ -417,5 +487,6 @@ function publishFiles(
               : undefined
       return type ? [{ path: target, type }] : []
     })
-    .forEach(input.publish)
+  updates.forEach(input.publish)
+  return updates.length
 }
