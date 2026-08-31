@@ -69,7 +69,7 @@ export default {
   }
   const sessionReady = Promise.withResolvers<void>()
   const requests: string[] = []
-  const calls = createFetch((url) => {
+  const calls = createFetch(async (url) => {
     requests.push(url.pathname)
     if (url.pathname === "/api/health") return json({ healthy: true, version: "local", pid: process.pid })
     if (url.pathname === "/api/server") return json({ urls: [] })
@@ -85,8 +85,12 @@ export default {
           },
         ],
       })
-    if (url.pathname === "/api/session") return json({ data: [session], cursor: {} })
-    if (url.pathname === "/api/session/dummy") return json({ data: session })
+    if (url.pathname === "/api/session" || url.pathname === "/api/session/dummy") {
+      if (trigger === "app.exit") await waitForText(cleanup, "setup\n", "plugin did not finish setup")
+      const current = trigger === "app.exit" ? { ...session, time: { created: 0, updated: Date.now() - 58_000 } } : session
+      if (url.pathname === "/api/session") return json({ data: [current], cursor: {} })
+      return json({ data: current })
+    }
     if (url.pathname === "/api/session/dummy/message") return json({ data: [], cursor: {} })
     if (url.pathname === "/api/session/dummy/inbox") return json({ data: [] })
     if (url.pathname === "/api/session/dummy/permission") {
@@ -144,7 +148,7 @@ export default {
     if (trigger === "app.exit") await Bun.write(exit, "exit\n")
     if (trigger !== "app.exit") child.kill(trigger)
     await waitForText(cleanup, "cleanup:start\n", "plugin cleanup did not start")
-    await Bun.sleep(150)
+    await Bun.sleep(trigger === "app.exit" ? 3_000 : 150)
     if (mode === "fixture") expect(stdout.join("")).toBe("")
     if (mode === "cli") expect(Bun.stripANSI(stdout.join(""))).not.toContain("opencode2 -s dummy")
 
@@ -161,6 +165,7 @@ export default {
     expect(output.match(/opencode2 -s dummy/g) ?? []).toHaveLength(1)
     expect(output).toContain("Demo session")
     expect(output).toContain("Active")
+    if (trigger === "app.exit") expect(output).toContain("Active    now")
     if (mode === "fixture") expect(output.endsWith("\n\n")).toBe(true)
     if (mode === "cli") expect(raw).toContain("\x1b]0;\x07")
     expect(stderr.join("")).toBe("")
