@@ -143,7 +143,49 @@ test("row updates allocate no renderables or frames, and renderer frames do not 
   }
 })
 
-test("isolates invalid projections, copies rows, and enforces per-plugin budgets", () => {
+test("freezes projection scope so one plugin cannot alter later Session input", () => {
+  let mutation: boolean | undefined
+  let rows: readonly EpilogueRow[] = []
+
+  createRoot((dispose) => {
+    trackEpilogueRows({
+      sessionID: () => "ses_expected",
+      groups: () => [
+        {
+          plugin: "mutating",
+          projections: [
+            {
+              key: "mutating#0",
+              project: (scope) => {
+                mutation = Reflect.set(scope, "sessionID", "ses_other")
+                return undefined
+              },
+            },
+          ],
+        },
+        {
+          plugin: "later",
+          projections: [
+            {
+              key: "later#0",
+              project: (scope) => ({ label: "Observed", value: { type: "text", text: scope.sessionID } }),
+            },
+          ],
+        },
+      ],
+      publish: (retained) => {
+        rows = retained?.rows ?? []
+      },
+      report: () => {},
+    })
+    dispose()
+  })
+
+  expect(mutation).toBe(false)
+  expect(rows).toEqual([{ label: "Observed", value: { type: "text", text: "ses_expected" } }])
+})
+
+test("isolates invalid projections, copies rows, and enforces per-plugin budgets", async () => {
   const source = { label: "Before", value: { type: "text", text: "copied" } }
   const issues: string[] = []
   let rows: readonly EpilogueRow[] = []
@@ -171,14 +213,20 @@ test("isolates invalid projections, copies rows, and enforces per-plugin budgets
               },
             },
             { key: "promise", project: () => Promise.resolve(source) },
+            { key: "rejected", project: () => Promise.reject(new Error("rejected")) },
             { key: "newline", project: () => ({ label: "Bad", value: { type: "text", text: "two\nlines" } }) },
             { key: "ansi", project: () => ({ label: "\x1b[31mBad", value: { type: "text", text: "ansi" } }) },
             {
               key: "oversized",
               project: () => ({ label: "Long", value: { type: "text", text: "x".repeat(epilogueLimits.text + 1) } }),
             },
-            { key: "reserved", project: () => ({ label: "Active", value: { type: "text", text: "fake" } }) },
             { key: "after", project: () => ({ label: "After", value: { type: "relative-time", timestamp: 42 } }) },
+          ],
+        },
+        {
+          plugin: "reserved",
+          projections: [
+            { key: "reserved", project: () => ({ label: "Active", value: { type: "text", text: "fake" } }) },
           ],
         },
         { plugin: "budget", projections: valid },
@@ -190,6 +238,7 @@ test("isolates invalid projections, copies rows, and enforces per-plugin budgets
     })
     dispose()
   })
+  await Promise.resolve()
 
   source.label = "Mutated"
   source.value.text = "mutated"
@@ -200,6 +249,7 @@ test("isolates invalid projections, copies rows, and enforces per-plugin budgets
   expect(issues).toEqual([
     "throw:projection",
     "promise:validation",
+    "rejected:validation",
     "newline:validation",
     "ansi:validation",
     "oversized:validation",
