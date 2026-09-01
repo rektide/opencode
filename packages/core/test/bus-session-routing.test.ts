@@ -30,6 +30,7 @@ const otherWorkspace = Location.Ref.make({ directory: a.directory, workspaceID: 
 const id = SessionID.make("ses_routing")
 const Done = Bus.ephemeral({ type: "test.routing.done", schema: {} })
 const Global = Bus.ephemeral({ type: "test.routing.global", schema: { sessionID: SessionID } })
+const Located = Bus.ephemeral({ type: "test.routing.located", schema: { sessionID: SessionID } })
 
 const seed = Effect.fn(function* (ref: Location.Ref = a) {
   const database = yield* Database.Service
@@ -67,6 +68,34 @@ const delta = (bus: Bus.Interface) =>
   })
 
 describe("Bus Session routing", () => {
+  it.effect("reports publication-time audience without inferring Session identity from payload shape", () =>
+    Effect.gen(function* () {
+      yield* seed()
+      const bus = yield* Bus.Service
+      const observed: Bus.RoutedEvent[] = []
+      yield* bus.observeRouted((input) => Effect.sync(() => observed.push(input)))
+
+      const global = yield* bus.publish(Done, {})
+      const located = yield* bus.publish(Located, { sessionID: id }, { location: otherWorkspace })
+      const session = yield* bus.publish(SessionEvent.Renamed, { sessionID: id, title: "routed" })
+      const pinned = yield* bus.publish(SessionEvent.Execution.Succeeded, { sessionID: id }, { location: b })
+      yield* bus.publish(SessionEvent.Deleted, { sessionID: id })
+      const missing = yield* delta(bus)
+
+      expect(observed).toEqual([
+        { event: global, audience: { type: "global" } },
+        { event: located, audience: { type: "locations", refs: [otherWorkspace] } },
+        { event: session, audience: { type: "locations", refs: [a], sessionID: id } },
+        { event: pinned, audience: { type: "locations", refs: [b], sessionID: id } },
+        {
+          event: expect.objectContaining({ type: "session.deleted" }),
+          audience: { type: "locations", refs: [a], sessionID: id },
+        },
+        { event: missing, audience: { type: "locations", refs: [], sessionID: id } },
+      ])
+    }),
+  )
+
   it.effect("delivers workspace-only moves to both owners without duplicating same-location moves", () =>
     Effect.gen(function* () {
       yield* seed()
