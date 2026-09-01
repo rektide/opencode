@@ -71,9 +71,9 @@ by registration order within that plugin; duplicate labels remain legal.
 
 ## Invariants
 
-1. Projections run only in the live Solid tree. Freeze and output invoke no plugin projection or formatter.
+1. Projections run only in the live Solid tree. Freeze and output invoke no plugin projection or formatter; accidentally returned promises are observed and omitted so rejections cannot escape.
 2. Retained values are fresh frozen objects and one frozen array, never plugin-owned JSX, callbacks, or mutable cells.
-3. A retained row is used only when its Session ID matches the core candidate's Session ID.
+3. Projection scope is frozen, and a retained row is used only when its Session ID matches the core candidate's Session ID.
 4. `Session`, `Active`, and `Continue` remain an unsuppressible host envelope. Plugin rows occupy one additive lane before `Continue`.
 5. `Active` stays core-owned and its label is reserved, so the final output contains exactly one mandatory activity row.
 6. Each projection fails independently. Throws, thenables, malformed values, terminal controls, newlines, and oversize values cannot suppress later or core rows.
@@ -91,6 +91,9 @@ The registry is split into independently reviewable commits:
 3. `feat(tui): show session cost on exit`
 4. `docs: document TUI epilogue rows`
 5. `test(tui): verify epilogue render isolation`
+6. `fix(tui): contain invalid epilogue projections`
+7. `test(tui): harden epilogue process matrix`
+8. `test(tui): cover epilogue reload interval`
 
 The high-churn plugin host receives one record kind and one aggregate publisher.
 All policy stays in the epilogue domain, and the public adapter uses the existing
@@ -102,9 +105,9 @@ without unwinding shutdown repair.
 
 Green focused evidence on the final stack:
 
-- Process matrix: fixture `app.exit`, `SIGHUP`, `SIGINT`, and `SIGTERM`, plus actual CLI `SIGHUP`, `SIGINT`, and `SIGTERM`; all seven retain core, Cost, and external rows after gated cleanup and delayed stdout.
+- Process matrix: fixture and actual CLI `app.exit`, `SIGHUP`, `SIGINT`, and `SIGTERM`; all eight retain core, Cost, and external rows after gated cleanup and delayed stdout. A ninth process case freezes the documented missing external row during a real gated hot reload.
 - In-process lifecycle and presentation: 36 passing tests.
-- Registry, renderer-isolation, validation, epoch, freeze, and Cost adapter: 8 passing tests.
+- Registry, renderer-isolation, validation, immutable scope, epoch, freeze, and Cost adapter: 9 passing tests.
 - Existing plugin hot-reload suite: 10 passing tests.
 - Plugin package suite: 10 passing tests.
 - TUI and plugin typechecks: green.
