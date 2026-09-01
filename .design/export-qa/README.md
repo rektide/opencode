@@ -59,6 +59,45 @@ default (answers only, no option list).
 
 ## Refresh log
 
+### 2026-09-01 — freshened onto `43d09b9d75ad`
+
+- New base: upstream `v2@origin` tip `43d09b9d75ad5d74cda5bd29ab72319e724fbbb9`
+  ("fix(server): await plugin activation when checking updates"), replacing
+  `e70d667a9fe3` (115-commit gap). **Baseline note**: the freshen mandate named
+  target `ce6247bd2f28` ("estimate context growth before compaction"), which
+  does not exist anywhere in the shared jj repo; the 115-commit count in the
+  mandate matches the actual fetched tip `43d09b9d75ad`, and the human
+  confirmed freshening onto it.
+- Collision audit: clean. Upstream landed no export/question formatting — the
+  only adjacent TUI landings are transcript *remount caching*
+  (`afd7492018c7`), patch-failure detail coloring (`367ee47d7eb8`), and the
+  landed-then-reverted subagent-question surfacing (`9c39e75ce2bf` /
+  `e56ceed32bcf`, net zero). `dialog-export-options.tsx` and both focused test
+  files are untouched by the gap; the `index.tsx` overlap is disjoint from
+  every feature hunk (feature edits the export call site ~1216 and the
+  formatters ~3880+; upstream edits imports/memos, ~1349, ~2031, ~3080–3790).
+- Duplicate-then-rebase of the four commits (originals untouched;
+  `export-qa-20260829` still marks `1df1b60492a7`): rebased **cleanly — zero
+  conflicts, zero adaptations**. Freshened ids: `c25432226f53` (answers),
+  `0e9a37d47806` (options toggle), `2976a461719d` (design notes),
+  `f6374a5363f9` (prior refresh doc).
+- Footprint on the new base is **identical** to the previous line's: 5 files,
+  +306/−7. The freshened line touches no file the old line did not touch, and
+  nothing was dropped or adapted because upstream changed.
+- Verification (from `packages/tui` after clean `bun install`, no
+  `bun.lock` drift):
+  - `bun test test/cli/tui/transcript-export.test.ts` — 6 pass, 0 fail,
+    15 expect() calls.
+  - `bun test test/cli/tui/inline-tool-wrap-snapshot.test.tsx` — 12 pass,
+    0 fail, 2 snapshots, 31 expect() calls.
+  - `bun typecheck` (`tsgo -b`) — clean.
+- Bookmarks: `export-qa` advanced to the new docs tip below;
+  `export-qa-20260901` created at the same commit. Workspace `@` left as an
+  empty commit on the tip.
+- Confidence: high — the only judgment call in this freshen was the mandate's
+  non-existent baseline hash (resolved with the human, see above); the rebase
+  itself was mechanical with a byte-identical footprint.
+
 ### 2026-08-29 — freshened onto `e70d667a9fe3`
 
 - New base: upstream `v2@origin` tip `e70d667a9fe3` ("fix(ai): preserve
