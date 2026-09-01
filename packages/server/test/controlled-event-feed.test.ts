@@ -15,7 +15,7 @@ import { AbsolutePath } from "@opencode-ai/schema/schema"
 import { SessionEvent } from "@opencode-ai/schema/session-event"
 import { SessionID } from "@opencode-ai/schema/session-id"
 import { WorkspaceID } from "@opencode-ai/schema/workspace-id"
-import { Deferred, Effect, Exit, Fiber, Option, Schema, Stream } from "effect"
+import { Deferred, Effect, Exit, Fiber, Logger, Option, References, Schema, Stream } from "effect"
 import { it } from "../../core/test/lib/effect"
 import { ControlledEventFeed } from "../src/controlled-event-feed"
 
@@ -26,6 +26,7 @@ const otherWorkspace = Location.Ref.make({ directory: a.directory, workspaceID: 
 const sessionID = SessionID.make("ses_controlled")
 const firstID = EventSubscriptionID.make("evsub_00000000000000000000000000000001")
 const secondID = EventSubscriptionID.make("evsub_00000000000000000000000000000002")
+const thirdID = EventSubscriptionID.make("evsub_00000000000000000000000000000003")
 
 function publicEvent(id: string): Event.Payload<typeof Agent.Event.Updated> {
   return {
@@ -367,8 +368,15 @@ describe("ControlledEventFeed", () => {
       const source = makeSource()
       const feed = yield* ControlledEventFeed.make(source.observe, {
         capacity: 1,
-        createID: ids(firstID, secondID),
+        createID: ids(firstID, secondID, thirdID),
       })
+      const messages: unknown[] = []
+      const annotations: Array<Record<string, unknown>> = []
+      const logger = Logger.make<unknown, void>((options) => {
+        messages.push(options.message)
+        annotations.push({ ...options.fiber.getRef(References.CurrentLogAnnotations) })
+      })
+      const loggerLayer = Logger.layer([logger], { mergeWithExisting: false })
       const slow = yield* feed.subscribe
       const fast = yield* feed.subscribe
       yield* slow.pipe(Stream.take(1), Stream.runDrain)
@@ -396,11 +404,11 @@ describe("ControlledEventFeed", () => {
         Effect.forkScoped,
       )
 
-      yield* source.publish(publicEvent("one"), { type: "global" })
+      yield* source.publish(publicEvent("one"), { type: "global" }).pipe(Effect.provide(loggerLayer))
       yield* Deferred.await(first)
-      yield* source.publish(publicEvent("two"), { type: "global" })
+      yield* source.publish(publicEvent("two"), { type: "global" }).pipe(Effect.provide(loggerLayer))
       yield* Deferred.await(second)
-      yield* source.publish(publicEvent("three"), { type: "global" })
+      yield* source.publish(publicEvent("three"), { type: "global" }).pipe(Effect.provide(loggerLayer))
       yield* Fiber.join(fastFiber)
 
       const exit = yield* slow.pipe(Stream.runDrain, Effect.exit)
@@ -413,6 +421,34 @@ describe("ControlledEventFeed", () => {
       expect(
         yield* feed.replaceInterests({ subscriptionID: firstID, interest: interests() }).pipe(Effect.flip),
       ).toBeInstanceOf(EventSubscriptionNotFoundError)
+
+      yield* feed.subscribe
+      expect(
+        yield* feed
+          .replaceInterests({ subscriptionID: thirdID, interest: interests() })
+          .pipe(Effect.flip, Effect.provide(loggerLayer)),
+      ).toBeInstanceOf(EventSubscriptionNotFoundError)
+      expect(messages).toEqual([["event feed subscriber overflow"], ["event feed subscriber overflow"]])
+      expect(annotations).toEqual([
+        {
+          eventFeedMode: "controlled",
+          phase: "event",
+          capacity: 1,
+          overflowedSubscribers: 1,
+          overflowCount: 1,
+          subscriptionIDs: [firstID],
+          eventID: Event.ID.make("evt_two"),
+          eventType: Agent.Event.Updated.type,
+        },
+        {
+          eventFeedMode: "controlled",
+          phase: "activation",
+          capacity: 1,
+          overflowedSubscribers: 1,
+          overflowCount: 2,
+          subscriptionIDs: [thirdID],
+        },
+      ])
     }),
   )
 
