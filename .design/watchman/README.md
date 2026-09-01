@@ -136,6 +136,10 @@ a delete surfacing as two updates) and the shutdown race where a daemon
 `unsubscribe` errors after its generation closes, both visible in the
 counters.
 
+A reading guide for the dump shape — deltas, gauges, in/out vocabulary,
+drop rate, symptom→field table, and jq recipes — is
+[`metrics0.glm53.md`](/.design/watchman/metrics0.glm53.md).
+
 ## Verification
 
 Run tests from package directories, never the repository root.
@@ -274,6 +278,8 @@ known defect.
 
 - [`draft2.gpt56t.md`](/.design/watchman/draft2.gpt56t.md) is the implemented architecture and
   its watchwoman routing amendment governs conflicts with the earlier body.
+- [`metrics0.glm53.md`](/.design/watchman/metrics0.glm53.md) is the channel-metrics reading
+  guide: dump shape, deltas, gauges, symptom→field table, and jq recipes.
 - [`watchwoman0.unknown.md`](/.design/watchman/watchwoman0.unknown.md) validates daemon crawl,
   query, root persistence, routing, and unsubscribe behavior.
 - [`timeout0.gpt56s.md`](/.design/watchman/timeout0.gpt56s.md) records the FIFO timeout incident
