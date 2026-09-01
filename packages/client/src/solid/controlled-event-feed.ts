@@ -24,6 +24,7 @@ export interface ControlledEventFeed {
 export interface ControlledEventFeedOptions {
   readonly removalGrace?: number
   readonly log?: {
+    readonly debug?: (message: string, data?: Readonly<Record<string, unknown>>) => void
     readonly info?: (message: string, data?: Readonly<Record<string, unknown>>) => void
   }
 }
@@ -131,7 +132,14 @@ export function createControlledEventFeed(options: ControlledEventFeedOptions = 
       }
       if (active !== generation || generation.controller.signal.aborted) return
       generation.installed = target
-      setState({ installed: toInterest(target), error: undefined })
+      const installed = toInterest(target)
+      setState({ installed, error: undefined })
+      options.log?.debug?.("controlled event interests installed", {
+        desiredLocations: state.desired.locations.length,
+        desiredSessions: state.desired.sessions.length,
+        installedLocations: installed.locations.length,
+        installedSessions: installed.sessions.length,
+      })
       settle()
       if (!generation.dirty && equal(target, transportTarget())) return
     }
@@ -171,6 +179,7 @@ export function createControlledEventFeed(options: ControlledEventFeedOptions = 
       await update(generation)
       if (active !== generation || controller.signal.aborted) return
       setState({ mode: "controlled", error: undefined })
+      options.log?.info?.("controlled event feed active")
 
       while (!signal.aborted) {
         const next = await iterator.next()

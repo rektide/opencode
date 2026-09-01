@@ -17,6 +17,7 @@ import { useDialog } from "../ui/dialog"
 import { DialogExperiments } from "./dialog-experiments"
 import { usePlugin } from "../plugin/context"
 import { errorMessage } from "../util/error"
+import { interestSize } from "../devtools/event-interest"
 
 const graphWidth = 23
 const sampleIntervalMilliseconds = 2_000
@@ -158,6 +159,12 @@ export function DevToolsBar() {
       version: details?.health.version,
       pid: details?.health.pid,
       error: client.connection.error(),
+      eventFeed: {
+        mode: client.interest.mode(),
+        desired: client.interest.desired(),
+        installed: client.interest.installed(),
+        error: client.interest.error(),
+      },
     }
     const events = await (sessionID
       ? (async () => {
@@ -272,6 +279,10 @@ export function DevToolsBar() {
           <PanelBox>
             <PanelTitle>Server</PanelTitle>
             <Row label="Status" value={connected() ? "Connected" : client.connection.status()} />
+            <Row label="Event feed" value={client.interest.mode()} />
+            <Row label="Desired" value={interestSize(client.interest.desired())} />
+            <Row label="Installed" value={interestSize(client.interest.installed())} />
+            <Show when={client.interest.error()}>{(error) => <Row label="Feed error" value={error()} />}</Show>
             <Show when={client.connection.attempt() > 0}>
               <Row label="Reconnect" value={String(client.connection.attempt())} />
             </Show>
