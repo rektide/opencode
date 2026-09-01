@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import { Context, DateTime, Effect, Stream } from "effect"
 import { HttpClient, HttpClientResponse } from "effect/unstable/http"
+import { EventSubscriptionID } from "@opencode-ai/protocol/groups/event"
 import {
   AbsolutePath,
   Agent,
@@ -155,6 +156,48 @@ test("shared event source runs with the Effect context captured by make", async 
     ),
   )
   expect((await Effect.runPromise(Stream.runCollect(client.event.subscribe())))[0]).toEqual(connected)
+})
+
+test("event.controlled exposes the decoded Effect negotiation contract", async () => {
+  const requests: Array<{ method: string; url: string; body?: unknown }> = []
+  const ready = { type: "event-feed.ready", data: { subscriptionID: "evsub_0123456789abcdef" } }
+  const httpClient = HttpClient.make((request) => {
+    requests.push({
+      method: request.method,
+      url: request.url,
+      body: request.body._tag === "Uint8Array" ? JSON.parse(new TextDecoder().decode(request.body.body)) : undefined,
+    })
+    return Effect.succeed(
+      HttpClientResponse.fromWeb(
+        request,
+        request.method === "PUT"
+          ? new Response(null, { status: 204 })
+          : new Response(`data: ${JSON.stringify(ready)}\n\n`, {
+              headers: { "content-type": "text/event-stream" },
+            }),
+      ),
+    )
+  })
+  const events = await Effect.gen(function* () {
+    const client = yield* OpenCode.make({ baseUrl: "http://localhost:3000" })
+    const events = yield* client.event.controlled.subscribe().pipe(Stream.runCollect)
+    yield* client.event.controlled.replaceInterests({
+      subscriptionID: EventSubscriptionID.make(ready.data.subscriptionID),
+      locations: [Location.Ref.make({ directory: AbsolutePath.make("/workspace") })],
+      sessions: [Session.ID.make("ses_test")],
+    })
+    return events
+  }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient), Effect.runPromise)
+
+  expect(Array.from(events).map((event) => event.type)).toEqual(["event-feed.ready"])
+  expect(requests).toEqual([
+    { method: "GET", url: "http://localhost:3000/api/experimental/event", body: undefined },
+    {
+      method: "PUT",
+      url: "http://localhost:3000/api/experimental/event/subscriptions/evsub_0123456789abcdef/interests",
+      body: { locations: [{ directory: "/workspace" }], sessions: ["ses_test"] },
+    },
+  ])
 })
 
 test("event.subscribe terminates on Effect protocol decode failures", async () => {

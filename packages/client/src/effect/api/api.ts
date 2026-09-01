@@ -31,6 +31,7 @@ import type { PermissionSaved } from "@opencode-ai/schema/permission-saved"
 import type { FileSystem } from "@opencode-ai/schema/filesystem"
 import type { Command } from "@opencode-ai/schema/command"
 import type { OpenCodeEvent } from "@opencode-ai/protocol/groups/event"
+import type { ControlledFeedItem } from "@opencode-ai/protocol/groups/event"
 import type { Pty } from "@opencode-ai/schema/pty"
 import type { PtyTicket } from "@opencode-ai/schema/pty-ticket"
 import type { Reference } from "@opencode-ai/schema/reference"
@@ -1616,8 +1617,25 @@ export interface RpcApi<E = never> {
 export type EventSubscribeOutput = OpenCodeEvent
 export type EventSubscribeOperation<E = never> = () => Stream.Stream<EventSubscribeOutput, E>
 
+export type EventControlledSubscribeOutput = ControlledFeedItem
+export type EventControlledSubscribeOperation<E = never> = () => Stream.Stream<EventControlledSubscribeOutput, E>
+
+export type EventControlledReplaceInterestsInput = {
+  readonly subscriptionID: string & Brand.Brand<"EventSubscription.ID">
+  readonly locations: ReadonlyArray<Location.Ref>
+  readonly sessions: ReadonlyArray<Session.ID>
+}
+export type EventControlledReplaceInterestsOutput = void
+export type EventControlledReplaceInterestsOperation<E = never> = (
+  input: EventControlledReplaceInterestsInput,
+) => Effect.Effect<EventControlledReplaceInterestsOutput, E>
+
 export interface EventApi<E = never> {
   readonly subscribe: EventSubscribeOperation<E>
+  readonly controlled: {
+    readonly subscribe: EventControlledSubscribeOperation<E>
+    readonly replaceInterests: EventControlledReplaceInterestsOperation<E>
+  }
 }
 
 export type PtyListInput = {

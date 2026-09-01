@@ -194,6 +194,9 @@ import type {
   RpcCallInput,
   RpcCallOutput,
   EventSubscribeOutput,
+  EventControlledSubscribeOutput,
+  EventControlledReplaceInterestsInput,
+  EventControlledReplaceInterestsOutput,
   PtyListInput,
   PtyListOutput,
   PtyCreateInput,
@@ -1219,7 +1222,32 @@ const EndpointEventSubscribe = (raw: RawClient["server.event"]) => () =>
     ),
   )
 
-const adaptGroupEvent = (raw: RawClient["server.event"]) => ({ subscribe: EndpointEventSubscribe(raw) })
+const EndpointEventControlledSubscribe = (raw: RawClient["server.event"]) => () =>
+  preserveStream<EventControlledSubscribeOutput>()(
+    Stream.unwrap(
+      raw["event.controlled.subscribe"]({}).pipe(
+        Effect.mapError(mapClientError),
+        Effect.map((stream) => stream.pipe(Stream.mapError(mapClientError))),
+      ),
+    ),
+  )
+
+const EndpointEventControlledReplaceInterests =
+  (raw: RawClient["server.event"]) => (input: EventControlledReplaceInterestsInput) =>
+    preserveEffect<EventControlledReplaceInterestsOutput>()(
+      raw["event.controlled.replaceInterests"]({
+        params: { subscriptionID: input["subscriptionID"] },
+        payload: { locations: input["locations"], sessions: input["sessions"] },
+      }).pipe(Effect.mapError(mapClientError)),
+    )
+
+const adaptGroupEvent = (raw: RawClient["server.event"]) => ({
+  subscribe: EndpointEventSubscribe(raw),
+  controlled: {
+    subscribe: EndpointEventControlledSubscribe(raw),
+    replaceInterests: EndpointEventControlledReplaceInterests(raw),
+  },
+})
 
 const EndpointPtyList = (raw: RawClient["server.pty"]) => (input?: PtyListInput) =>
   preserveEffect<PtyListOutput>()(

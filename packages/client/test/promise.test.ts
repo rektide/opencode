@@ -588,6 +588,47 @@ test("event.subscribe exposes the Promise event stream wire projection", async (
   expect(events[1]?.type === "session.model.selected" && events[1].created).toBe(1_717_171_717_000)
 })
 
+test("event.controlled exposes subscription negotiation over GET and PUT", async () => {
+  const requests: Array<{ method: string; url: string; body?: unknown }> = []
+  const ready = { type: "event-feed.ready", data: { subscriptionID: "evsub_0123456789abcdef" } }
+  const client = OpenCode.make({
+    baseUrl: "http://localhost:3000",
+    fetch: async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      requests.push({
+        method: request.method,
+        url: request.url,
+        body: request.method === "PUT" ? await request.json() : undefined,
+      })
+      if (request.method === "PUT") return new Response(null, { status: 204 })
+      return new Response(`data: ${JSON.stringify(ready)}\n\n`, {
+        headers: { "content-type": "text/event-stream" },
+      })
+    },
+  })
+
+  const events = []
+  for await (const event of client.event.controlled.subscribe()) events.push(event)
+  await client.event.controlled.replaceInterests({
+    subscriptionID: ready.data.subscriptionID,
+    locations: [{ directory: "/workspace", workspaceID: "wrk_other" }],
+    sessions: ["ses_test"],
+  })
+
+  expect(events).toEqual([ready])
+  expect(requests).toEqual([
+    { method: "GET", url: "http://localhost:3000/api/experimental/event", body: undefined },
+    {
+      method: "PUT",
+      url: "http://localhost:3000/api/experimental/event/subscriptions/evsub_0123456789abcdef/interests",
+      body: {
+        locations: [{ directory: "/workspace", workspaceID: "wrk_other" }],
+        sessions: ["ses_test"],
+      },
+    },
+  ])
+})
+
 // Moved from packages/app/e2e/regression/session-timeline-transport.spec.ts
 test("event.subscribe keeps one request open while delivering multiple events", async () => {
   const requests: Request[] = []
