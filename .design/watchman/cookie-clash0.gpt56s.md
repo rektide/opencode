@@ -179,21 +179,27 @@ a recursive raw watcher, or a parent watch can still observe it.
 
 Cookie production is semantic, not tied to every command:
 
-| Operation                      | Synchronization behavior                                                                                                                                  |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `query` / `find`               | Parsed queries default to a 60-second `sync_timeout`, so ordinary daemon queries synchronize unless the caller sets zero. Client-mode queries force zero. |
-| `clock`                        | Instantaneous by default; creates a cookie only when a nonzero `sync_timeout` option is supplied.                                                         |
-| `flush-subscriptions`          | Requires `sync_timeout`, synchronizes the root, then forces eligible subscription updates through.                                                        |
-| `state-enter` / `state-leave`  | Default to the 60-second query synchronization timeout; zero disables it.                                                                                 |
-| Normal subscription evaluation | Explicitly sets `sync_timeout` to zero because dispatch occurs at a settled point.                                                                        |
-| Trigger evaluation             | Explicitly sets `sync_timeout` to zero.                                                                                                                   |
-| Sanity thread                  | Once per minute, serially issues `clock` with `sync_timeout: 20000` for every root.                                                                       |
+| Operation                      | Synchronization behavior                                                                                                                                                                                        |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `query` / `find` / `since`     | Parsed queries default to a 60-second `sync_timeout`, so ordinary daemon queries synchronize unless the caller sets zero. Client-mode `query` and `find` force zero; daemon-only `since` does not.              |
+| `clock`                        | Instantaneous by default; creates a cookie only when a nonzero `sync_timeout` option is supplied.                                                                                                               |
+| `flush-subscriptions`          | Requires `sync_timeout` and unconditionally calls `syncToNow`; zero is not a disable branch.                                                                                                                    |
+| `state-enter` / `state-leave`  | Always start asynchronous `view()->sync`; `InMemoryView` implements that with a cookie. They parse `sync_timeout` but do not apply it, so the documented timeout and zero-disable behavior are not implemented. |
+| Normal subscription evaluation | Explicitly sets `sync_timeout` to zero because dispatch occurs at a settled point.                                                                                                                              |
+| Trigger evaluation             | Explicitly sets `sync_timeout` to zero.                                                                                                                                                                         |
+| Sanity thread                  | Once per minute, serially issues `clock` with `sync_timeout: 20000` for every root.                                                                                                                             |
 
 The implementation points are
 [`query/parse.cpp:150-178`](https://github.com/facebook/watchman/blob/20966cdb78072eddc70f1e9704454f0e39038a64/watchman/query/parse.cpp#L150-L178),
 [`query/eval.cpp:461-482`](https://github.com/facebook/watchman/blob/20966cdb78072eddc70f1e9704454f0e39038a64/watchman/query/eval.cpp#L461-L482),
 [`cmds/watch.cpp:55-95`](https://github.com/facebook/watchman/blob/20966cdb78072eddc70f1e9704454f0e39038a64/watchman/cmds/watch.cpp#L55-L95), and
 [`cmds/subscribe.cpp:323-387`](https://github.com/facebook/watchman/blob/20966cdb78072eddc70f1e9704454f0e39038a64/watchman/cmds/subscribe.cpp#L323-L387).
+The legacy daemon-only `since` path is in
+[`cmds/since.cpp:19-44`](https://github.com/facebook/watchman/blob/20966cdb78072eddc70f1e9704454f0e39038a64/watchman/cmds/since.cpp#L19-L44).
+The state-command discrepancy is visible in
+[`cmds/state.cpp:63-145`](https://github.com/facebook/watchman/blob/20966cdb78072eddc70f1e9704454f0e39038a64/watchman/cmds/state.cpp#L63-L145)
+and
+[`cmds/state.cpp:152-227`](https://github.com/facebook/watchman/blob/20966cdb78072eddc70f1e9704454f0e39038a64/watchman/cmds/state.cpp#L152-L227): both parse the option, then call unbounded `view()->sync(root)` instead of `syncToNow(parsed.sync_timeout)`.
 
 Cookies are therefore synchronization artifacts from many possible request
 paths. Seeing serial `0` or a 20-second timeout-shaped incident is evidence for
@@ -264,6 +270,28 @@ It also shows why filtering only exact file paths cannot guarantee removal of
 every secondary directory invalidation on every backend. OpenCode's Watchman
 adapter currently does not publish ordinary directory metadata updates, but
 other adapters have their own coalescing behavior.
+
+### Clock, cursor, and subscription consequences
+
+A recognized cookie is excluded from the indexed view, but it is still part of
+the synchronization boundary. The IO thread increments the root tick for the
+pending batch, processes all pending paths, and only then notifies collected
+cookie waiters
+([`root/iothread.cpp:264-360`](https://github.com/facebook/watchman/blob/20966cdb78072eddc70f1e9704454f0e39038a64/watchman/root/iothread.cpp#L264-L360)).
+A synchronized query captures its result clock after that wait; a named cursor
+is then advanced to the captured position
+([`query/eval.cpp:472-510`](https://github.com/facebook/watchman/blob/20966cdb78072eddc70f1e9704454f0e39038a64/watchman/query/eval.cpp#L472-L510),
+[`Clock.cpp:159-185`](https://github.com/facebook/watchman/blob/20966cdb78072eddc70f1e9704454f0e39038a64/watchman/Clock.cpp#L159-L185)).
+The cookie is therefore a fence used before reading or advancing a logical
+clock; it is not itself the clock.
+
+An unrecognized foreign or out-of-directory cookie follows the ordinary file
+path and can receive create/delete ticks, appear in a `since` query, and reach a
+subscription as a file or tombstone. Normal subscription evaluation creates no
+new cookie and advances from its prior position with synchronization disabled.
+In OpenCode, the Watchman PDU clock is recorded before file paths are published,
+and the Skill filter is farther downstream. Suppressing a cookie pathname does
+not roll back or stall the daemon subscription cursor.
 
 ## Multi-daemon and socket identity
 
@@ -612,6 +640,14 @@ each synchronizing command class from a distinct client process, and correlate:
 
 This determines what can be made observable without changing the cookie name.
 
+### 6. State timeout discrepancy
+
+Against an isolated classic daemon, invoke `state-enter` and `state-leave` with
+`sync_timeout: 0` while another raw watcher records cookie paths. Confirm that
+both commands still create cookies, then repeat with a blocked watcher to
+characterize the unbounded asynchronous wait and decide whether implementation
+or documentation should change.
+
 ## Open questions
 
 1. Which command created the three incident pathnames? Sanity is likely, but
@@ -632,6 +668,9 @@ This determines what can be made observable without changing the cookie name.
 8. What level of strict query synchronization does OpenCode actually need?
    Its subscription bootstrap uses an instantaneous `clock`; the daemon sanity
    cost is independent of that choice.
+9. Are the state-command docs or implementation authoritative? Current source
+   accepts `sync_timeout` but ignores it and always starts asynchronous view
+   synchronization, which uses a cookie on ordinary `InMemoryView` roots.
 
 ## Recommendation
 
