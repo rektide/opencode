@@ -1,7 +1,9 @@
 import { Bus } from "@opencode-ai/core/bus"
+import { InvalidRequestError } from "@opencode-ai/protocol/errors"
+import { EventInterest } from "@opencode-ai/protocol/groups/event"
 import { Event } from "@opencode-ai/schema/event"
-import { Effect, Stream } from "effect"
-import { HttpServerResponse } from "effect/unstable/http"
+import { Effect, Schema, Stream } from "effect"
+import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiSchema } from "effect/unstable/httpapi"
 import { Api } from "../api"
 import { ControlledEventFeed } from "../controlled-event-feed"
@@ -29,13 +31,13 @@ export const EventHandler = HttpApiBuilder.group(Api, "server.event", (handlers)
         }),
       )
       .handleRaw("event.controlled.subscribe", () => controlled.subscribe.pipe(Effect.map(response)))
-      .handle("event.controlled.replaceInterests", (ctx) =>
-        controlled
-          .replaceInterests({
-            subscriptionID: ctx.params.subscriptionID,
-            interest: ctx.payload,
-          })
-          .pipe(Effect.as(HttpApiSchema.NoContent.make())),
+      .handleRaw("event.controlled.replaceInterests", (ctx) =>
+        readInterest(ctx.request).pipe(
+          Effect.flatMap((interest) =>
+            controlled.replaceInterests({ subscriptionID: ctx.params.subscriptionID, interest }),
+          ),
+          Effect.as(HttpApiSchema.NoContent.make()),
+        ),
       )
   }),
 )
@@ -50,4 +52,39 @@ function response(output: Stream.Stream<string, Error>) {
       "X-Content-Type-Options": "nosniff",
     },
   })
+}
+
+const decodeInterest = Schema.decodeUnknownEffect(Schema.fromJsonString(EventInterest))
+
+function readInterest(request: HttpServerRequest.HttpServerRequest) {
+  return request.stream.pipe(
+    Stream.runFoldEffect(
+      () => ({ bytes: 0, chunks: new Array<Uint8Array>() }),
+      (body, chunk) => {
+        const bytes = body.bytes + chunk.byteLength
+        if (bytes > ControlledEventFeed.InterestByteCapacity)
+          return Effect.fail(
+            new InvalidRequestError({
+              message: `Interest exceeds ${ControlledEventFeed.InterestByteCapacity} request bytes`,
+              field: "interest",
+            }),
+          )
+        return Effect.succeed({ bytes, chunks: [...body.chunks, chunk] })
+      },
+    ),
+    Effect.map((body) => {
+      const bytes = new Uint8Array(body.bytes)
+      body.chunks.reduce((offset, chunk) => {
+        bytes.set(chunk, offset)
+        return offset + chunk.byteLength
+      }, 0)
+      return new TextDecoder().decode(bytes)
+    }),
+    Effect.flatMap(decodeInterest),
+    Effect.mapError((error) =>
+      error instanceof InvalidRequestError
+        ? error
+        : new InvalidRequestError({ message: "Invalid event interest request body", field: "interest" }),
+    ),
+  )
 }
