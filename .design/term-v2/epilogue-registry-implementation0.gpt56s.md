@@ -111,11 +111,13 @@ Green focused evidence on the final stack:
 - Website typecheck, generated-content check, and production build: green.
 
 The rebased upstream full TUI suite is not currently deterministic in this
-environment. A clean pre-registry workspace produced 1,194 passes and seven
-failures, including four process-ready timeouts and unrelated mini/dialog
-failures. The final stack produced 1,202 passes and four failures in untouched
-history, mini, and diff-viewer tests; those failures reproduce or pass
-nondeterministically in focused baseline runs. The epilogue acceptance suites
+environment. On the preceding `49dd2cea` base, a clean pre-registry workspace
+produced 1,194 passes and seven failures, including four process-ready timeouts
+and unrelated mini/dialog failures. The final stack produced 1,202 passes and
+four failures in untouched history, mini, and diff-viewer tests; those failures
+reproduce or pass nondeterministically in focused baseline runs. After the
+refresh to `9553187b`, another full run reported no assertion failure before Bun
+1.3.14 segfaulted after roughly 179 seconds. The epilogue acceptance suites
 remain green, and the process timeout was widened to accommodate the slower
 rebased tree.
 
