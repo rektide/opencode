@@ -199,6 +199,7 @@ describe("useEvent", () => {
 
       expect(client.api).toBe(replacement.api)
       expect(attempts).toEqual([1])
+      expect(client.connection.internal.diagnostics().reconnects).toBe(1)
       const history = client.connection.internal.history()
       expect(history.map((event) => [event.data.status, event.data.attempt])).toEqual([
         ["connecting", 0],

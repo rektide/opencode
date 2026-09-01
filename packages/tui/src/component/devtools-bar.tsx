@@ -24,7 +24,7 @@ const sampleIntervalMilliseconds = 2_000
 const sampleRetentionMilliseconds = 30_000
 const statusWindowMilliseconds = 6_000
 type Panel = "server" | "theme" | "tools" | "ui"
-type ProcessSample = Readonly<{ cpu: number; memory: number; delay: number; time: number }>
+type ProcessSample = Readonly<{ cpu: number; memory: number; delay: number; eventsPerSecond: number; time: number }>
 export type RuntimeStatus = "normal" | "medium" | "high"
 
 export function DevToolsBar() {
@@ -46,6 +46,7 @@ export function DevToolsBar() {
   const [dumpPath, setDumpPath] = createSignal<string>()
   const [dumpError, setDumpError] = createSignal<string>()
   const [frontendSamples, setFrontendSamples] = createSignal<readonly ProcessSample[]>([])
+  const [connectionDiagnostics, setConnectionDiagnostics] = createSignal(client.connection.internal.diagnostics())
   const [debugOverlay, setDebugOverlay] = createSignal(renderer.debugOverlay.enabled)
   let focus: Renderable | null
   const connected = createMemo(() => client.connection.status() === "connected")
@@ -113,11 +114,14 @@ export function DevToolsBar() {
     let frontendCPU = process.cpuUsage()
     let frontendTime = performance.now()
     let frontendReady = false
+    let previousReceivedDomainEvents: number | undefined
     eventLoop.enable()
     const sample = () => {
       const now = performance.now()
       const cpu = process.cpuUsage(frontendCPU)
+      const diagnostics = client.connection.internal.diagnostics()
       frontendCPU = process.cpuUsage()
+      setConnectionDiagnostics(diagnostics)
       setFrontendSamples((samples) =>
         [
           ...samples,
@@ -125,6 +129,11 @@ export function DevToolsBar() {
             cpu: frontendReady ? cpuPercent(cpu.user + cpu.system, now - frontendTime) : 0,
             memory: process.memoryUsage().rss,
             delay: eventLoop.percentile(99) / 1_000_000,
+            eventsPerSecond: eventsPerSecond(
+              previousReceivedDomainEvents,
+              diagnostics.receivedDomainEvents,
+              now - frontendTime,
+            ),
             time: now,
           },
         ].filter((sample) => sample.time >= now - sampleRetentionMilliseconds),
@@ -132,6 +141,7 @@ export function DevToolsBar() {
       eventLoop.reset()
       frontendReady = true
       frontendTime = now
+      previousReceivedDomainEvents = diagnostics.receivedDomainEvents
     }
     sample()
     const timer = setInterval(sample, sampleIntervalMilliseconds)
@@ -154,16 +164,22 @@ export function DevToolsBar() {
         ? { directory: location.current.directory, workspaceID: location.current.workspaceID }
         : undefined)
     const details = server()
+    const diagnostics = client.connection.internal.diagnostics()
+    const latest = frontendSamples().at(-1)
     const backend = {
       connected: connected(),
       version: details?.health.version,
       pid: details?.health.pid,
       error: client.connection.error(),
+      reconnects: diagnostics.reconnects,
+      reconnectAttempt: client.connection.attempt(),
       eventFeed: {
         mode: client.interest.mode(),
         desired: client.interest.desired(),
         installed: client.interest.installed(),
         error: client.interest.error(),
+        receivedDomainEvents: diagnostics.receivedDomainEvents,
+        receivedDomainEventsPerSecond: latest?.eventsPerSecond ?? 0,
       },
     }
     const events = await (sessionID
@@ -189,6 +205,12 @@ export function DevToolsBar() {
       JSON.stringify(
         {
           backend,
+          frontend: {
+            cpuPercent: latest?.cpu,
+            eventLoopP99Milliseconds: latest?.delay,
+            memoryBytes: latest?.memory,
+            sampleIntervalMilliseconds,
+          },
           session: sessionID
             ? {
                 ...info,
@@ -282,9 +304,12 @@ export function DevToolsBar() {
             <Row label="Event feed" value={client.interest.mode()} />
             <Row label="Desired" value={interestSize(client.interest.desired())} />
             <Row label="Installed" value={interestSize(client.interest.installed())} />
+            <ProcessStat label="Events" values={frontendSamples().map((sample) => sample.eventsPerSecond)} unit="/s" />
+            <Row label="Received" value={String(connectionDiagnostics().receivedDomainEvents)} />
+            <Row label="Reconnects" value={String(connectionDiagnostics().reconnects)} />
             <Show when={client.interest.error()}>{(error) => <Row label="Feed error" value={error()} />}</Show>
             <Show when={client.connection.attempt() > 0}>
-              <Row label="Reconnect" value={String(client.connection.attempt())} />
+              <Row label="Attempt" value={String(client.connection.attempt())} />
             </Show>
             <Show when={client.connection.error()}>{(error) => <Row label="Last error" value={error()} />}</Show>
             <Show when={server()}>
@@ -553,6 +578,11 @@ function Action(props: ParentProps<{ onClick: () => void; disabled?: boolean; ho
 function cpuPercent(microseconds: number, milliseconds: number) {
   if (milliseconds <= 0) return 0
   return Math.max(0, microseconds / (milliseconds * 10))
+}
+
+export function eventsPerSecond(previous: number | undefined, current: number, milliseconds: number) {
+  if (previous === undefined || milliseconds <= 0) return 0
+  return Math.max(0, ((current - previous) * 1_000) / milliseconds)
 }
 
 function ProcessStat(props: { label: string; values: readonly number[]; unit: string; decimals?: number }) {
