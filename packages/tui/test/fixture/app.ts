@@ -14,6 +14,7 @@ export async function createAppFixture(
     config?: Config.Info
     args?: TuiInput["args"]
     fetch?: FetchHandler
+    controlled?: (interest: unknown) => void | Promise<void>
   } = {},
 ) {
   const { run } = await import("../../src/app")
@@ -26,7 +27,7 @@ export async function createAppFixture(
   setup.renderer.start()
   const ready = Promise.withResolvers<void>()
   const events = createEventStream()
-  const calls = createFetch(input.fetch, events)
+  const calls = createFetch(input.fetch, events, input.controlled ? { controlled: input.controlled } : undefined)
   const server = Bun.serve({ port: 0, fetch: (request) => calls.fetch(request) })
   const task = Effect.runPromise(
     run({

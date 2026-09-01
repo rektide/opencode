@@ -44,6 +44,8 @@ async function renderSessionTabs(
     tabsEnabled?: boolean
     viewFailures?: number
     experimental?: Record<string, boolean>
+    preview?: boolean
+    controlledInterests?: unknown[]
   },
 ) {
   const temporary = options?.state ? undefined : await tmpdir()
@@ -73,48 +75,60 @@ async function renderSessionTabs(
   const sessionTimes = Object.fromEntries(
     Object.entries(options?.sessionTimes ?? {}).map(([sessionID, time]) => [sessionID, { ...time }]),
   )
-  const calls = createFetch(async (url, request) => {
-    if (url.pathname === "/api/location") {
-      const requested = url.searchParams.get("location[directory]") ?? directory
-      locations.push(requested)
-      return json({
-        directory: requested,
-        project: { id: "project", directory: requested, canonical: directory },
-      })
-    }
-    if (url.pathname === "/api/vcs") {
-      const requested = url.searchParams.get("location[directory]") ?? directory
-      vcsLocations.push(requested)
-      return json({
-        location: { directory: requested },
-        data: { branch: { current: "main", default: "main" } },
-      })
-    }
-    if (url.pathname === "/api/session" && url.searchParams.has("parentID")) {
-      const parentID = url.searchParams.get("parentID")
-      const children = Object.entries(options?.sessionParents ?? {})
-        .filter(([, parent]) => parent === parentID)
-        .map(([sessionID]) => sessionInfo(sessionID))
-      return json({ data: children, cursor: {} })
-    }
-    const viewed = url.pathname.match(/^\/api\/session\/([^/]+)\/view$/)?.[1]
-    if (viewed && request.method === "POST") {
-      views.push(viewed)
-      const payload: unknown = await request.json()
-      if (typeof payload !== "object" || payload === null || !("idle" in payload) || typeof payload.idle !== "number")
-        throw new Error("Expected an idle watermark")
-      viewWatermarks.push(payload.idle)
-      if (views.length <= (options?.viewFailures ?? 0)) return new Response(null, { status: 503 })
-      const time = (sessionTimes[viewed] ??= {})
-      time.viewed = Math.min(payload.idle, time.idle ?? payload.idle)
-      return new Response(null, { status: 204 })
-    }
-    const sessionID = url.pathname.match(/^\/api\/session\/([^/]+)$/)?.[1]
-    if (!sessionID) return undefined
-    sessions.push(sessionID)
-    await options?.sessionGate
-    return json({ data: sessionInfo(sessionID) })
-  }, events)
+  const controlledInterests = options?.controlledInterests
+  const controlled = controlledInterests
+    ? {
+        controlled: (interest: unknown) => {
+          controlledInterests.push(interest)
+        },
+      }
+    : undefined
+  const calls = createFetch(
+    async (url, request) => {
+      if (url.pathname === "/api/location") {
+        const requested = url.searchParams.get("location[directory]") ?? directory
+        locations.push(requested)
+        return json({
+          directory: requested,
+          project: { id: "project", directory: requested, canonical: directory },
+        })
+      }
+      if (url.pathname === "/api/vcs") {
+        const requested = url.searchParams.get("location[directory]") ?? directory
+        vcsLocations.push(requested)
+        return json({
+          location: { directory: requested },
+          data: { branch: { current: "main", default: "main" } },
+        })
+      }
+      if (url.pathname === "/api/session" && url.searchParams.has("parentID")) {
+        const parentID = url.searchParams.get("parentID")
+        const children = Object.entries(options?.sessionParents ?? {})
+          .filter(([, parent]) => parent === parentID)
+          .map(([sessionID]) => sessionInfo(sessionID))
+        return json({ data: children, cursor: {} })
+      }
+      const viewed = url.pathname.match(/^\/api\/session\/([^/]+)\/view$/)?.[1]
+      if (viewed && request.method === "POST") {
+        views.push(viewed)
+        const payload: unknown = await request.json()
+        if (typeof payload !== "object" || payload === null || !("idle" in payload) || typeof payload.idle !== "number")
+          throw new Error("Expected an idle watermark")
+        viewWatermarks.push(payload.idle)
+        if (views.length <= (options?.viewFailures ?? 0)) return new Response(null, { status: 503 })
+        const time = (sessionTimes[viewed] ??= {})
+        time.viewed = Math.min(payload.idle, time.idle ?? payload.idle)
+        return new Response(null, { status: 204 })
+      }
+      const sessionID = url.pathname.match(/^\/api\/session\/([^/]+)$/)?.[1]
+      if (!sessionID) return undefined
+      sessions.push(sessionID)
+      await options?.sessionGate
+      return json({ data: sessionInfo(sessionID) })
+    },
+    events,
+    controlled,
+  )
 
   function sessionInfo(sessionID: string) {
     return {
@@ -221,13 +235,19 @@ async function renderSessionTabs(
 
 test("declares launch and persisted tab family interests", async () => {
   const other = `${directory}/other-worktree`
+  const controlledInterests: unknown[] = []
   const setup = await renderSessionTabs("first", {
     home: true,
     persisted: ["first", "second"],
     sessionDirectories: { second: other },
+    controlledInterests,
   })
 
   try {
+    expect(controlledInterests[0]).toEqual({
+      locations: [{ directory }],
+      sessions: ["first", "second"],
+    })
     await wait(() => setup.client.interest.desired().locations.some((location) => location.directory === other))
     expect(setup.client.interest.desired()).toEqual({
       locations: [{ directory }, { directory: other }],

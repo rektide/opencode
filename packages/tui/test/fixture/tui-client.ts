@@ -16,6 +16,9 @@ export function createEventStream() {
   const encoder = new TextEncoder()
   const v2 = new Set<ReadableStreamDefaultController<Uint8Array>>()
   const pending: Uint8Array[] = []
+  const controlled = new Set<ReadableStreamDefaultController<Uint8Array>>()
+  const controlledPending: Uint8Array[] = []
+  let controlledActive = false
   const response = (
     controllers: Set<ReadableStreamDefaultController<Uint8Array>>,
     queued: Uint8Array[],
@@ -53,20 +56,40 @@ export function createEventStream() {
   return {
     emit(event: OpenCodeEvent) {
       send(v2, pending, event)
+      if (controlledActive) send(controlled, controlledPending, event)
     },
     v2() {
       return response(v2, pending, { id: "evt_connected", type: "server.connected", data: {} })
     },
+    controlled() {
+      controlledActive = false
+      return response(controlled, controlledPending, {
+        type: "event-feed.ready",
+        data: { subscriptionID: "evsub_00000000000000000000000000000001" },
+      })
+    },
+    activate() {
+      if (controlledActive) return
+      controlledActive = true
+      send(controlled, controlledPending, { id: "evt_connected", type: "server.connected", data: {} })
+    },
     disconnect() {
       for (const controller of v2) controller.close()
       v2.clear()
+      for (const controller of controlled) controller.close()
+      controlled.clear()
+      controlledActive = false
     },
   }
 }
 
 export type FetchHandler = (url: URL, request: Request) => Response | undefined | Promise<Response | undefined>
 
-export function createFetch(override?: FetchHandler, events?: ReturnType<typeof createEventStream>) {
+export function createFetch(
+  override?: FetchHandler,
+  events?: ReturnType<typeof createEventStream>,
+  options?: { readonly controlled?: (interest: unknown) => void | Promise<void> },
+) {
   const session = [] as URL[]
   async function fetch(input: RequestInfo | URL, init?: RequestInit) {
     const request = input instanceof Request ? input : new Request(input, init)
@@ -74,7 +97,21 @@ export function createFetch(override?: FetchHandler, events?: ReturnType<typeof 
     if (url.pathname === "/session") session.push(url)
     const overridden = await override?.(url, request)
     if (overridden) return overridden
-    if (url.pathname === "/api/experimental/event") return new Response(null, { status: 404 })
+    if (url.pathname === "/api/experimental/event") {
+      if (events && options?.controlled) return events.controlled()
+      return new Response(null, { status: 404 })
+    }
+    if (
+      request.method === "PUT" &&
+      /^\/api\/experimental\/event\/subscriptions\/[^/]+\/interests$/.test(url.pathname) &&
+      events &&
+      options?.controlled
+    ) {
+      const interest: unknown = await request.json()
+      await options.controlled(interest)
+      events.activate()
+      return new Response(null, { status: 204 })
+    }
     if (url.pathname === "/api/event" && events) return events.v2()
 
     if (

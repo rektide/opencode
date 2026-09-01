@@ -875,6 +875,90 @@ test.each([false, true])("uses the resolved launch directory for new prompts (fa
   ).toBe(true)
 })
 
+test("waits for optimistic session interest before first prompt", async () => {
+  await using state = await tmpdir()
+  const location = { directory, project: { id: "project", directory, canonical: directory } }
+  const interestStarted = Promise.withResolvers<unknown>()
+  const releaseInterest = Promise.withResolvers<void>()
+  const created = Promise.withResolvers<string>()
+  const submitted = Promise.withResolvers<unknown>()
+  let session: object | undefined
+  let promptRequests = 0
+  await using setup = await createAppFixture({
+    state: state.path,
+    config: { animations: false, tabs: { enabled: false }, keybinds: { "session.new": "f6" } },
+    controlled: async (interest) => {
+      if (
+        typeof interest !== "object" ||
+        interest === null ||
+        !("sessions" in interest) ||
+        !Array.isArray(interest.sessions) ||
+        interest.sessions.length === 0
+      )
+        return
+      interestStarted.resolve(interest)
+      await releaseInterest.promise
+    },
+    fetch: async (url, request) => {
+      if (url.pathname === "/api/fs/list") return json({ location, data: [] })
+      if (url.pathname === "/api/location") return json(location)
+      if (url.pathname === "/api/agent")
+        return json({ location, data: [{ id: "build", mode: "primary", hidden: false, permissions: [] }] })
+      if (url.pathname === "/api/model")
+        return json({ location, data: [{ id: "model", providerID: "provider", name: "Model", variants: [] }] })
+      if (url.pathname === "/api/provider") return json({ location, data: [{ id: "provider", name: "Provider" }] })
+      if (url.pathname === "/api/session" && request.method === "POST") {
+        const input: unknown = await request.json()
+        if (typeof input !== "object" || input === null || !("id" in input) || typeof input.id !== "string") {
+          throw new Error("Expected a client-minted Session ID")
+        }
+        session = {
+          ...input,
+          projectID: "project",
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          time: { created: 0, updated: 0 },
+        }
+        created.resolve(input.id)
+        return json({ data: session })
+      }
+      if (/^\/api\/session\/[^/]+\/prompt$/.test(url.pathname)) {
+        promptRequests += 1
+        submitted.resolve(await request.json())
+        return json({ data: {} })
+      }
+      if (/^\/api\/session\/[^/]+\/(message|inbox|permission)$/.test(url.pathname))
+        return json({ data: [], cursor: {} })
+      if (session && /^\/api\/session\/[^/]+$/.test(url.pathname)) return json({ data: session })
+      return undefined
+    },
+  })
+
+  await setup.ready
+  await setup.waitForFrame((frame) => frame.includes("Build · Model Provider"))
+  setup.mockInput.pressKey("F6")
+  await setup.renderOnce()
+  await setup.mockInput.typeText("INTEREST_READY")
+  setup.mockInput.pressEnter()
+
+  const sessionID = await created.promise
+  const interest = await interestStarted.promise
+  expect(await Promise.race([submitted.promise.then(() => true), Bun.sleep(25).then(() => false)])).toBeFalse()
+  expect(promptRequests).toBe(0)
+  expect(interest).toEqual({ locations: [{ directory }], sessions: [sessionID] })
+
+  releaseInterest.resolve()
+  expect(
+    await Promise.race([
+      submitted.promise,
+      Bun.sleep(2_000).then(() => {
+        throw new Error("prompt remained blocked after event interest installation")
+      }),
+    ]),
+  ).toMatchObject({ text: "INTEREST_READY" })
+  expect(promptRequests).toBe(1)
+})
+
 test("error investigations repeatedly seed editable home drafts without creating sessions", async () => {
   const cwd = process.cwd()
   const location = { directory: cwd, project: { id: "project", directory: cwd } }
