@@ -13,6 +13,11 @@ export type ClientConnectionEvent = {
   }
 }
 
+export interface ClientConnectionDiagnostics {
+  readonly receivedDomainEvents: number
+  readonly reconnects: number
+}
+
 export type EventStreamAdapter = (api: OpenCodeClient, signal: AbortSignal) => AsyncIterable<OpenCodeEvent>
 
 export type ClientConnectionOptions = {
@@ -46,6 +51,9 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
   let run: Promise<void> | undefined
   let started = false
   let generation = 0
+  let subscriptions = 0
+  let receivedDomainEvents = 0
+  let reconnects = 0
 
   function record(status: ClientConnectionEvent["data"]["status"], attempt: number, error?: string) {
     history.push({ type: "client.connection", created: Date.now(), data: { status, attempt, error } })
@@ -71,6 +79,8 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
     signal.addEventListener("abort", cancel, { once: true })
 
     try {
+      if (subscriptions > 0) reconnects += 1
+      subscriptions += 1
       record(attempt === 0 ? "connecting" : "reconnecting", attempt)
       options.log?.info?.("event stream connecting", { attempt })
       const iterator = (options.subscribe
@@ -104,6 +114,7 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
             aggregateID: event.value.durable.aggregateID,
             seq: event.value.durable.seq,
           })
+        if (event.value.type !== "server.connected") receivedDomainEvents += 1
         publish(event.value)
       }
       return { error: undefined, connectedAt }
@@ -200,6 +211,7 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
     error: () => connection.error,
     internal: {
       history: () => history.slice(),
+      diagnostics: (): ClientConnectionDiagnostics => ({ receivedDomainEvents, reconnects }),
     },
   }
 }
