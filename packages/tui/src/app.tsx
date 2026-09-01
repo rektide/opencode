@@ -54,6 +54,7 @@ import { Reconnecting } from "./component/reconnecting"
 import { MigrationOverlay } from "./component/migration-overlay"
 import { DataProvider, useData } from "./context/data"
 import { SessionTabsProvider, useSessionTabs } from "./context/session-tabs"
+import { EventInterestProvider } from "./context/event-interest"
 import { LocationProvider, useLocation } from "./context/location"
 import { LocalProvider, useLocal } from "./context/local"
 import { PermissionProvider } from "./context/permission"
@@ -378,45 +379,47 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                                 <DataProvider directory={directory}>
                                                   <LocationProvider>
                                                     <SessionTabsProvider>
-                                                      <SessionTerminalsProvider>
-                                                        <ThemeProvider
-                                                          mode={mode}
-                                                          source={createThemeSource(global.config)}
-                                                        >
-                                                          <ThemeErrorToast />
-                                                          <LocalProvider>
-                                                            <PromptStashProvider>
-                                                              <DialogProvider>
-                                                                <FrecencyProvider>
-                                                                  <PromptHistoryProvider>
-                                                                    <PromptRefProvider>
-                                                                      <EditorContextProvider>
-                                                                        <AttentionProvider>
-                                                                          <PluginProvider
-                                                                            packages={input.packages}
-                                                                            directories={pluginDirectories}
-                                                                          >
-                                                                            <App
-                                                                              pair={
-                                                                                input.server.endpoint.auth
-                                                                                  ? input.server.endpoint.auth
-                                                                                  : {
-                                                                                      username: "opencode",
-                                                                                      password: "",
-                                                                                    }
-                                                                              }
-                                                                            />
-                                                                          </PluginProvider>
-                                                                        </AttentionProvider>
-                                                                      </EditorContextProvider>
-                                                                    </PromptRefProvider>
-                                                                  </PromptHistoryProvider>
-                                                                </FrecencyProvider>
-                                                              </DialogProvider>
-                                                            </PromptStashProvider>
-                                                          </LocalProvider>
-                                                        </ThemeProvider>
-                                                      </SessionTerminalsProvider>
+                                                      <EventInterestProvider launch={location}>
+                                                        <SessionTerminalsProvider>
+                                                          <ThemeProvider
+                                                            mode={mode}
+                                                            source={createThemeSource(global.config)}
+                                                          >
+                                                            <ThemeErrorToast />
+                                                            <LocalProvider>
+                                                              <PromptStashProvider>
+                                                                <DialogProvider>
+                                                                  <FrecencyProvider>
+                                                                    <PromptHistoryProvider>
+                                                                      <PromptRefProvider>
+                                                                        <EditorContextProvider>
+                                                                          <AttentionProvider>
+                                                                            <PluginProvider
+                                                                              packages={input.packages}
+                                                                              directories={pluginDirectories}
+                                                                            >
+                                                                              <App
+                                                                                pair={
+                                                                                  input.server.endpoint.auth
+                                                                                    ? input.server.endpoint.auth
+                                                                                    : {
+                                                                                        username: "opencode",
+                                                                                        password: "",
+                                                                                      }
+                                                                                }
+                                                                              />
+                                                                            </PluginProvider>
+                                                                          </AttentionProvider>
+                                                                        </EditorContextProvider>
+                                                                      </PromptRefProvider>
+                                                                    </PromptHistoryProvider>
+                                                                  </FrecencyProvider>
+                                                                </DialogProvider>
+                                                              </PromptStashProvider>
+                                                            </LocalProvider>
+                                                          </ThemeProvider>
+                                                        </SessionTerminalsProvider>
+                                                      </EventInterestProvider>
                                                     </SessionTabsProvider>
                                                   </LocationProvider>
                                                 </DataProvider>

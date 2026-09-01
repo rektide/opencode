@@ -1248,6 +1248,7 @@ export function Prompt(props: PromptProps) {
           if (info.location.workspaceID === undefined && terminalEnvironment.variables !== undefined) {
             await client.api.session.environment({ sessionID: created.id, variables: terminalEnvironment.variables })
           }
+          await client.interest.flush()
         }),
         recover: (error) => {
           toast.show({

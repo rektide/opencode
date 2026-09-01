@@ -74,6 +74,7 @@ export function createFetch(override?: FetchHandler, events?: ReturnType<typeof 
     if (url.pathname === "/session") session.push(url)
     const overridden = await override?.(url, request)
     if (overridden) return overridden
+    if (url.pathname === "/api/experimental/event") return new Response(null, { status: 404 })
     if (url.pathname === "/api/event" && events) return events.v2()
 
     if (

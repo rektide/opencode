@@ -7,6 +7,7 @@ import path from "path"
 import { ConfigProvider, useConfig } from "../../src/config"
 import { ClientProvider, useClient } from "../../src/context/client"
 import { DataProvider, useData } from "../../src/context/data"
+import { EventInterestProvider } from "../../src/context/event-interest"
 import { LocationProvider } from "../../src/context/location"
 import { RouteProvider, useRoute } from "../../src/context/route"
 import { TuiAppProvider } from "../../src/context/runtime"
@@ -172,7 +173,9 @@ async function renderSessionTabs(
                 <DataProvider directory={options?.launchDirectory ?? directory}>
                   <LocationProvider>
                     <SessionTabsProvider>
-                      <Probe />
+                      <EventInterestProvider launch={{ directory: options?.launchDirectory ?? directory }}>
+                        <Probe />
+                      </EventInterestProvider>
                     </SessionTabsProvider>
                   </LocationProvider>
                 </DataProvider>
@@ -187,6 +190,7 @@ async function renderSessionTabs(
   await wait(() => client.connection.status() === "connected")
   return {
     tabs,
+    client,
     route,
     data,
     sessions,
@@ -214,6 +218,25 @@ async function renderSessionTabs(
     },
   }
 }
+
+test("declares launch and persisted tab family interests", async () => {
+  const other = `${directory}/other-worktree`
+  const setup = await renderSessionTabs("first", {
+    home: true,
+    persisted: ["first", "second"],
+    sessionDirectories: { second: other },
+  })
+
+  try {
+    await wait(() => setup.client.interest.desired().locations.some((location) => location.directory === other))
+    expect(setup.client.interest.desired()).toEqual({
+      locations: [{ directory }, { directory: other }],
+      sessions: ["first", "second"],
+    })
+  } finally {
+    await setup.destroy()
+  }
+})
 
 function admitted(sessionID: string, inboxID: string): OpenCodeEvent {
   return {
