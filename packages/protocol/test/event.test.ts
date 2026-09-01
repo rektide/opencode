@@ -1,5 +1,14 @@
 import { expect, test } from "bun:test"
-import { isOpenCodeEvent, OpenCodeEvent, type OpenCodeEventEncoded } from "../src/groups/event.js"
+import { WorkspaceID } from "@opencode-ai/schema/workspace-id"
+import { Schema } from "effect"
+import {
+  ControlledFeedItem,
+  EventInterest,
+  EventSubscriptionID,
+  isOpenCodeEvent,
+  OpenCodeEvent,
+  type OpenCodeEventEncoded,
+} from "../src/groups/event.js"
 
 type JsonShape<Value> = Value extends string | number | boolean | null
   ? Value
@@ -31,4 +40,32 @@ test("classifies public events by type", () => {
 
 test("keeps public event runtime values within the encoded contract", () => {
   expect(wireReady).toBe(true)
+})
+
+test("validates the exact controlled subscription ID prefix", () => {
+  expect(String(Schema.decodeUnknownSync(EventSubscriptionID)("evsub_0123456789abcdef"))).toBe(
+    "evsub_0123456789abcdef",
+  )
+  expect(() => Schema.decodeUnknownSync(EventSubscriptionID)("evsub0123456789abcdef")).toThrow()
+  expect(() => Schema.decodeUnknownSync(EventSubscriptionID)("evt_0123456789abcdef")).toThrow()
+})
+
+test("round-trips workspace-distinct controlled interests", () => {
+  const input = {
+    locations: [
+      { directory: "/workspace" },
+      { directory: "/workspace", workspaceID: WorkspaceID.make("wrk_other") },
+    ],
+    sessions: ["ses_first", "ses_second"],
+  }
+
+  expect(Schema.encodeSync(EventInterest)(Schema.decodeUnknownSync(EventInterest)(input))).toEqual(input)
+})
+
+test("decodes the controlled ready frame separately from public events", () => {
+  const ready = { type: "event-feed.ready", data: { subscriptionID: "evsub_0123456789abcdef" } }
+  const encoded: unknown = ready
+
+  expect(JSON.stringify(Schema.decodeUnknownSync(ControlledFeedItem)(encoded))).toBe(JSON.stringify(ready))
+  expect(isOpenCodeEvent(ready)).toBe(false)
 })

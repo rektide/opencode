@@ -9515,6 +9515,200 @@
         "summary": "Subscribe to events"
       }
     },
+    "/api/experimental/event": {
+      "get": {
+        "tags": ["event"],
+        "operationId": "v2.event.controlled.subscribe",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ControlledFeedItemEncoded"
+                    }
+                  },
+                  "required": ["id", "event", "data"],
+                  "additionalProperties": false
+                },
+                "x-effect-stream": {
+                  "encoding": "sse",
+                  "causeSchema": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "_tag": {
+                              "type": "string",
+                              "enum": ["Fail"]
+                            },
+                            "error": {
+                              "not": {}
+                            }
+                          },
+                          "required": ["_tag", "error"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "_tag": {
+                              "type": "string",
+                              "enum": ["Die"]
+                            },
+                            "defect": {}
+                          },
+                          "required": ["_tag", "defect"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "_tag": {
+                              "type": "string",
+                              "enum": ["Interrupt"]
+                            },
+                            "fiberId": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["_tag", "fiberId"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  "errorSchema": {
+                    "not": {}
+                  },
+                  "failureEvent": "effect/httpapi/stream/failure"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Open an experimental event stream that activates after the client replaces its complete Location and Session interest set.",
+        "summary": "Subscribe to a controlled event feed"
+      }
+    },
+    "/api/experimental/event/subscriptions/{subscriptionID}/interests": {
+      "put": {
+        "tags": ["event"],
+        "operationId": "v2.event.controlled.replaceInterests",
+        "parameters": [
+          {
+            "name": "subscriptionID",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/EventSubscription.ID"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "<No Content>"
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "EventSubscriptionNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventSubscriptionNotFoundErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Replace the complete Location and Session interest set for one live controlled event subscription.",
+        "summary": "Replace controlled event interests",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventInterest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
     "/api/pty": {
       "get": {
         "tags": ["pty"],
@@ -14664,6 +14858,51 @@
             "$ref": "#/components/schemas/Connection.EnvInfo"
           }
         ]
+      },
+      "ControlledFeedItemEncoded": {
+        "type": "string",
+        "contentMediaType": "application/json"
+      },
+      "EventInterest": {
+        "type": "object",
+        "properties": {
+          "locations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Location.Ref"
+            }
+          },
+          "sessions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^ses"
+            }
+          }
+        },
+        "required": ["locations", "sessions"],
+        "additionalProperties": false
+      },
+      "EventSubscription.ID": {
+        "type": "string",
+        "pattern": "^evsub_"
+      },
+      "EventSubscriptionNotFoundErrorEncoded": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["EventSubscriptionNotFoundError"]
+          },
+          "subscriptionID": {
+            "$ref": "#/components/schemas/EventSubscription.ID"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["_tag", "subscriptionID", "message"],
+        "additionalProperties": false
       },
       "FileDiff.Info": {
         "type": "object",
