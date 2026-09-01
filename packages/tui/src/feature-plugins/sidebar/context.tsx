@@ -46,8 +46,7 @@ export default Plugin.define({
   setup(context) {
     context.ui.epilogue.register(({ sessionID }) => {
       const cost = context.data.session.cost(sessionID)
-      if (cost <= 0) return
-      return { label: "Cost", value: { type: "text", text: money.format(cost) } }
+      return cost > 0 ? { label: "Cost", value: { type: "text", text: money.format(cost) } } : undefined
     })
     context.ui.slot({
       append: "sidebar.content",
