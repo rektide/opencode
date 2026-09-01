@@ -499,7 +499,7 @@ const layer = Layer.effect(
               )
               const moved = [SessionEvent.Moved, { sessionID: input.sessionID, ...payload }] as const
               const first = cancellations[0]
-              if (!first) return yield* bus.publish(...moved).pipe(Effect.asVoid)
+              if (!first) return yield* bus.publishAll([moved]).pipe(Effect.asVoid)
               return yield* bus.publishAll([first, ...cancellations.slice(1), moved])
             }
             yield* admission
