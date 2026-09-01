@@ -4,7 +4,7 @@ Date: 2026-08-31
 
 Model: OpenAI GPT-5.6 Sol high (`gpt56s`)
 
-Status: implemented on the `term-v2` lineage atop `v2@origin` at `49dd2cea`; focused acceptance gates are green
+Status: implemented on the `term-v2` lineage atop `v2@origin` at `9553187b`; focused acceptance gates are green
 
 ## Outcome
 
