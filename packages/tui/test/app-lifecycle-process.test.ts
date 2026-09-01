@@ -27,6 +27,12 @@ test.skipIf(process.platform === "win32")(
   30_000,
 )
 
+test.skipIf(process.platform === "win32")(
+  "destroy during hot reload freezes the documented missing-row interval",
+  () => runCase("fixture", "app.exit", 0, true),
+  30_000,
+)
+
 test.skipIf(process.platform === "win32").each(signals)(
   "actual CLI handles %s after cleanup with one complete epilogue",
   (signal, expectedExit) => runCase("cli", signal, expectedExit),
@@ -37,6 +43,7 @@ async function runCase(
   mode: "fixture" | "cli",
   trigger: (typeof signals)[number][0] | "app.exit",
   expectedExit: number,
+  reload = false,
 ) {
   await using tmp = await tmpdir()
   const ready = path.join(tmp.path, "ready")
@@ -169,13 +176,28 @@ export default {
     ])
     await waitForText(cleanup, "setup\n", "plugin did not finish setup")
     if (mode === "cli") await Bun.sleep(500)
+    if (reload) {
+      await Bun.write(
+        tuiPlugin,
+        `
+export default {
+  id: "test.epilogue",
+  setup: (context) => context.ui.epilogue.register(() => ({
+    label: "Replacement",
+    value: { type: "text", text: "too late" },
+  })),
+}
+`,
+      )
+      await waitForText(cleanup, "cleanup:start\n", "plugin hot-reload cleanup did not start")
+    }
     if (trigger === "app.exit" && mode === "fixture") await Bun.write(exit, "exit\n")
     if (trigger === "app.exit" && mode === "cli") {
       await child.stdin.write(new Uint8Array([3]))
       await child.stdin.flush()
     }
     if (trigger !== "app.exit") child.kill(trigger)
-    await waitForText(cleanup, "cleanup:start\n", "plugin cleanup did not start")
+    if (!reload) await waitForText(cleanup, "cleanup:start\n", "plugin cleanup did not start")
     await Bun.sleep(trigger === "app.exit" ? 3_000 : 150)
     if (mode === "fixture") expect(stdout.join("")).toBe("")
     if (mode === "cli") expect(Bun.stripANSI(stdout.join(""))).not.toContain("opencode2 -s dummy")
@@ -194,12 +216,19 @@ export default {
     expect(output).toContain("Demo session")
     expect(output.match(/Active/g) ?? []).toHaveLength(1)
     expect(output).toContain("Cost      $1.25")
-    expect(output).toContain("Fixture   retained")
-    expect(output).toContain("Observed")
-    expect(output.indexOf("Active")).toBeLessThan(output.indexOf("Cost"))
-    expect(output.indexOf("Cost")).toBeLessThan(output.indexOf("Fixture"))
-    expect(output.indexOf("Fixture")).toBeLessThan(output.indexOf("Observed"))
-    expect(output.indexOf("Observed")).toBeLessThan(output.indexOf("Continue"))
+    if (reload) {
+      expect(output).not.toContain("Fixture")
+      expect(output).not.toContain("Observed")
+      expect(output).not.toContain("Replacement")
+      expect(output.indexOf("Cost")).toBeLessThan(output.indexOf("Continue"))
+    } else {
+      expect(output).toContain("Fixture   retained")
+      expect(output).toContain("Observed")
+      expect(output.indexOf("Active")).toBeLessThan(output.indexOf("Cost"))
+      expect(output.indexOf("Cost")).toBeLessThan(output.indexOf("Fixture"))
+      expect(output.indexOf("Fixture")).toBeLessThan(output.indexOf("Observed"))
+      expect(output.indexOf("Observed")).toBeLessThan(output.indexOf("Continue"))
+    }
     if (trigger === "app.exit") expect(output).toContain("Active    now")
     if (mode === "fixture") expect(output.endsWith("\n\n")).toBe(true)
     if (mode === "cli") expect(raw).toContain("\x1b]0;\x07")
