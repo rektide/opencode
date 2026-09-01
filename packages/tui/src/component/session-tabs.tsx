@@ -535,7 +535,7 @@ function VerticalSessionTabs(props: {
   const actionHovered = () => theme.background.raised.high
   const base = useTheme()
   const config = useConfig().data
-  const animations = () => props.animations ?? config.animations ?? true
+  const animations = () => props.animations ?? config.animations !== false
   const width = () => props.width ?? SESSION_SIDEBAR_WIDTH
   const compact = createMemo(() => width() < SESSION_TABS_COMPACT_BREAKPOINT)
   const tooltipWidth = () => Math.min(54, dimensions().width - width())
@@ -1273,7 +1273,7 @@ function HorizontalSessionTabs(props: {
   const dimensions = useTerminalDimensions()
   const theme = useTheme()
   const config = useConfig().data
-  const animations = () => props.animations ?? config.animations ?? true
+  const animations = () => props.animations ?? config.animations !== false
   const [addHovered, setAddHovered] = createSignal(false)
   const marquee = createTabMarquee(animations)
   const hovered = marquee.hovered

@@ -30,6 +30,12 @@ test("validates mini replay and work spinner settings", () => {
   expect(() => decodeInfo({ mini: { work_spinner: "unknown" } })).toThrow()
 })
 
+test("validates animation frame rates", () => {
+  expect(decodeInfo({ animations: true })).toEqual({ animations: true })
+  expect(decodeInfo({ animations: 3 })).toEqual({ animations: 3 })
+  expect(() => decodeInfo({ animations: 0 })).toThrow()
+})
+
 test("validates the session tabs setting", () => {
   const decode = Schema.decodeUnknownSync(Info)
 
