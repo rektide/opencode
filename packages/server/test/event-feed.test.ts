@@ -4,7 +4,7 @@ import { Bus } from "@opencode-ai/core/bus"
 import { Credential } from "@opencode-ai/schema/credential"
 import { Event } from "@opencode-ai/schema/event"
 import { IntegrationID } from "@opencode-ai/schema/integration-id"
-import { Deferred, Effect, Exit, Fiber, Option, Schema, Stream } from "effect"
+import { Deferred, Effect, Exit, Fiber, Logger, Option, References, Schema, Stream } from "effect"
 import { it } from "../../core/test/lib/effect"
 import { EventFeed } from "../src/event-feed"
 
@@ -76,6 +76,13 @@ describe("EventFeed", () => {
         capacity: 1,
         encode: (event) => event.id,
       })
+      const messages: unknown[] = []
+      const annotations: Array<Record<string, unknown>> = []
+      const logger = Logger.make<unknown, void>((options) => {
+        messages.push(options.message)
+        annotations.push({ ...options.fiber.getRef(References.CurrentLogAnnotations) })
+      })
+      const loggerLayer = Logger.layer([logger], { mergeWithExisting: false })
       const slow = yield* feed.subscribe
       const fast = yield* feed.subscribe
       const first = yield* Deferred.make<void>()
@@ -97,11 +104,11 @@ describe("EventFeed", () => {
         Effect.forkScoped,
       )
 
-      yield* source.publish(event("one"))
+      yield* source.publish(event("one")).pipe(Effect.provide(loggerLayer))
       yield* Deferred.await(first)
-      yield* source.publish(event("two"))
+      yield* source.publish(event("two")).pipe(Effect.provide(loggerLayer))
       yield* Deferred.await(second)
-      yield* source.publish(event("three"))
+      yield* source.publish(event("three")).pipe(Effect.provide(loggerLayer))
 
       yield* Fiber.join(fastFiber)
 
@@ -110,6 +117,18 @@ describe("EventFeed", () => {
       expect(Exit.isFailure(result)).toBeTrue()
       if (Exit.isSuccess(result)) return
       expect(Option.getOrUndefined(Exit.findErrorOption(result))).toBeInstanceOf(EventFeed.SubscriberOverflowError)
+      expect(messages).toEqual([["event feed subscriber overflow"]])
+      expect(annotations).toEqual([
+        {
+          eventFeedMode: "legacy",
+          phase: "event",
+          capacity: 1,
+          overflowedSubscribers: 1,
+          overflowCount: 1,
+          eventID: Event.ID.make("evt_two"),
+          eventType: Agent.Event.Updated.type,
+        },
+      ])
     }),
   )
 

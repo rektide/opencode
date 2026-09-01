@@ -37,6 +37,7 @@ export const make = Effect.fn("EventFeed.make")(function* (
   const capacity = options?.capacity ?? SubscriberCapacity
   const render = options?.encode ?? frame
   const subscribers = new Set<Queue.Queue<string, Error>>()
+  let overflowCount = 0
 
   const fail = (error: Error) =>
     Effect.sync(() => {
@@ -61,11 +62,26 @@ export const make = Effect.fn("EventFeed.make")(function* (
       ),
     )
     if (encoded === undefined) return
+    const previousOverflowCount = overflowCount
     for (const subscriber of subscribers) {
       if (Queue.offerUnsafe(subscriber, encoded)) continue
+      overflowCount += 1
       subscribers.delete(subscriber)
       Queue.failCauseUnsafe(subscriber, Cause.fail(new SubscriberOverflowError({ capacity })))
     }
+    const overflowedSubscribers = overflowCount - previousOverflowCount
+    if (overflowedSubscribers === 0) return
+    yield* Effect.logWarning("event feed subscriber overflow").pipe(
+      Effect.annotateLogs({
+        eventFeedMode: "legacy",
+        phase: "event",
+        capacity,
+        overflowedSubscribers,
+        overflowCount,
+        eventID: event.id,
+        eventType: event.type,
+      }),
+    )
   })
 
   const unsubscribe = yield* observe(publish)

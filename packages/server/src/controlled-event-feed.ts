@@ -57,6 +57,11 @@ type Subscriber = {
   readonly derivedLocations: Map<SessionID, Location.Ref>
 }
 
+type Overflow = {
+  readonly subscriptionIDs: readonly EventSubscriptionID[]
+  readonly overflowCount: number
+}
+
 const emptyInterest = (): InterestSet => ({ locations: new Map(), sessions: new Set() })
 
 export function frame(item: ControlledFeedItem) {
@@ -77,6 +82,7 @@ export const make = Effect.fn("ControlledEventFeed.make")(function* (
   const subscribers = new Map<EventSubscriptionID, Subscriber>()
   const admission = Semaphore.makeUnsafe(1)
   let activeCount = 0
+  let overflowCount = 0
 
   const critical = <A>(section: () => A) => admission.withPermit(Effect.sync(section))
 
@@ -88,10 +94,26 @@ export const make = Effect.fn("ControlledEventFeed.make")(function* (
 
   const offer = (subscriber: Subscriber, value: string) => {
     if (Queue.offerUnsafe(subscriber.queue, value)) return true
+    overflowCount += 1
     remove(subscriber)
     Queue.failCauseUnsafe(subscriber.queue, Cause.fail(new SubscriberOverflowError({ capacity })))
     return false
   }
+
+  const logOverflow = (
+    input: Overflow & { readonly phase: "registration" | "activation" | "event"; readonly event?: OpenCodeEvent },
+  ) =>
+    Effect.logWarning("event feed subscriber overflow").pipe(
+      Effect.annotateLogs({
+        eventFeedMode: "controlled",
+        phase: input.phase,
+        capacity,
+        overflowedSubscribers: input.subscriptionIDs.length,
+        overflowCount: input.overflowCount,
+        subscriptionIDs: input.subscriptionIDs,
+        ...(input.event ? { eventID: input.event.id, eventType: input.event.type } : {}),
+      }),
+    )
 
   const fail = (error: Error) =>
     critical(() => {
@@ -118,7 +140,8 @@ export const make = Effect.fn("ControlledEventFeed.make")(function* (
       ),
     )
     if (encoded === undefined) return
-    yield* critical(() => {
+    const overflow = yield* critical(() => {
+      const subscriptionIDs: EventSubscriptionID[] = []
       for (const subscriber of subscribers.values()) {
         if (!subscriber.active) continue
         const sessionID = input.audience.sessionID
@@ -128,9 +151,12 @@ export const make = Effect.fn("ControlledEventFeed.make")(function* (
         if (sessionID !== undefined && event.type === SessionEvent.Deleted.type) {
           subscriber.derivedLocations.delete(sessionID)
         }
-        if (matches(subscriber, input.audience)) offer(subscriber, encoded)
+        if (matches(subscriber, input.audience) && !offer(subscriber, encoded)) subscriptionIDs.push(subscriber.id)
       }
+      if (subscriptionIDs.length === 0) return
+      return { subscriptionIDs, overflowCount }
     })
+    if (overflow) yield* logOverflow({ ...overflow, phase: "event", event })
   })
 
   const unsubscribe = yield* observe(publish)
@@ -147,11 +173,23 @@ export const make = Effect.fn("ControlledEventFeed.make")(function* (
           derivedLocations: new Map(),
         }
         return critical(() => {
-          if (offer(subscriber, frame({ type: "event-feed.ready", data: { subscriptionID: subscriber.id } }))) {
+          const offered = offer(
+            subscriber,
+            frame({ type: "event-feed.ready", data: { subscriptionID: subscriber.id } }),
+          )
+          if (offered) {
             subscribers.set(subscriber.id, subscriber)
           }
-          return subscriber
-        })
+          return {
+            subscriber,
+            overflow: offered ? undefined : { subscriptionIDs: [subscriber.id], overflowCount },
+          }
+        }).pipe(
+          Effect.tap((result) =>
+            result.overflow ? logOverflow({ ...result.overflow, phase: "registration" }) : Effect.void,
+          ),
+          Effect.map((result) => result.subscriber),
+        )
       }),
     ),
     (subscriber) =>
@@ -163,27 +201,37 @@ export const make = Effect.fn("ControlledEventFeed.make")(function* (
       const requested = normalize(input.interest)
       if (requested instanceof InvalidRequestError) return yield* requested
       const connected = frame({ id: Event.ID.create(), type: "server.connected", data: {} })
-      const error = yield* critical(() => {
+      const result: {
+        readonly error?: EventSubscriptionNotFoundError
+        readonly overflow?: Overflow
+      } = yield* critical(() => {
         const subscriber = subscribers.get(input.subscriptionID)
         if (!subscriber)
-          return new EventSubscriptionNotFoundError({
-            subscriptionID: input.subscriptionID,
-            message: `Controlled event subscription ${input.subscriptionID} was not found`,
-          })
+          return {
+            error: new EventSubscriptionNotFoundError({
+              subscriptionID: input.subscriptionID,
+              message: `Controlled event subscription ${input.subscriptionID} was not found`,
+            }),
+          }
         subscriber.requested = requested
         for (const sessionID of subscriber.derivedLocations.keys()) {
           if (!requested.sessions.has(sessionID)) subscriber.derivedLocations.delete(sessionID)
         }
-        if (subscriber.active) return
+        if (subscriber.active) return {}
         if (!offer(subscriber, connected))
-          return new EventSubscriptionNotFoundError({
-            subscriptionID: input.subscriptionID,
-            message: `Controlled event subscription ${input.subscriptionID} is closed`,
-          })
+          return {
+            error: new EventSubscriptionNotFoundError({
+              subscriptionID: input.subscriptionID,
+              message: `Controlled event subscription ${input.subscriptionID} is closed`,
+            }),
+            overflow: { subscriptionIDs: [subscriber.id], overflowCount },
+          }
         subscriber.active = true
         activeCount += 1
+        return {}
       })
-      if (error) return yield* error
+      if (result.overflow) yield* logOverflow({ ...result.overflow, phase: "activation" })
+      if (result.error) return yield* result.error
     },
   )
 
