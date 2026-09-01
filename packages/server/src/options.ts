@@ -48,6 +48,8 @@ export const ServerOptions = Schema.Struct({
           retryBaseMs: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
           retryCapMs: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
           binary: Schema.optional(Schema.String),
+          metricsIntervalMs: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+          metricsMode: Schema.optional(Schema.Literals(["wide", "lines"])),
         }),
       ),
       fff: Schema.optional(Schema.Boolean),

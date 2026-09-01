@@ -55,6 +55,17 @@ test("accepts a Watchman CLI binary override", () => {
   expect(Option.isNone(decode({ fs: { watchman: { binary: 5 } } }))).toBe(true)
 })
 
+test("accepts Watchman metrics tuning and rejects invalid values", () => {
+  const watchman = Option.getOrThrow(
+    decode({ fs: { watchman: { metricsIntervalMs: 0, metricsMode: "lines" } } }),
+  ).fs?.watchman
+  expect(watchman?.metricsIntervalMs).toBe(0)
+  expect(watchman?.metricsMode).toBe("lines")
+  // Zero is valid here: it disables emission, unlike the deadline options.
+  expect(Option.isNone(decode({ fs: { watchman: { metricsIntervalMs: -1 } } }))).toBe(true)
+  expect(Option.isNone(decode({ fs: { watchman: { metricsMode: "pretty" } } }))).toBe(true)
+})
+
 test("accepts an optional CORS allowlist", () => {
   expect(Option.getOrThrow(decode({})).cors).toBeUndefined()
   expect(Option.getOrThrow(decode({ cors: [] })).cors).toEqual([])
