@@ -288,3 +288,15 @@ High. Mechanical rebase with zero conflicts; the one same-file overlap
 (`app.tsx`, plugin/RPC rename vs renderer throttle) is a trivial
 region-disjoint union verified in the merged tree; focused-test and
 typecheck counts match the previously recorded baseline exactly.
+
+# Addendum 7 — 2026-09-01 — refresh onto 43d09b9d
+
+Duplicate-then-rebase of the 9-commit line from `6a2c3e91` onto `v2@origin`
+`43d09b9d75ad`. One textual conflict (sidebar.tsx `title_shimmer` relocation,
+feature gate re-applied at the new site) plus five schema-widening typecheck
+adaptation lines in `one-cell-spinner.tsx` / `footer.view.tsx`. Verification:
+config-v2 22 pass, tab-pulse 8 pass, TUI typecheck clean. Full record:
+[`refresh-20260901.glm53.md`](/refresh-20260901.glm53.md). Note: the freshen
+instruction named baseline `ce6247bd2f28`, which does not exist in the repo;
+the actual fetched `v2@origin` is `43d09b9d` (distances 97/43 match the
+instruction exactly) — see the refresh note's baseline section.
