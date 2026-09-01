@@ -21,6 +21,12 @@ test.skipIf(process.platform === "win32").each(signals)(
   30_000,
 )
 
+test.skipIf(process.platform === "win32")(
+  "actual CLI handles app.exit after cleanup with one complete epilogue",
+  () => runCase("cli", "app.exit", 0),
+  30_000,
+)
+
 test.skipIf(process.platform === "win32").each(signals)(
   "actual CLI handles %s after cleanup with one complete epilogue",
   (signal, expectedExit) => runCase("cli", signal, expectedExit),
@@ -48,13 +54,14 @@ import { appendFile } from "node:fs/promises"
 export default {
   id: "test.epilogue",
   setup: async (context) => {
+    let shutdownProjections = 0
     const dispose = [
       context.ui.epilogue.register(() => {
-        if (context.renderer.isDestroyed) throw new Error("epilogue projection ran during shutdown")
+        if (context.renderer.isDestroyed) shutdownProjections++
         return { label: "Fixture", value: { type: "text", text: "retained" } }
       }),
       context.ui.epilogue.register(({ sessionID }) => {
-        if (context.renderer.isDestroyed) throw new Error("epilogue projection ran during shutdown")
+        if (context.renderer.isDestroyed) shutdownProjections++
         const session = context.data.session.get(sessionID)
         if (!session) return
         return { label: "Observed", value: { type: "relative-time", timestamp: session.time.updated } }
@@ -65,7 +72,7 @@ export default {
       dispose.reverse().forEach((remove) => remove())
       await appendFile(${JSON.stringify(cleanup)}, "cleanup:start\\n")
       while (!(await Bun.file(${JSON.stringify(gate)}).exists())) await Bun.sleep(10)
-      await appendFile(${JSON.stringify(cleanup)}, "cleanup:end\\n")
+      await appendFile(${JSON.stringify(cleanup)}, "cleanup:end\\nshutdown:" + shutdownProjections + "\\n")
     }
   },
 }
@@ -125,10 +132,13 @@ export default {
           "--session",
           "dummy",
         ]
+  const environment = { ...process.env }
+  delete environment.OPENCODE_LOG_LEVEL
+  delete environment.OPENCODE_PRINT_LOGS
   const child = Bun.spawn(command, {
     cwd: path.join(import.meta.dir, ".."),
     env: {
-      ...process.env,
+      ...environment,
       OPENCODE_DISABLE_AUTOUPDATE: "true",
       OPENCODE_EPILOGUE_SERVER: server.url.toString(),
       OPENCODE_EPILOGUE_READY: ready,
@@ -141,7 +151,7 @@ export default {
       XDG_DATA_HOME: path.join(tmp.path, "data"),
       XDG_STATE_HOME: path.join(tmp.path, "state"),
     },
-    stdin: "ignore",
+    stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
   })
@@ -159,7 +169,11 @@ export default {
     ])
     await waitForText(cleanup, "setup\n", "plugin did not finish setup")
     if (mode === "cli") await Bun.sleep(500)
-    if (trigger === "app.exit") await Bun.write(exit, "exit\n")
+    if (trigger === "app.exit" && mode === "fixture") await Bun.write(exit, "exit\n")
+    if (trigger === "app.exit" && mode === "cli") {
+      await child.stdin.write(new Uint8Array([3]))
+      await child.stdin.flush()
+    }
     if (trigger !== "app.exit") child.kill(trigger)
     await waitForText(cleanup, "cleanup:start\n", "plugin cleanup did not start")
     await Bun.sleep(trigger === "app.exit" ? 3_000 : 150)
@@ -190,7 +204,7 @@ export default {
     if (mode === "fixture") expect(output.endsWith("\n\n")).toBe(true)
     if (mode === "cli") expect(raw).toContain("\x1b]0;\x07")
     expect(stderr.join("")).toBe("")
-    expect(await Bun.file(cleanup).text()).toBe("setup\ncleanup:start\ncleanup:end\n")
+    expect(await Bun.file(cleanup).text()).toBe("setup\ncleanup:start\ncleanup:end\nshutdown:0\n")
   } finally {
     await Bun.write(gate, "continue\n")
     if (child.exitCode === null) child.kill("SIGKILL")
