@@ -130,3 +130,7 @@ The current experimental implementation naturally has Location/project scope. Do
 - [TUI interest research](/.design/bus-smart/research-tui-interest0.glm53.md) supplies the route, tab, family, and first-execution ordering facts.
 - [Client compatibility research](/.design/bus-smart/research-client-compat0.glm53.md) explains why per-generation controlled probing preserves older-server operation.
 - [EventFeed Effect research](/.design/bus-smart/research-eventfeed-effect0.glm53.md) grounds the single-semaphore admission cut exercised by the new race tests.
+
+## Status addendum
+
+Implementation steps 1 through 3 are complete. [The verification report](/.design/bus-smart/verification0.gpt56s.md) records the final automated matrix, added event-rate/reconnect/overflow observability, the live startup blocker, and the remaining notification-scope release decision.
