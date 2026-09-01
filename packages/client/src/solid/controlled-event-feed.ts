@@ -1,19 +1,22 @@
-import type { EventInterest } from "@opencode-ai/protocol/groups/event"
-import type { Location } from "@opencode-ai/schema/location"
-import type { SessionID } from "@opencode-ai/schema/session-id"
 import { createStore } from "solid-js/store"
 import { onCleanup, type Accessor } from "solid-js"
-import { ClientError, type EventControlledSubscribeOutput, type OpenCodeClient } from "../promise"
+import {
+  ClientError,
+  type EventControlledReplaceInterestsInput,
+  type EventControlledSubscribeOutput,
+  type OpenCodeClient,
+} from "../promise"
 import type { EventStreamAdapter } from "./connection"
 
 export type ControlledEventFeedMode = "connecting" | "controlled" | "legacy"
+export type ControlledEventInterest = Omit<EventControlledReplaceInterestsInput, "subscriptionID">
 
 export interface ControlledEventFeed {
   readonly subscribe: EventStreamAdapter
-  readonly setDesired: (interest: EventInterest) => void
+  readonly setDesired: (interest: ControlledEventInterest) => void
   readonly flush: () => Promise<void>
-  readonly desired: Accessor<EventInterest>
-  readonly installed: Accessor<EventInterest | undefined>
+  readonly desired: Accessor<ControlledEventInterest>
+  readonly installed: Accessor<ControlledEventInterest | undefined>
   readonly mode: Accessor<ControlledEventFeedMode>
   readonly error: Accessor<string | undefined>
 }
@@ -26,8 +29,8 @@ export interface ControlledEventFeedOptions {
 }
 
 type InterestSet = {
-  readonly locations: Map<string, Location.Ref>
-  readonly sessions: Set<SessionID>
+  readonly locations: Map<string, ControlledEventInterest["locations"][number]>
+  readonly sessions: Set<ControlledEventInterest["sessions"][number]>
 }
 
 type Held<Value> = {
@@ -55,12 +58,15 @@ const empty = (): InterestSet => ({ locations: new Map(), sessions: new Set() })
 export function createControlledEventFeed(options: ControlledEventFeedOptions = {}): ControlledEventFeed {
   const removalGrace = options.removalGrace ?? 3_000
   let desired = empty()
-  const heldLocations = new Map<string, Held<Location.Ref>>()
-  const heldSessions = new Map<SessionID, Held<SessionID>>()
+  const heldLocations = new Map<string, Held<ControlledEventInterest["locations"][number]>>()
+  const heldSessions = new Map<
+    ControlledEventInterest["sessions"][number],
+    Held<ControlledEventInterest["sessions"][number]>
+  >()
   const waiters = new Set<Waiter>()
   const [state, setState] = createStore<{
-    desired: EventInterest
-    installed?: EventInterest
+    desired: ControlledEventInterest
+    installed?: ControlledEventInterest
     mode: ControlledEventFeedMode
     error?: string
   }>({ desired: toInterest(desired), mode: "connecting" })
@@ -188,7 +194,7 @@ export function createControlledEventFeed(options: ControlledEventFeedOptions = 
   }
 
   function transportTarget(): InterestSet {
-    const locations = new Map<string, Location.Ref>()
+    const locations = new Map<string, ControlledEventInterest["locations"][number]>()
     heldLocations.forEach((held, key) => locations.set(key, held.value))
     desired.locations.forEach((ref, key) => locations.set(key, ref))
     return {
@@ -224,7 +230,7 @@ export function createControlledEventFeed(options: ControlledEventFeedOptions = 
     )
   }
 
-  function setDesired(interest: EventInterest) {
+  function setDesired(interest: ControlledEventInterest) {
     if (disposed) return
     const before = transportTarget()
     const next = normalize(interest)
@@ -274,14 +280,14 @@ export function createControlledEventFeed(options: ControlledEventFeedOptions = 
   }
 }
 
-function normalize(interest: EventInterest): InterestSet {
+function normalize(interest: ControlledEventInterest): InterestSet {
   return {
     locations: new Map(interest.locations.map((ref) => [locationKey(ref), ref])),
     sessions: new Set(interest.sessions),
   }
 }
 
-function toInterest(interest: InterestSet): EventInterest {
+function toInterest(interest: InterestSet): ControlledEventInterest {
   return { locations: Array.from(interest.locations.values()), sessions: Array.from(interest.sessions) }
 }
 
@@ -294,7 +300,7 @@ function equal(left: InterestSet, right: InterestSet) {
   )
 }
 
-function locationKey(ref: Location.Ref) {
+function locationKey(ref: ControlledEventInterest["locations"][number]) {
   return JSON.stringify([ref.directory, ref.workspaceID])
 }
 
