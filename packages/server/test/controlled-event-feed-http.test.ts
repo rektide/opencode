@@ -2,6 +2,7 @@ import { expect } from "bun:test"
 import { ControlledFeedItem } from "@opencode-ai/protocol/groups/event"
 import { Effect, Schema } from "effect"
 import { it } from "../../core/test/lib/effect"
+import { ControlledEventFeed } from "../src/controlled-event-feed"
 import { ServerFetch } from "../src/fetch"
 
 it.live("negotiates the controlled feed without changing the legacy opening frame", () =>
@@ -22,6 +23,19 @@ it.live("negotiates the controlled feed without changing the legacy opening fram
       const ready = Schema.decodeUnknownSync(ControlledFeedItem)(await nextControlled())
       expect(ready.type).toBe("event-feed.ready")
       if (ready.type !== "event-feed.ready") throw new Error("Controlled feed did not start with ready")
+
+      const oversized = await handler(
+        new Request(
+          `http://opencode.local/api/experimental/event/subscriptions/${ready.data.subscriptionID}/interests`,
+          {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body:
+              " ".repeat(ControlledEventFeed.InterestByteCapacity) + JSON.stringify({ locations: [], sessions: [] }),
+          },
+        ),
+      )
+      expect(oversized.status).toBe(400)
 
       const replacement = await handler(
         new Request(
