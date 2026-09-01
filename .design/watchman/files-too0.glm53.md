@@ -498,3 +498,7 @@ additions are minimal; for (b/c) they are the gate.
   cookie lifecycle and amplification; establishes that file subscriptions are
   structurally cookie-immune and that the containment boundary stays at
   `skill.ts`.
+- [`parcel0.glm53.md`](/.design/watchman/parcel0.glm53.md) — research into
+  @parcel/watcher's own watchman backend; independently reaches the same
+  keep-the-boundary conclusion for directories (process-global,
+  deadline-free, reconnect-less client) that this wave reaches for files.
