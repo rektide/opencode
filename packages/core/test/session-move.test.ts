@@ -546,6 +546,42 @@ describe("Session.move", () => {
     ),
   )
 
+  it.effect("completes routed observation when an immediate move is interrupted after commit", () =>
+    tmpdirScoped().pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const bus = yield* Bus.Service
+          const source = AbsolutePath.make(path.join(tmp.path, "source"))
+          const destination = AbsolutePath.make(tmp.path)
+          yield* Effect.promise(() => mkdir(source))
+          const created = yield* session.create({ location: Location.Ref.make({ directory: source }) })
+          yield* Effect.promise(() => rm(source, { recursive: true }))
+          const entered = yield* Deferred.make<void>()
+          const release = yield* Deferred.make<void>()
+          let observed = false
+          yield* bus.observeRouted((input) => {
+            if (input.event.type !== SessionEvent.Moved.type) return Effect.void
+            return Deferred.succeed(entered, undefined).pipe(
+              Effect.andThen(Deferred.await(release)),
+              Effect.andThen(Effect.sync(() => (observed = true))),
+            )
+          })
+
+          const move = yield* session.move({ sessionID: created.id, directory: destination }).pipe(Effect.forkScoped)
+          yield* Deferred.await(entered)
+          const interruption = yield* Fiber.interrupt(move).pipe(Effect.forkScoped)
+          yield* Effect.yieldNow
+          yield* Deferred.succeed(release, undefined)
+          yield* Fiber.join(interruption)
+
+          expect(observed).toBeTrue()
+          expect((yield* session.get(created.id)).location.directory).toBe(destination)
+        }),
+      ),
+    ),
+  )
+
   it.effect("keeps a moved session out of its former directory's new identity", () =>
     tmpdirScoped().pipe(
       Effect.flatMap((tmp) =>
