@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test"
+import { createTestRenderer } from "@opentui/core/testing"
 import { createRoot, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createEpilogue, epilogueLimits, trackEpilogueRows } from "../../src/context/epilogue.tsx"
 import type { EpilogueRow } from "../../src/util/presentation.ts"
 
-test("tracks ordered projections and exposes the accepted hot-reload missing-row interval", () => {
+test("tracks ordered projections through cache, route, and activation changes", () => {
   const [state, setState] = createStore({ first: "first", second: "second", active: true, unrelated: 0 })
   const [sessionID, setSessionID] = createSignal("ses_a")
-  const [frame, setFrame] = createSignal(0)
   const calls: string[] = []
   let rows: readonly EpilogueRow[] = []
   let dispose = () => {}
@@ -68,7 +68,6 @@ test("tracks ordered projections and exposes the accepted hot-reload missing-row
   expect(calls).toEqual(["first:ses_a", "duplicate-a:ses_a", "duplicate-b:ses_a"])
 
   setState("unrelated", 1)
-  setFrame(frame() + 1)
   expect(calls).toHaveLength(3)
 
   setState("first", "updated")
@@ -85,6 +84,63 @@ test("tracks ordered projections and exposes the accepted hot-reload missing-row
   setSessionID("ses_b")
   expect(calls.slice(-3)).toEqual(["first:ses_b", "duplicate-a:ses_b", "duplicate-b:ses_b"])
   dispose()
+})
+
+test("row updates allocate no renderables or frames, and renderer frames do not rerun projections", async () => {
+  const setup = await createTestRenderer({ width: 20, height: 5, useThread: false })
+  const [value, setValue] = createSignal("before")
+  let calls = 0
+  let rows: readonly EpilogueRow[] = []
+  let frames = 0
+  let dispose = () => {}
+  const onFrame = () => frames++
+
+  createRoot((stop) => {
+    dispose = stop
+    trackEpilogueRows({
+      sessionID: () => "ses_test",
+      groups: () => [
+        {
+          plugin: "fixture",
+          projections: [
+            {
+              key: "fixture#0",
+              project: () => {
+                calls++
+                return { label: "Fixture", value: { type: "text", text: value() } }
+              },
+            },
+          ],
+        },
+      ],
+      publish: (retained) => {
+        rows = retained?.rows ?? []
+      },
+      report: () => {},
+    })
+  })
+
+  try {
+    await setup.renderOnce()
+    setup.renderer.on("frame", onFrame)
+    const nativeFrames = setup.getNativeStats().nativeFrameCount
+
+    setValue("after")
+    await Bun.sleep(25)
+    expect(calls).toBe(2)
+    expect(rows).toEqual([{ label: "Fixture", value: { type: "text", text: "after" } }])
+    expect(setup.renderer.root.getChildren()).toHaveLength(0)
+    expect(setup.getNativeStats().nativeFrameCount).toBe(nativeFrames)
+    expect(frames).toBe(0)
+
+    await setup.renderOnce()
+    expect(calls).toBe(2)
+    expect(frames).toBe(1)
+  } finally {
+    setup.renderer.off("frame", onFrame)
+    dispose()
+    setup.renderer.destroy()
+  }
 })
 
 test("isolates invalid projections, copies rows, and enforces per-plugin budgets", () => {
@@ -205,4 +261,48 @@ test("freezes matching Session rows before cleanup and rejects stale epochs", ()
   })
   stale.freeze(now)
   expect(Bun.stripANSI(stale.take() ?? "")).not.toContain("Stale")
+})
+
+test("freeze during the hot-reload replacement interval retains the documented missing row", () => {
+  const now = 2_000_000_000_000
+  const epilogue = createEpilogue()
+  const [active, setActive] = createSignal(true)
+  let dispose = () => {}
+
+  epilogue.set({
+    title: "A session",
+    sessionID: "ses_a",
+    activity: { status: "idle", updated: now },
+  })
+  createRoot((stop) => {
+    dispose = stop
+    trackEpilogueRows({
+      sessionID: () => "ses_a",
+      groups: () =>
+        active()
+          ? [
+              {
+                plugin: "fixture",
+                projections: [
+                  {
+                    key: "fixture#0",
+                    project: () => ({ label: "Fixture", value: { type: "text", text: "old generation" } }),
+                  },
+                ],
+              },
+            ]
+          : [],
+      publish: (retained) => epilogue.setRows(retained),
+      report: () => {},
+    })
+  })
+
+  setActive(false)
+  epilogue.freeze(now)
+  setActive(true)
+  dispose()
+
+  const output = Bun.stripANSI(epilogue.take() ?? "")
+  expect(output).not.toContain("Fixture")
+  expect(output).toContain("Continue  opencode2 -s ses_a")
 })
