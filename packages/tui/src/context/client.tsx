@@ -1,5 +1,5 @@
 import type { OpenCodeClient, OpenCodeEvent } from "@opencode-ai/client"
-import { createClientConnection, createPersistentPtyClient } from "@opencode-ai/client/solid"
+import { createClientConnection, createControlledEventFeed, createPersistentPtyClient } from "@opencode-ai/client/solid"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { onCleanup } from "solid-js"
 import { createSimpleContext } from "./helper"
@@ -21,6 +21,7 @@ export const { use: useClient, provider: ClientProvider } = createSimpleContext(
     let api = props.api
     let url = props.url
     let persistentPty = url ? createPersistentPtyClient(api, { url }) : undefined
+    const interest = createControlledEventFeed({ log })
 
     const connection = createClientConnection(api, {
       reconnect: service
@@ -35,6 +36,7 @@ export const { use: useClient, provider: ClientProvider } = createSimpleContext(
       onEvent(event) {
         events.emit(event.type, event)
       },
+      subscribe: interest.subscribe,
       log,
     })
 
@@ -50,6 +52,7 @@ export const { use: useClient, provider: ClientProvider } = createSimpleContext(
         if (!persistentPty) throw new Error("Persistent terminal server endpoint is unavailable")
         return persistentPty
       },
+      interest,
       event: {
         on: events.on,
         listen: events.listen,
