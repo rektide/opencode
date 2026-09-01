@@ -9,6 +9,8 @@ import { useClipboard } from "../context/clipboard"
 import { useToast } from "../ui/toast"
 import { describeOS, describeTerminal } from "../util/system"
 import { useTuiApp } from "../context/runtime"
+import { useClient } from "../context/client"
+import { interestSize } from "../devtools/event-interest"
 
 export function DialogDebug() {
   const theme = useTheme()
@@ -18,6 +20,7 @@ export function DialogDebug() {
   const clipboard = useClipboard()
   const toast = useToast()
   const app = useTuiApp()
+  const client = useClient()
   const [copied, setCopied] = createSignal(false)
 
   dialog.setSize("large")
@@ -31,6 +34,12 @@ export function DialogDebug() {
       { label: "Terminal", value: describeTerminal() },
       { label: "Session ID", value: route.data.type === "session" ? route.data.sessionID : "n/a" },
       { label: "Model", value: model ? `${model.providerID}/${model.modelID}` : "n/a" },
+      { label: "Event feed", value: client.interest.mode() },
+      { label: "Desired", value: interestSize(client.interest.desired()) },
+      {
+        label: "Installed",
+        value: interestSize(client.interest.installed()),
+      },
     ]
   })
 
