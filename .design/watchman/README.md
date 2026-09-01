@@ -278,5 +278,8 @@ known defect.
   query, root persistence, routing, and unsubscribe behavior.
 - [`timeout0.gpt56s.md`](/.design/watchman/timeout0.gpt56s.md) records the FIFO timeout incident
   that motivated admitted dispatch and failure-domain isolation.
+- [`cookie-clash0.gpt56s.md`](/.design/watchman/cookie-clash0.gpt56s.md) traces cookie lifecycle,
+  cross-daemon and nested-root visibility, current Skill containment, and the
+  remaining application, operational, and upstream solution threads.
 - [`draft1.gpt56t.md`](/.design/watch/draft1.gpt56t.md) is the retained
   one-subscription-per-interest design from the earlier wave.
