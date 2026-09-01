@@ -20,7 +20,7 @@ test("formats session continuation summary", () => {
 })
 
 test("formats supplemental rows before Continue with one freeze clock", () => {
-  const now = 2_000_000_000_000
+  const now = new Date(2026, 7, 31, 9, 15).getTime()
   const epilogue = Bun.stripANSI(
     sessionEpilogue(
       {
@@ -39,12 +39,41 @@ test("formats supplemental rows before Continue with one freeze clock", () => {
 
   expect(rows).toEqual([
     "  Session   A session",
-    "  Active    now",
+    "  Active    now · 2026-08-31 09:15",
     "  Cost      $1.25",
     "  Last synchronized 17m ago",
     "  Continue  opencode2 -s ses_123",
   ])
   expect(epilogue.match(/Active/g)).toHaveLength(1)
+})
+
+test("appends the local date of the last idle activity", () => {
+  const updated = new Date(2026, 7, 20, 9, 5).getTime()
+  const idle = new Date(2026, 7, 28, 14, 32).getTime()
+  const epilogues = [
+    sessionEpilogue(
+      { title: "A session", sessionID: "ses_123", activity: { status: "idle", updated, idle } },
+      idle + 3 * 60_000,
+    ),
+    sessionEpilogue(
+      { title: "A session", sessionID: "ses_123", activity: { status: "idle", updated: idle } },
+      idle + 17 * 60_000,
+    ),
+  ]
+  expect(Bun.stripANSI(epilogues[0]).split("\n")).toContain("  Active    3m ago · 2026-08-28 14:32")
+  expect(Bun.stripANSI(epilogues[1]).split("\n")).toContain("  Active    17m ago · 2026-08-28 14:32")
+})
+
+test("running activity prints no date", () => {
+  const epilogue = sessionEpilogue(
+    {
+      title: "A session",
+      sessionID: "ses_123",
+      activity: { status: "running", updated: new Date(2026, 7, 28, 14, 32).getTime() },
+    },
+    2_000_000_000_000,
+  )
+  expect(Bun.stripANSI(epilogue).split("\n")).toContain("  Active    running")
 })
 
 test.each([

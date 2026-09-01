@@ -46,19 +46,28 @@ function wordmark(pad = "") {
 export function sessionEpilogue(input: SessionEpilogueCandidate, now: number, rows: readonly EpilogueRow[] = []) {
   const weak = (text: string) => `${dim}${text}${" ".repeat(Math.max(1, 10 - stringWidth(text)))}${reset}`
   const value = (row: EpilogueRow) => (row.value.type === "text" ? row.value.text : activeAgo(row.value.timestamp, now))
+  const last = Math.max(input.activity.updated, input.activity.idle ?? input.activity.updated)
+  const active =
+    input.activity.status === "running"
+      ? `  ${weak("Active")}${bold}running${reset}`
+      : `  ${weak("Active")}${bold}${activeAgo(last, now)}${reset}${dim} · ${datestamp(last)}${reset}`
   return [
     ...wordmark("  "),
     "",
     `  ${weak("Session")}${bold}${input.title}${reset}`,
-    `  ${weak("Active")}${bold}${
-      input.activity.status === "running"
-        ? "running"
-        : activeAgo(Math.max(input.activity.updated, input.activity.idle ?? input.activity.updated), now)
-    }${reset}`,
+    active,
     ...rows.map((row) => `  ${weak(row.label)}${bold}${value(row)}${reset}`),
     `  ${weak("Continue")}${bold}opencode2 -s ${input.sessionID}${reset}`,
     "",
   ].join("\n")
+}
+
+// Local calendar time rather than Locale.datetime: the epilogue asserts exact strings
+// in tests and stays identical regardless of the runtime locale.
+function datestamp(at: number) {
+  const date = new Date(at)
+  const pair = (value: number) => String(value).padStart(2, "0")
+  return `${date.getFullYear()}-${pair(date.getMonth() + 1)}-${pair(date.getDate())} ${pair(date.getHours())}:${pair(date.getMinutes())}`
 }
 
 function activeAgo(updated: number, now: number) {
