@@ -16,7 +16,7 @@ function OneCellSpinnerStory(props: { context: Plugin.Context }) {
   const config = useConfig()
   const [selected, setSelected] = createSignal(39)
   const [speed, setSpeed] = createSignal(1)
-  const [animations, setAnimations] = createSignal(config.data.animations ?? true)
+  const [animations, setAnimations] = createSignal(config.data.animations !== false)
   const [paused, setPaused] = createSignal(false)
   const [glow, setGlow] = createSignal(true)
   const [solo, setSolo] = createSignal(false)
@@ -112,7 +112,7 @@ function OneCellSpinnerStory(props: { context: Plugin.Context }) {
           batch(() => {
             setSelected(39)
             setSpeed(1)
-            setAnimations(config.data.animations ?? true)
+            setAnimations(config.data.animations !== false)
             setPaused(false)
             setGlow(true)
             setSolo(false)

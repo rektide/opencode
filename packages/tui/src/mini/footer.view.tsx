@@ -709,7 +709,7 @@ export function RunFooterView(props: RunFooterViewProps) {
               <OneCellSpinner
                 animation={SEED_LAUNCH}
                 color={runTheme().splash.right}
-                animations={props.tuiConfig.animations}
+                animations={props.tuiConfig.animations !== false}
               />
             </Show>
             <text fg={runTheme().splash.right} wrapMode="none">
@@ -892,7 +892,7 @@ export function RunFooterView(props: RunFooterViewProps) {
                             onClose={closePanel}
                             onChange={props.onMiniSettingChange}
                             mono={props.mono}
-                            animations={props.tuiConfig.animations}
+                            animations={props.tuiConfig.animations !== false}
                           />
                         </Match>
                         <Match when={active().type === "permission"}>
@@ -967,7 +967,7 @@ export function RunFooterView(props: RunFooterViewProps) {
                     <OneCellSpinner
                       animation={props.mono ? SEED_MONO : WORK_SPINNERS[props.miniSettings().work_spinner]}
                       color={agentColor()}
-                      animations={props.tuiConfig.animations}
+                      animations={props.tuiConfig.animations !== false}
                       glow={!props.mono}
                       still={props.mono ? "*" : undefined}
                       age={performance.now() - (started() ?? performance.now())}
