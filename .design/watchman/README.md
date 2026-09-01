@@ -21,8 +21,8 @@ sources:
 
 This workspace carries the implementation of
 [`draft2.gpt56t.md`](/.design/watchman/draft2.gpt56t.md) as an independent stack over
-`v2@origin` `6a2c3e91`, freshened 2026-08-30 from the previous `e70d667a` base
-(see the freshen record below). The dated `watchman-20260829` bookmark remains
+`v2@origin` `43d09b9d`, freshened 2026-09-01 from the previous `6a2c3e91` base
+(see the freshen records below). The dated `watchman-20260829` bookmark remains
 the audit snapshot of the deleted process-global implementation, and the
 floating `watchman` bookmark now tracks this root-scoped replacement line.
 
@@ -194,6 +194,62 @@ Results on 2026-08-31, after the metrics commits:
 - Fake-daemon and live-daemon smoke renders in `.test-agent/watchman-metrics/`
   confirm wide-line size (~3.3 KB for two channels), per-window deltas, ignore
   filtering counts, and the shutdown final dump.
+
+## Freshen onto `43d09b9d` (2026-09-01)
+
+Mechanical freshen of the 25-commit line (the 13-commit root-scoped stack
+plus the 2026-08-31 binary-override/metrics work and the accumulated design
+docs) from base `6a2c3e91c780` to `v2@origin` `43d09b9d75ad`
+("fix(server): await plugin activation when checking updates"), 97 upstream
+commits, via duplicate-then-rebase. The floating `watchman` bookmark was
+first fast-forwarded from `96e57e6e3403` over the 11 unbookmarked commits to
+`7d380beaa8e7` (bookmark-debt repair per the convention); the pre-freshen
+originals and dated snapshots remain untouched.
+
+- **Conflicts: 2**, both in `packages/server/src/routes.ts` and both the
+  same shape — upstream refactored the `standard` replacement array from
+  tuple form (`[Watcher.node, Watcher.configured(...)]`) to accessor form
+  (`Watcher.node.replace(...)`) while the feature extends
+  `Watcher.configured` with its own fields. Resolutions are unions keeping
+  upstream's `.replace()` structure with the feature's fields re-homed in
+  it: the backend-selection commit's resolution adds `backend`, the
+  timeouts commit's resolution carries the full `backend`,
+  `subscribeTimeoutMs`, `watchman` set. Both sides' intents preserved.
+- **One post-rebase adaptation** (textually clean merge, semantically stale):
+  the feature's added block in `packages/core/test/location-layer.test.ts`
+  (watcher-sharing pin) used the removed tuple form for replacements.
+  Followed the signature to its new shape —
+  `Global.node.replace(tempGlobalLayer)`,
+  `LocationServiceMap.node.replace(makeGlobalNode({...}))`, and
+  `buildLocationServiceMap([Watcher.node.replace(countingWatcher)])` —
+  amended into the duplicated test commit. Pure API-drift adaptation; no
+  assertion or behavior changes.
+- **Collision check (mandated)**: no commit in `6a2c3e91c780..43d09b9d75ad`
+  lands an equivalent retained-backend/watchman direction or restructures
+  watcher interests. The only watcher-internals change is the one-line
+  `plugins.flush` → `plugins.awaitActivation` rename in
+  `location-watcher.ts` (a file this feature does not touch; the rename
+  propagated through upstream-owned tests via the rebase). Upstream's
+  `LayerNode` replacement-API refactor is the sole structural churn.
+- **Diffstat**: same 34-file set as the previous line; 7093 insertions,
+  114 deletions (previous: 7095/114 — the two-line delta is exactly the
+  `.replace()` reformatting in `routes.ts` and the tuple-to-accessor
+  compaction in `location-layer.test.ts`). No file the old line did not
+  touch; no diff creep.
+- **Verification**: `bun install` left `bun.lock` unchanged. Core
+  typecheck clean; focused suites — watchman-root 8, watcher-interests 3,
+  watchman-metrics 6, config/skill 10, config/config 35, watcher 14,
+  plugin/skill 2 (all pass; the known `.hg/branch` flake did not trigger),
+  location-layer 24 including the watcher-sharing pin, live watchwoman
+  suite 1 pass against the running daemon. Server typecheck clean, options
+  tests 9/9. CLI typecheck clean. Host load average was ~32 during the
+  run; one watchman-root test (`recovers a canceled subscription without
+  disturbing its sibling`) failed once in the first combined run and passed
+  in isolation and on an identical re-run — treated as load-transient.
+- **Bookmarks**: `watchman` + `watchman-20260901` at this docs commit.
+- **Confidence**: high. Both conflicts and the one adaptation are
+  upstream-refactor-follows-feature-intent unions, the file set is
+  unchanged, and all focused verification matches the pre-freshen record.
 
 ## Freshen onto `6a2c3e91` (2026-08-30)
 
