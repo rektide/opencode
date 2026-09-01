@@ -13,8 +13,11 @@ export type ClientConnectionEvent = {
   }
 }
 
+export type EventStreamAdapter = (api: OpenCodeClient, signal: AbortSignal) => AsyncIterable<OpenCodeEvent>
+
 export type ClientConnectionOptions = {
   readonly reconnect?: (signal: AbortSignal) => Promise<OpenCodeClient>
+  readonly subscribe?: EventStreamAdapter
   readonly onEvent: (event: OpenCodeEvent) => void
   readonly flushInterval?: number
   readonly pageLifecycle?: boolean
@@ -70,7 +73,9 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
     try {
       record(attempt === 0 ? "connecting" : "reconnecting", attempt)
       options.log?.info?.("event stream connecting", { attempt })
-      const iterator = api.event.subscribe({ signal: request.signal })[Symbol.asyncIterator]()
+      const iterator = (options.subscribe
+        ? options.subscribe(api, request.signal)
+        : api.event.subscribe({ signal: request.signal }))[Symbol.asyncIterator]()
       const first = await iterator.next()
       if (signal.aborted) return { error: undefined, connectedAt }
       if (first.done)
