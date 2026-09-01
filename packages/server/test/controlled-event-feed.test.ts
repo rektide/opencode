@@ -155,6 +155,84 @@ describe("ControlledEventFeed", () => {
     }),
   )
 
+  it.effect("orders concurrent activation before any admitted publication", () =>
+    Effect.gen(function* () {
+      const source = makeSource()
+      const feed = yield* ControlledEventFeed.make(source.observe, { createID: ids(firstID) })
+      const stream = yield* feed.subscribe
+      yield* stream.pipe(Stream.take(1), Stream.runDrain)
+
+      yield* Effect.all(
+        [
+          feed.replaceInterests({ subscriptionID: firstID, interest: interests([a]) }),
+          source.publish(publicEvent("activation-race"), { type: "locations", refs: [a] }),
+        ],
+        { concurrency: "unbounded" },
+      )
+
+      expect(labels(Array.from(yield* stream.pipe(Stream.take(1), Stream.runCollect)))).toEqual(["connected"])
+    }),
+  )
+
+  it.effect("uses replacement as the publication cut under concurrency", () =>
+    Effect.gen(function* () {
+      const source = makeSource()
+      const feed = yield* ControlledEventFeed.make(source.observe, { createID: ids(firstID) })
+      const stream = yield* feed.subscribe
+      yield* stream.pipe(Stream.take(1), Stream.runDrain)
+      yield* feed.replaceInterests({ subscriptionID: firstID, interest: interests([a]) })
+      yield* stream.pipe(Stream.take(1), Stream.runDrain)
+      const received = yield* stream.pipe(
+        Stream.takeUntil((value) => labels([value])[0] === "evt_replacement-after"),
+        Stream.runCollect,
+        Effect.forkScoped,
+      )
+
+      yield* Effect.all(
+        [
+          feed.replaceInterests({ subscriptionID: firstID, interest: interests([b]) }),
+          source.publish(publicEvent("replacement-race"), { type: "locations", refs: [a] }),
+        ],
+        { concurrency: "unbounded" },
+      )
+      yield* source.publish(publicEvent("replacement-after"), { type: "locations", refs: [b] })
+
+      const values = labels(Array.from(yield* Fiber.join(received)))
+      expect(values.at(-1)).toBe("evt_replacement-after")
+      expect(values.slice(0, -1)).toEqual(values.length === 2 ? ["evt_replacement-race"] : [])
+    }),
+  )
+
+  it.effect("settles a replacement racing subscription cleanup", () =>
+    Effect.gen(function* () {
+      const source = makeSource()
+      const feed = yield* ControlledEventFeed.make(source.observe, { createID: ids(firstID) })
+      const opened = yield* Deferred.make<void>()
+      const close = yield* Deferred.make<void>()
+      const subscription = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const stream = yield* feed.subscribe
+          yield* stream.pipe(Stream.take(1), Stream.runDrain)
+          yield* Deferred.succeed(opened, undefined)
+          yield* Deferred.await(close)
+        }),
+      ).pipe(Effect.forkScoped)
+      yield* Deferred.await(opened)
+
+      const [replacement] = yield* Effect.all(
+        [
+          feed.replaceInterests({ subscriptionID: firstID, interest: interests([a]) }).pipe(Effect.exit),
+          Deferred.succeed(close, undefined),
+        ],
+        { concurrency: "unbounded" },
+      ).pipe(Effect.timeout("1 second"))
+      yield* Fiber.join(subscription).pipe(Effect.timeout("1 second"))
+
+      if (Exit.isSuccess(replacement)) return
+      expect(Option.getOrUndefined(Exit.findErrorOption(replacement))).toBeInstanceOf(EventSubscriptionNotFoundError)
+    }),
+  )
+
   it.effect("admits the union of global, Location, and exact Session interest once", () =>
     Effect.gen(function* () {
       const source = makeSource()
