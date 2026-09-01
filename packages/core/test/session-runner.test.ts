@@ -1358,6 +1358,43 @@ describe("SessionRunnerLLM", () => {
     })
   }
 
+  scenario("completes routed observation when a runner move batch is interrupted", function* (s) {
+    const runner = yield* SessionRunner.Service
+    yield* s.sessionInbox.admit({
+      id: SessionMessage.ID.create(),
+      sessionID,
+      item: {
+        type: "move",
+        payload: {
+          location: Location.Ref.make({ directory: AbsolutePath.make("/moved") }),
+          projectID: Project.ID.global,
+        },
+        delivery: "queue",
+      },
+    })
+    const entered = yield* Deferred.make<void>()
+    const release = yield* Deferred.make<void>()
+    let observed = false
+    yield* s.bus.observeRouted((input) => {
+      if (input.event.type !== SessionEvent.Moved.type) return Effect.void
+      return Deferred.succeed(entered, undefined).pipe(
+        Effect.andThen(Deferred.await(release)),
+        Effect.andThen(Effect.sync(() => (observed = true))),
+      )
+    })
+
+    const drain = yield* runner.drain({ sessionID, force: false }).pipe(Effect.forkScoped)
+    yield* Deferred.await(entered)
+    const interruption = yield* Fiber.interrupt(drain).pipe(Effect.forkScoped)
+    yield* Effect.yieldNow
+    yield* Deferred.succeed(release, undefined)
+    yield* Fiber.join(interruption)
+
+    expect(observed).toBeTrue()
+    expect((yield* s.session.get(sessionID)).location.directory).toBe(AbsolutePath.make("/moved"))
+    expect(yield* s.inbox).toEqual([])
+  })
+
   scenario("keeps queued input parked across a mid-turn move", function* (s) {
     yield* s.admit("Echo before moving")
     yield* s.llm.push(
