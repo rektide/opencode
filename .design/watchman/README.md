@@ -5,7 +5,7 @@ description: Implementation state, verification record, and operational notes fo
 resource: /.design/watchman/README.md
 tags: [opencode, watchman, watchwoman, filesystem, maintenance]
 status: stable
-generated: { by: model:gpt-5.6-terra, at: 2026-08-30T20:47:00Z }
+generated: { by: model:gpt-5.6-terra, at: 2026-08-31T21:40:00Z }
 verified: { by: model:gpt-5.6-terra, at: 2026-08-30T21:10:00Z }
 stale_after: 2026-10-30
 sources:
@@ -47,6 +47,8 @@ originals remain in the repo under their old change IDs.
 | `wzqmrknl` | `docs(watchman): record timeout tuning` - timeout rationale in the design and maintenance record |
 | `nxxrysru` | `chore(core): lower default reconnect cap to 2s` - tighten the default ceiling of the jittered root recovery loop |
 | `sokysuus` | `feat: expose watchman binary override` - passthrough to the transport's existing CLI path option, plus per-root subscription counts in connection logs |
+| `qpqtqors` | `feat(core): add watchman channel metrics` - wide-event counter/gauge telemetry per channel with per-window deltas, wide and line-per-channel modes, and a shutdown final dump |
+| `myqxruxs` | `feat(server): expose watchman metrics options` - `metricsIntervalMs` and `metricsMode` in `ServerOptions` plus env plumbing |
 
 The source-owner change stays in upstream's current `Config` and
 `ConfigSkillPlugin` modules rather than reviving the withdrawn
@@ -65,6 +67,10 @@ own `WatchInterests` plan, and no caller chooses Watchman routing.
   root or exact external target.
 - Every connection has its own raw client, command semaphore, response
   deadline, route, subscription map, and reconnect lifecycle.
+- All location graphs in a process share one hoisted Watcher build (pinned in
+  `test/location-layer.test.ts`): sessions, subagents, and additional watch
+  owners never multiply registries or connections — only distinct live root
+  intents and separate processes do.
 - Project routing always sends `watch <explicit project root>`. It never sends
   `watch-project` and no code sends `watch-del`.
 - Initial Watchman acquisition failures fall back to Parcel. After Watchman
@@ -84,6 +90,8 @@ own `WatchInterests` plan, and no caller chooses Watchman routing.
 | `OPENCODE_WATCHMAN_RETRY_BASE_MS` / `OPENCODE_WATCHMAN_RETRY_CAP_MS` | `fs.watchman.retryBaseMs` / `fs.watchman.retryCapMs` | millis reconnect backoff growth and cap, about 30 percent jitter | 100 / 2000 |
 | `OPENCODE_WATCHER_SUBSCRIBE_TIMEOUT_MS` | `fs.subscribeTimeoutMs` | millis Parcel acquisition deadline | 10000 |
 | `OPENCODE_WATCHMAN_BINARY` | `fs.watchman.binary` | Watchman CLI path for socket discovery when `WATCHMAN_SOCK` is unset | `watchman` on `PATH` |
+| `OPENCODE_WATCHMAN_METRICS_INTERVAL_MS` | `fs.watchman.metricsIntervalMs` | millis between watchman metrics dumps; `0` disables | 900000 (15 min) when the watchman backend is active |
+| `OPENCODE_WATCHMAN_METRICS_MODE` | `fs.watchman.metricsMode` | `wide` logs one JSON line per dump, `lines` logs a header plus one line per channel | `wide` |
 | `OPENCODE_FILEWATCHER_DISABLE` / `OPENCODE_DISABLE_FILEWATCHER` | `fs.filewatcher` | truthy disables all watching (`fs.filewatcher: false` is the options form) | enabled |
 | `WATCHMAN_SOCK` | - | Watchman transport socket override | transport discovery |
 
@@ -91,6 +99,42 @@ Unknown backend values fail CLI startup validation, as do non-positive
 timeout values. There is no `default` enum value, notification interval, or
 root TTL. Deadline and backoff tuning exists specifically for heavily loaded
 hosts where a short deadline converts a slow command into generation churn.
+
+## Metrics
+
+While the Watchman backend is selected it emits `watchman_metrics` wide
+events to the server console, one dump per interval (default 15 minutes)
+plus one final dump when the registry scope closes, so short-lived
+processes still surface counters. A channel is one root intent's
+connection; every dump reports cumulative totals and a delta for the
+window just ended, both per channel and summed.
+
+Per channel: commands out by label (`watch`, `clock`, `subscribe`,
+`unsubscribe`, `capabilityCheck`) with round-trip millis (total, avg,
+window max), command errors and timeouts, generations, reconnect attempts,
+connections, establishments and resubscribes, unsubscribes, acquisition
+failures, PDUs in (with canceled and fresh-instance counts), files in, and
+updates published out after ignore filtering — the `files_in` vs
+`updates_out` gap is the ignore-filter drop rate. Live subscriptions
+appear per channel with their target (project-relative when possible),
+counters, and current Watchman cursor. Gauges: `open`, `generation`,
+`recovering`, `fatal`. Registry-wide: `acquires`, parcel `fallbacks`,
+and open channel count.
+
+`wide` mode is a single JSON line per dump (a two-channel sample with
+subscriptions runs about 3.3 KB); `lines` mode logs a header line with
+totals plus one `watchman_metrics_channel` line per channel. Emission is
+plain `console.log` until OTEL export exists (see the
+`opencode-otel` follow-up); the sink is injectable for tests, and direct
+`makeRegistry` callers get no emission unless they pass
+`metricsIntervalMs`.
+
+Two sample renders live in
+`.test-agent/watchman-metrics/` (fake-daemon `smoke.ts` and live-daemon
+`live-smoke.ts`); the live run shows daemon coalescing (three writes and
+a delete surfacing as two updates) and the shutdown race where a daemon
+`unsubscribe` errors after its generation closes, both visible in the
+counters.
 
 ## Verification
 
@@ -131,6 +175,21 @@ Results on 2026-08-30, re-run after the freshen onto `6a2c3e91`:
   flake (passing in isolation); full CLI 232 passed; targeted Oxlint reported
   no new errors. Full Core/CLI were not repeated after this mechanical,
   zero-conflict freshen.
+
+Results on 2026-08-31, after the metrics commits:
+
+- Core typecheck: clean; the new `watchman-metrics.test.ts` passes 6/6, and
+  `test/filesystem/` as a whole passes 65 with 1 skipped (live) and no
+  failures — the `.hg/branch` flake did not recur.
+- Live watchwoman suite against watchwoman 0.7.0: 1 passed, 0 failed.
+- Server typecheck: clean; options tests 9 passed, 0 failed (the metrics
+  commit added cases 8 and 9).
+- CLI typecheck: clean.
+- Targeted Oxlint on all touched files: no new warnings beyond the four
+  pre-existing ones in `watcher.ts` and `server-process.ts`.
+- Fake-daemon and live-daemon smoke renders in `.test-agent/watchman-metrics/`
+  confirm wide-line size (~3.3 KB for two channels), per-window deltas, ignore
+  filtering counts, and the shutdown final dump.
 
 ## Freshen onto `6a2c3e91` (2026-08-30)
 
@@ -196,7 +255,11 @@ known defect.
 ## Follow-ups
 
 - Measure many-project cold-daemon startup and reconnect spread before making
-  Watchman the default.
+  Watchman the default; the channel metrics dumps are the intended instrument
+  for this.
+- Retire the console wide-event dump in favor of OTEL export once the
+  `opencode-otel` plugin tooling lands; the metrics object and render modes
+  are the seam to swap.
 - Publish transport declarations and replace the dynamic structural transport
   check when the fork release is available. There is no local declaration
   shim in this stack.
