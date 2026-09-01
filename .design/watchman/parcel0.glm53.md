@@ -429,6 +429,11 @@ their implementation is worth lifting.
 - [`README.md`](/.design/watchman/README.md) — current implementation state,
   config table, metrics, and the "make watchman default" follow-up that a
   parcel-backend control group would serve.
+- [`files-too0.glm53.md`](/.design/watchman/files-too0.glm53.md) — the
+  complementary wave (files through Watchman); together they affirm the
+  current split from both sides — our root-scoped layer for directories,
+  Node for exact files — with parcel's watchman backend at most a
+  measurement baseline.
 - [`watcher.ts`](/packages/core/src/filesystem/watcher.ts),
   [`watcher/watchman/backend.ts`](/packages/core/src/filesystem/watcher/watchman/backend.ts),
   [`watcher/watchman/root.ts`](/packages/core/src/filesystem/watcher/watchman/root.ts),
