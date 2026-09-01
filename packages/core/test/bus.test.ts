@@ -354,6 +354,30 @@ describe("Bus", () => {
     }),
   )
 
+  it.effect("isolates routed observer defects for live events", () =>
+    Effect.gen(function* () {
+      const bus = yield* Bus.Service
+      const received = new Array<string>()
+      yield* bus.observeRouted(() => Effect.die("observer defect"))
+      yield* bus.observeRouted((input) => Effect.sync(() => received.push(input.event.type)))
+
+      yield* bus.publish(Message, { text: "hello" })
+
+      expect(received).toEqual([Message.type])
+    }),
+  )
+
+  it.effect("preserves routed observer interruption", () =>
+    Effect.gen(function* () {
+      const bus = yield* Bus.Service
+      yield* bus.observeRouted(() => Effect.interrupt)
+
+      const exit = yield* bus.publish(Message, { text: "hello" }).pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)).toBeTrue()
+    }),
+  )
+
   it.effect("isolates observer defects after durable events commit", () =>
     Effect.gen(function* () {
       const bus = yield* Bus.Service

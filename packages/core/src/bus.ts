@@ -18,6 +18,21 @@ import { AbsolutePath } from "@opencode-ai/schema/schema"
 export type Subscriber<D extends Event.Definition = Event.Definition> = (event: Event.Payload<D>) => Effect.Effect<void>
 export type Unsubscribe = Effect.Effect<void>
 
+export type EventAudience =
+  | { readonly type: "global"; readonly sessionID?: SessionID }
+  | {
+      readonly type: "locations"
+      readonly refs: readonly Location.Ref[]
+      readonly sessionID?: SessionID
+    }
+
+export type RoutedEvent = {
+  readonly event: Event.Payload
+  readonly audience: EventAudience
+}
+
+export type RoutedObserver = (input: RoutedEvent) => Effect.Effect<void>
+
 export const latestSequence = Effect.fn("Bus.latestSequence")(function* (
   db: Database.Interface["db"],
   aggregateID: string,
@@ -158,6 +173,8 @@ export interface Interface {
     readonly after?: number
     readonly follow?: boolean
   }) => Stream.Stream<LogItem>
+  /** Awaited publication-time routing observation. Observer defects are isolated; interruption propagates. */
+  readonly observeRouted: (observer: RoutedObserver) => Effect.Effect<Unsubscribe>
   /** @deprecated Use `subscribe()` and consume the returned stream. */
   readonly listen: (listener: Subscriber) => Effect.Effect<Unsubscribe>
   readonly project: <D extends Event.Definition>(definition: D, projector: Subscriber<D>) => Effect.Effect<void>
@@ -196,6 +213,7 @@ export function configured(options?: Options) {
           typed: new Map<string, PubSub.PubSub<Event.Payload>>(),
         }
         const projectors = new Map<string, Subscriber[]>()
+        const routedObservers = new Array<RoutedObserver>()
         const listeners = new Array<Subscriber>()
         const durableLocks = KeyedMutex.makeUnsafe<string>()
         const { db } = yield* Database.Service
@@ -208,6 +226,18 @@ export function configured(options?: Options) {
 
         const isSessionEvent = (event: Event.Payload): event is SessionEvent.Event =>
           Object.hasOwn(SessionEvent.All.cases, event.type)
+
+        const routed = (event: Event.Payload): RoutedEvent => {
+          const sessionID = isSessionEvent(event) ? event.data.sessionID : undefined
+          const refs = routes.get(event)
+          if (refs) return { event, audience: { type: "locations", refs, ...(sessionID ? { sessionID } : {}) } }
+          if (event.location)
+            return {
+              event,
+              audience: { type: "locations", refs: [event.location], ...(sessionID ? { sessionID } : {}) },
+            }
+          return { event, audience: { type: "global", ...(sessionID ? { sessionID } : {}) } }
+        }
 
         const prepareRoutes = Effect.fnUntraced(function* (events: readonly Event.Payload[]) {
           const updates = new Map<SessionID, Location.Ref | undefined>()
@@ -491,8 +521,23 @@ export function configured(options?: Options) {
             ),
           )
 
+        const observeRoute = (input: RoutedEvent, observer: RoutedObserver) =>
+          Effect.suspend(() => observer(input)).pipe(
+            Effect.catchCauseIf(
+              (cause) => !Cause.hasInterrupts(cause),
+              (cause) =>
+                Effect.logError("Routed event observer failed", {
+                  eventID: input.event.id,
+                  eventType: input.event.type,
+                  cause,
+                }),
+            ),
+          )
+
         function notify(event: Event.Payload, isolateListeners: boolean) {
           return Effect.gen(function* () {
+            const input = routed(event)
+            yield* Effect.forEach(routedObservers, (observer) => observeRoute(input, observer), { discard: true })
             yield* Effect.forEach(
               listeners,
               (listener) => (isolateListeners ? observe(event, listener) : listener(event)),
@@ -734,9 +779,9 @@ export function configured(options?: Options) {
                       ref.directory === location.directory && ref.workspaceID === location.workspaceID
                     return stream.pipe(
                       Stream.filter((event) => {
-                        const refs = routes.get(event)
-                        if (refs) return refs.some(matches)
-                        return !event.location || matches(event.location)
+                        const audience = routed(event).audience
+                        if (audience.type === "global") return true
+                        return audience.refs.some(matches)
                       }),
                     )
                   },
@@ -879,6 +924,15 @@ export function configured(options?: Options) {
             })
           })
 
+        const observeRouted = (observer: RoutedObserver): Effect.Effect<Unsubscribe> =>
+          Effect.sync(() => {
+            routedObservers.push(observer)
+            return Effect.sync(() => {
+              const index = routedObservers.indexOf(observer)
+              if (index >= 0) routedObservers.splice(index, 1)
+            })
+          })
+
         const project = <D extends Event.Definition>(definition: D, projector: Subscriber<D>): Effect.Effect<void> =>
           Effect.sync(() => {
             const key = definition.durable
@@ -894,6 +948,7 @@ export function configured(options?: Options) {
           publishAll,
           subscribe,
           log,
+          observeRouted,
           listen,
           project,
           replay,
