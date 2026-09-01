@@ -92,7 +92,7 @@ export function trackEpilogueRows(input: {
   createComputed(() => {
     const sessionID = input.sessionID()
     if (!sessionID) return input.publish()
-    const scope = { sessionID }
+    const scope = Object.freeze({ sessionID })
     const rows = input.groups().flatMap((group) =>
       group.projections.slice(0, epilogueLimits.rowsPerPlugin).flatMap((projection) => {
         try {
@@ -115,9 +115,11 @@ export function trackEpilogueRows(input: {
 }
 
 function normalize(input: unknown): EpilogueRow {
-  if (!record(input)) throw new EpilogueValidationError("Epilogue row must be a plain object")
-  if ("then" in input && typeof input.then === "function")
+  if (thenable(input)) {
+    void Promise.resolve(input).catch(() => undefined)
     throw new EpilogueValidationError("Epilogue projection must be synchronous")
+  }
+  if (!record(input)) throw new EpilogueValidationError("Epilogue row must be a plain object")
   const label = text(input.label, epilogueLimits.label, "label")
   if (reserved.has(label)) throw new EpilogueValidationError(`Epilogue label is reserved: ${label}`)
   if (!record(input.value)) throw new EpilogueValidationError("Epilogue value must be a plain object")
@@ -133,6 +135,11 @@ function normalize(input: unknown): EpilogueRow {
     throw new EpilogueValidationError("Epilogue value type is invalid")
   })()
   return Object.freeze({ label, value })
+}
+
+function thenable(input: unknown): input is PromiseLike<unknown> {
+  if ((typeof input !== "object" || input === null) && typeof input !== "function") return false
+  return "then" in input && typeof input.then === "function"
 }
 
 function record(input: unknown): input is Record<string, unknown> {
