@@ -229,7 +229,10 @@ export default {
       expect(output.indexOf("Fixture")).toBeLessThan(output.indexOf("Observed"))
       expect(output.indexOf("Observed")).toBeLessThan(output.indexOf("Continue"))
     }
-    if (trigger === "app.exit") expect(output).toContain("Active    now")
+    if (trigger === "app.exit") {
+      expect(output).toContain("Active    now")
+      expect(output).toMatch(/Active\s+now · \d{4}-\d{2}-\d{2} \d{2}:\d{2}/)
+    }
     if (mode === "fixture") expect(output.endsWith("\n\n")).toBe(true)
     if (mode === "cli") expect(raw).toContain("\x1b]0;\x07")
     expect(stderr.join("")).toBe("")
