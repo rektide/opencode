@@ -233,7 +233,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
     Effect.gen(function* () {
       const options = {
         externalOutputMode: "passthrough",
-        targetFps: 60,
+        targetFps: typeof config.animations === "number" ? config.animations : 3,
         gatherStats: false,
         exitOnCtrlC: false,
         useKittyKeyboard: {},
@@ -247,6 +247,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
       const renderer = yield* Effect.gen(function* () {
         if (handoff) {
           handoff.renderer.useMouse = options.useMouse
+          handoff.renderer.targetFps = options.targetFps
           return yield* Effect.acquireRelease(Effect.succeed(handoff.renderer), (renderer) =>
             Effect.sync(() => destroyRenderer(renderer)),
           )
