@@ -245,6 +245,90 @@ test("reconnects after an indeterminate PUT without claiming installation", asyn
   fixture.dispose()
 })
 
+test("ignores late responses and frames from an obsolete generation", async () => {
+  const late = Promise.withResolvers<Response>()
+  const started = Promise.withResolvers<void>()
+  const firstApi = OpenCode.make({
+    baseUrl: "http://first:3000",
+    fetch: async (input, init) => {
+      const next = request(input, init)
+      if (new URL(next.url).pathname === "/api/experimental/event") {
+        return sse(ready("evsub_old"), connected, { ...updated, id: "evt_old" })
+      }
+      started.resolve()
+      return late.promise
+    },
+  })
+  const fixture = setup()
+  fixture.feed.setDesired({ locations: [a], sessions: [sessionID] })
+  const first = fixture.feed.subscribe(firstApi, new AbortController().signal)[Symbol.asyncIterator]()
+  const oldOpening = first.next()
+  await started.promise
+
+  const secondApi = OpenCode.make({
+    baseUrl: "http://second:3000",
+    fetch: async (input, init) => {
+      const next = request(input, init)
+      if (new URL(next.url).pathname === "/api/experimental/event") {
+        return sse(ready("evsub_new"), connected, { ...updated, id: "evt_new" })
+      }
+      return new Response(null, { status: 204 })
+    },
+  })
+  const second = fixture.feed.subscribe(secondApi, new AbortController().signal)[Symbol.asyncIterator]()
+  expect(await second.next()).toEqual({ done: false, value: connected })
+  expect(fixture.feed.mode()).toBe("controlled")
+  expect(fixture.feed.installed()).toEqual({ locations: [a], sessions: [sessionID] })
+
+  late.resolve(new Response(null, { status: 204 }))
+  expect(await oldOpening).toEqual({ done: true, value: undefined })
+  expect(fixture.feed.mode()).toBe("controlled")
+  expect(fixture.feed.installed()).toEqual({ locations: [a], sessions: [sessionID] })
+  expect(await second.next()).toEqual({ done: false, value: { ...updated, id: "evt_new" } })
+
+  await first.return?.()
+  await second.return?.()
+  fixture.dispose()
+})
+
+test("treats replacement 404 as rejection rather than legacy fallback", async () => {
+  let legacy = 0
+  const api = OpenCode.make({
+    baseUrl: "http://localhost:3000",
+    fetch: async (input, init) => {
+      const next = request(input, init)
+      const path = new URL(next.url).pathname
+      if (path === "/api/experimental/event") return sse(ready("evsub_missing"), connected)
+      if (path === "/api/event") {
+        legacy += 1
+        return sse(connected)
+      }
+      return Response.json(
+        {
+          _tag: "EventSubscriptionNotFoundError",
+          subscriptionID: "evsub_missing",
+          message: "subscription closed",
+        },
+        { status: 404 },
+      )
+    },
+  })
+  const fixture = setup()
+  const iterator = fixture.feed.subscribe(api, new AbortController().signal)[Symbol.asyncIterator]()
+
+  await expect(iterator.next()).rejects.toMatchObject({
+    _tag: "EventSubscriptionNotFoundError",
+    subscriptionID: "evsub_missing",
+  })
+  expect(fixture.feed.mode()).toBe("connecting")
+  expect(fixture.feed.installed()).toBeUndefined()
+  expect(fixture.feed.error()).toBe("subscription closed")
+  expect(legacy).toBe(0)
+
+  await iterator.return?.()
+  fixture.dispose()
+})
+
 test("surfaces determinate replacement rejection without legacy fallback", async () => {
   let puts = 0
   const api = OpenCode.make({
