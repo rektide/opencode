@@ -109,6 +109,10 @@ await Effect.runPromise(
               name: "OpenCodeEvent",
               import: 'import type { OpenCodeEvent } from "@opencode-ai/protocol/groups/event"',
             },
+            "event.controlled.subscribe": {
+              name: "ControlledFeedItem",
+              import: 'import type { ControlledFeedItem } from "@opencode-ai/protocol/groups/event"',
+            },
           },
         }),
         fileURLToPath(new URL("../src/effect/api", import.meta.url)),

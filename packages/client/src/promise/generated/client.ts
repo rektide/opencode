@@ -182,6 +182,9 @@ import type {
   SkillListInput,
   SkillListOutput,
   EventSubscribeOutput,
+  EventControlledSubscribeOutput,
+  EventControlledReplaceInterestsInput,
+  EventControlledReplaceInterestsOutput,
   PtyListInput,
   PtyListOutput,
   PtyCreateInput,
@@ -1600,6 +1603,31 @@ export function make(options: ClientOptions) {
           { method: "GET", path: `/api/event`, successStatus: 200, declaredStatuses: [401, 400], empty: false },
           requestOptions,
         ),
+      controlled: {
+        subscribe: (requestOptions?: RequestOptions): AsyncIterable<EventControlledSubscribeOutput> =>
+          sse<EventControlledSubscribeOutput>(
+            {
+              method: "GET",
+              path: `/api/experimental/event`,
+              successStatus: 200,
+              declaredStatuses: [401, 400],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        replaceInterests: (input: EventControlledReplaceInterestsInput, requestOptions?: RequestOptions) =>
+          request<EventControlledReplaceInterestsOutput>(
+            {
+              method: "PUT",
+              path: `/api/experimental/event/subscriptions/${encodeURIComponent(input.subscriptionID)}/interests`,
+              body: { locations: input["locations"], sessions: input["sessions"] },
+              successStatus: 204,
+              declaredStatuses: [404, 400, 401],
+              empty: true,
+            },
+            requestOptions,
+          ),
+      },
     },
     pty: {
       list: (input?: PtyListInput, requestOptions?: RequestOptions) =>

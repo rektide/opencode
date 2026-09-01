@@ -376,6 +376,8 @@ export type SessionStatus =
     }
   | { type: "busy" }
 
+export type EventSubscriptionID = string
+
 export type PtyTicketConnectToken = { ticket: string; expires_in: number }
 
 export type PersistentPtyReadResult = {
@@ -1624,6 +1626,8 @@ export type SessionStatusUpdated = {
   data: { sessionID: string; status: SessionStatus }
 }
 
+export type EventFeedReady = { type: "event-feed.ready"; data: { subscriptionID: EventSubscriptionID } }
+
 export type ReferenceSource = ReferenceLocalSource | ReferenceGitSource
 
 export type WorktreeList = Array<WorktreeDirectory>
@@ -2319,6 +2323,8 @@ export type V2Event =
 
 export type SessionLogItem = SessionEventDurable | EventLogSynced
 
+export type ControlledFeedItem = V2Event | EventFeedReady
+
 export type UnauthorizedError = { readonly _tag: "UnauthorizedError"; readonly message: string }
 export const isUnauthorizedError = (value: unknown): value is UnauthorizedError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "UnauthorizedError"
@@ -2480,6 +2486,14 @@ export type PermissionNotFoundError = {
 }
 export const isPermissionNotFoundError = (value: unknown): value is PermissionNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "PermissionNotFoundError"
+
+export type EventSubscriptionNotFoundError = {
+  readonly _tag: "EventSubscriptionNotFoundError"
+  readonly subscriptionID: string
+  readonly message: string
+}
+export const isEventSubscriptionNotFoundError = (value: unknown): value is EventSubscriptionNotFoundError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "EventSubscriptionNotFoundError"
 
 export type PtyNotFoundError = { readonly _tag: "PtyNotFoundError"; readonly ptyID: string; readonly message: string }
 export const isPtyNotFoundError = (value: unknown): value is PtyNotFoundError =>
@@ -5670,6 +5684,22 @@ export type SkillListOutput = {
 }
 
 export type EventSubscribeOutput = V2Event
+
+export type EventControlledSubscribeOutput = ControlledFeedItem
+
+export type EventControlledReplaceInterestsInput = {
+  readonly subscriptionID: { readonly subscriptionID: string }["subscriptionID"]
+  readonly locations: {
+    readonly locations: ReadonlyArray<{ readonly directory: string; readonly workspaceID?: string }>
+    readonly sessions: ReadonlyArray<string>
+  }["locations"]
+  readonly sessions: {
+    readonly locations: ReadonlyArray<{ readonly directory: string; readonly workspaceID?: string }>
+    readonly sessions: ReadonlyArray<string>
+  }["sessions"]
+}
+
+export type EventControlledReplaceInterestsOutput = void
 
 export type PtyListInput = {
   readonly location?: {
