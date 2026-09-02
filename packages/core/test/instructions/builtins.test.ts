@@ -49,7 +49,7 @@ describe("InstructionBuiltIns", () => {
           `  Current conversation session ID: ${sessionID}`,
           `  Working directory: ${directory}`,
           `  Workspace root folder: ${projectDirectory}`,
-          "  Is directory a git repo: yes",
+          "  Version control: git",
           `  Platform: ${process.platform}`,
           `  Prefer ${temporary} over generic system temporary directories such as /tmp; it is pre-created and approved for external access.`,
           "</env>",
