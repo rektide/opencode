@@ -431,6 +431,209 @@ describe("Project.resolve", () => {
     }),
   )
 
+  it.live("resolves a fabricated jj layout without invoking jj", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      yield* Effect.promise(() =>
+        Promise.all([
+          fs.mkdir(path.join(tmp.path, ".jj", "repo", "store", "git"), { recursive: true }),
+          fs.mkdir(path.join(tmp.path, "a", "b"), { recursive: true }),
+        ]),
+      )
+      const project = yield* Project.Service
+
+      const result = yield* project.resolve(abs(path.join(tmp.path, "a", "b")))
+
+      expect(result.vcs?.type).toBe("jj")
+      expect(result.directory).toBe(yield* real(tmp.path))
+      expect(result.canonical).toBe(yield* real(tmp.path))
+      expect(result.vcs?.store).toBe(yield* real(path.join(tmp.path, ".jj", "repo")))
+      expect(result.id).toBe(
+        Project.ID.make(
+          Hash.fast(`jj-store:${path.join(yield* real(path.join(tmp.path, ".jj", "repo")), "store", "git")}`),
+        ),
+      )
+    }),
+  )
+
+  it.live("resolves a fabricated colocated layout through git_target with the git identity", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      yield* Effect.promise(async () => {
+        await initRepo(tmp.path, { commit: true, remote: "git@github.com:owner/repo.git" })
+        await fs.mkdir(path.join(tmp.path, ".jj", "repo", "store"), { recursive: true })
+        await fs.writeFile(path.join(tmp.path, ".jj", "repo", "store", "git_target"), "../../../.git")
+      })
+      const result = yield* (yield* Project.Service).resolve(abs(tmp.path))
+
+      expect(result.vcs?.type).toBe("jj")
+      expect(result.canonical).toBe(yield* real(tmp.path))
+      expect(result.id).toBe(remoteID("github.com/owner/repo"))
+    }),
+  )
+
+  it.live("resolves a fabricated secondary workspace through its repo pointer", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      const linked = `${tmp.path}-linked`
+      yield* Effect.addFinalizer(() => Effect.promise(() => $`rm -rf ${linked}`.quiet().nothrow()).pipe(Effect.ignore))
+      yield* Effect.promise(async () => {
+        await initRepo(tmp.path, { commit: true, remote: "git@github.com:owner/repo.git" })
+        await fs.mkdir(path.join(tmp.path, ".jj", "repo", "store"), { recursive: true })
+        await fs.writeFile(path.join(tmp.path, ".jj", "repo", "store", "git_target"), "../../../.git")
+        await fs.mkdir(path.join(linked, ".jj"), { recursive: true })
+        await fs.writeFile(
+          path.join(linked, ".jj", "repo"),
+          path.relative(path.join(linked, ".jj"), path.join(tmp.path, ".jj", "repo")),
+        )
+      })
+      const project = yield* Project.Service
+
+      const main = yield* project.resolve(abs(tmp.path))
+      const peer = yield* project.resolve(abs(linked))
+
+      expect(peer.vcs?.type).toBe("jj")
+      expect(peer.id).toBe(main.id)
+      expect(peer.canonical).toBe(main.canonical)
+      expect(peer.directory).toBe(yield* real(linked))
+      expect(peer.vcs?.store).toBe(main.vcs?.store)
+    }),
+  )
+
+  it.live("returns the cached jj identity from the colocated git dir", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      yield* Effect.promise(async () => {
+        await initRepo(tmp.path, { commit: true, remote: "git@github.com:owner/repo.git" })
+        await fs.mkdir(path.join(tmp.path, ".jj", "repo", "store"), { recursive: true })
+        await fs.writeFile(path.join(tmp.path, ".jj", "repo", "store", "git_target"), "../../../.git")
+        await Bun.write(path.join(tmp.path, ".git", "opencode"), "old-id")
+      })
+      const result = yield* (yield* Project.Service).resolve(abs(tmp.path))
+
+      expect(result.previous).toBe(Project.ID.make("old-id"))
+      expect(result.id).toBe(Project.ID.make("old-id"))
+      expect(result.vcs?.type).toBe("jj")
+    }),
+  )
+
+  it.live("falls back to git when a colocated .jj repository is damaged", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      yield* Effect.promise(async () => {
+        await initRepo(tmp.path, { commit: true, remote: "git@github.com:owner/repo.git" })
+        await fs.mkdir(path.join(tmp.path, ".jj"))
+      })
+
+      const result = yield* (yield* Project.Service).resolve(abs(tmp.path))
+
+      expect(result.vcs?.type).toBe("git")
+      expect(result.id).toBe(remoteID("github.com/owner/repo"))
+    }),
+  )
+
+  const itJj = Bun.which("jj") ? it : { live: it.live.skip }
+
+  itJj.live("detects pure jj repositories and shares identity across workspaces", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      const linked = `${tmp.path}-linked`
+      yield* Effect.addFinalizer(() => Effect.promise(() => $`rm -rf ${linked}`.quiet().nothrow()).pipe(Effect.ignore))
+      yield* Effect.promise(async () => {
+        await $`jj git init`.cwd(tmp.path).quiet()
+        await fs.mkdir(path.join(tmp.path, "a", "b"), { recursive: true })
+        await $`jj workspace add --name linked ${linked}`.cwd(tmp.path).quiet()
+      })
+      const project = yield* Project.Service
+
+      const main = yield* project.resolve(abs(path.join(tmp.path, "a", "b")))
+      const peer = yield* project.resolve(abs(linked))
+
+      expect(main.vcs?.type).toBe("jj")
+      expect(main.id).not.toBe(Project.ID.global)
+      expect(peer.id).toBe(main.id)
+      expect(peer.canonical).toBe(main.canonical)
+      expect(peer.directory).toBe(yield* real(linked))
+    }),
+  )
+
+  itJj.live("prefers jj semantics in colocated git repositories", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      yield* Effect.promise(async () => {
+        await $`jj git init --colocate`.cwd(tmp.path).quiet()
+        await $`git remote add origin git@github.com:owner/repo.git`.cwd(tmp.path).quiet()
+      })
+      const result = yield* (yield* Project.Service).resolve(abs(tmp.path))
+
+      expect(result.vcs?.type).toBe("jj")
+      expect(result.id).toBe(remoteID("github.com/owner/repo"))
+    }),
+  )
+
+  itJj.live("keeps a nested git repository separate from its enclosing jj repository", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      const nested = path.join(tmp.path, "nested")
+      yield* Effect.promise(async () => {
+        await $`jj git init`.cwd(tmp.path).quiet()
+        await fs.mkdir(nested)
+        await initRepo(nested, { commit: true })
+      })
+      const project = yield* Project.Service
+
+      expect((yield* project.resolve(abs(nested))).vcs?.type).toBe("git")
+    }),
+  )
+
+  itJj.live("resolves a forgotten jj workspace through its pointer (documented edge)", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      const linked = `${tmp.path}-forgotten`
+      yield* Effect.addFinalizer(() => Effect.promise(() => $`rm -rf ${linked}`.quiet().nothrow()).pipe(Effect.ignore))
+      yield* Effect.promise(async () => {
+        await $`jj git init`.cwd(tmp.path).quiet()
+        await $`jj workspace add --name forgotten ${linked}`.cwd(tmp.path).quiet()
+        await $`jj workspace forget forgotten`.cwd(tmp.path).quiet()
+      })
+
+      // Pointer-trust, matching upstream jj-vcs: `jj workspace forget` leaves
+      // the .jj/repo pointer in place, so the directory still resolves and
+      // keeps the repo's canonical root. Detection is filesystem-only, so
+      // workspace membership is not re-checked against jj.
+      const result = yield* (yield* Project.Service).resolve(abs(linked))
+      expect(result.vcs?.type).toBe("jj")
+      expect(result.canonical).toBe(yield* real(tmp.path))
+    }),
+  )
+
   it.live("prefers git when both git and mercurial metadata exist", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireRelease(
