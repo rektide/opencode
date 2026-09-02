@@ -17,6 +17,7 @@ import {
 import { Credential } from "./credential.js"
 import { Bus } from "./bus.js"
 import { Watcher } from "./filesystem/watcher.js"
+import { Ignore } from "./filesystem/ignore.js"
 import { WatchInterests } from "./filesystem/watcher/interests.js"
 import { FSUtil } from "@opencode-ai/util/fs-util"
 import { Global } from "@opencode-ai/util/global"
@@ -287,9 +288,10 @@ export const layer = (options?: Options) =>
       })
 
       const updates = yield* PubSub.unbounded<Watcher.Update>()
-      // Vendored trees inside config roots (a plugin's node_modules, a nested
-      // .git) produce event blizzards that can never change discovery output.
-      const ignore = ["node_modules", ".git", "**/{node_modules,.git}/**"]
+      // Vendored trees and churn inside config roots (a plugin's node_modules,
+      // a nested .git or .jj, venvs, daemon cookie files) produce event
+      // blizzards that can never change discovery output.
+      const ignore = Ignore.PATTERNS
       const directoryInput = Effect.fnUntraced(function* (directory: string) {
         const target = path.resolve(directory)
         const resolved = yield* fs.realPath(target).pipe(Effect.orElseSucceed(() => undefined))
