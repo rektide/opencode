@@ -174,3 +174,10 @@ feature entirely — reasonable only if we're willing to re-scope this effort to
   recommendation is designed to slot into.
 - `~/src/opencode-jj-vcs` itself is the living reproduction case: a secondary
   jj workspace via `.jj/repo` pointer; use it as the smoke test directory.
+- [`upstream-danger0.glm53.md`](upstream-danger0.glm53.md) — the risk
+  companion to this document: each adoption danger cited to upstream code,
+  with likelihood, blast radius, and mitigation (2026-09-02).
+- [`jj-vcs-user-impact.glm53.md`](jj-vcs-user-impact.glm53.md) — plain-terms
+  analysis of our copies/labels/snapshot surface and what switching to
+  upstream costs per area; verdicts feed the recommendation above (copies
+  rebuild, labels defer, snapshot drop).
