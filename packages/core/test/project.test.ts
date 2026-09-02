@@ -516,7 +516,7 @@ describe("Project.resolve", () => {
     }),
   )
 
-  itJj.live("does not accept a forgotten jj workspace as an active working copy", () =>
+  itJj.live("resolves a forgotten jj workspace through its pointer (documented edge)", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireRelease(
         Effect.promise(() => tmpdir()),
@@ -530,7 +530,30 @@ describe("Project.resolve", () => {
         await $`jj workspace forget forgotten`.cwd(tmp.path).quiet()
       })
 
-      expect((yield* (yield* Project.Service).resolve(abs(linked))).vcs).toBeUndefined()
+      // Pointer-trust, matching upstream jj-vcs: `jj workspace forget` leaves
+      // the .jj/repo pointer in place, so the directory still resolves and
+      // keeps the repo's canonical root. Detection is filesystem-only, so
+      // workspace membership is not re-checked against jj.
+      const result = yield* (yield* Project.Service).resolve(abs(linked))
+      expect(result.vcs?.type).toBe("jj")
+      expect(result.canonical).toBe(yield* real(tmp.path))
+    }),
+  )
+
+  itJj.live("falls back to git when a colocated .jj repository is damaged", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      yield* Effect.promise(async () => {
+        await initRepo(tmp.path, { commit: true })
+        await $`jj git init --colocate`.cwd(tmp.path).quiet()
+        await fs.rm(path.join(tmp.path, ".jj", "repo"), { recursive: true })
+      })
+
+      const result = yield* (yield* Project.Service).resolve(abs(tmp.path))
+      expect(result.vcs?.type).toBe("git")
     }),
   )
 

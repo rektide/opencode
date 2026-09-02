@@ -293,38 +293,56 @@ const layer = Layer.effect(
         Effect.catch(() => Effect.succeed(undefined)),
       )
       if (!marker || path.basename(marker) !== ".jj") return undefined
+      const workspace = path.dirname(marker)
+      const directory = AbsolutePath.make(
+        yield* fs.resolve(workspace).pipe(Effect.catch(() => Effect.succeed(workspace))),
+      )
 
-      const worktreeText = yield* command(input, "jj", ["--no-pager", "--color=never", "workspace", "root"])
-      const storeText = yield* command(input, "jj", ["--no-pager", "--color=never", "git", "root"])
-      if (!worktreeText || !storeText) return undefined
-      const directory = AbsolutePath.make(path.resolve(worktreeText.trim()))
-      const store = AbsolutePath.make(path.resolve(storeText.trim()))
-      const previous = yield* cached(store)
-      const origin = yield* command(directory, "git", ["--git-dir", store, "remote", "get-url", "origin"])
+      // .jj/repo is the repository in the main workspace and a pointer file in
+      // secondary workspaces; layouts verified against jj 0.40 in
+      // .test-agent/jj-flow-probe/. A dangling pointer degrades to the git or
+      // directory path instead of shelling out.
+      const reference = path.join(marker, "repo")
+      const direct = yield* fs.isDir(reference)
+      const pointer = direct
+        ? undefined
+        : yield* fs.readFileStringSafe(reference).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      const target = direct ? reference : pointer === undefined ? undefined : path.resolve(marker, pointer.trim())
+      if (!target) return undefined
+      const store = yield* fs.realPath(target).pipe(
+        Effect.map((value) => AbsolutePath.make(value)),
+        Effect.catch(() => Effect.succeed(undefined)),
+      )
+      if (!store) return undefined
+      const canonical = AbsolutePath.make(path.dirname(path.dirname(store)))
+
+      // The git backing store without invoking jj: colocated repositories
+      // point at the checkout .git through store/git_target, standalone
+      // repositories keep their git dir under store/git.
+      const storeDir = path.join(store, "store")
+      const gitTarget = yield* fs
+        .readFileStringSafe(path.join(storeDir, "git_target"))
+        .pipe(Effect.catch(() => Effect.succeed(undefined)))
+      const gitDir =
+        gitTarget !== undefined
+          ? AbsolutePath.make(path.resolve(storeDir, gitTarget.trim()))
+          : (yield* fs.isDir(path.join(storeDir, "git")))
+            ? AbsolutePath.make(path.join(storeDir, "git"))
+            : undefined
+
+      // Cached identity first: an already-known project resolves with zero
+      // subprocesses, and a stable ID never churns when a remote appears later.
+      const previous = yield* cached(gitDir ?? store)
+      if (previous) return { previous, id: previous, directory, canonical, vcs: { type: "jj" as const, store } }
+
+      const origin = gitDir
+        ? yield* command(directory, "git", ["--git-dir", gitDir, "remote", "get-url", "origin"])
+        : undefined
       const normalized = origin ? url(origin) : undefined
-      const id = normalized ? ID.make(Hash.fast(`git-remote:${normalized}`)) : previous ?? ID.make(Hash.fast(`jj-store:${store}`))
-      const workspaceText = yield* command(directory, "jj", [
-        "--no-pager",
-        "--color=never",
-        "workspace",
-        "list",
-        "-T",
-        'name ++ "\\0" ++ root ++ "\\0"',
-      ])
-      const workspaces = (workspaceText ?? "").split("\0")
-      const roots = Array.from({ length: Math.floor(workspaces.length / 2) }, (_, index) => ({
-        name: workspaces[index * 2],
-        root: path.resolve(workspaces[index * 2 + 1]),
-      })).filter((item) => item.name && item.root)
-      if (!roots.some((item) => item.root === directory)) return undefined
-      const canonical = roots.find((item) => item.name === "default") ?? roots.toSorted((a, b) => a.name.localeCompare(b.name))[0]
-      return {
-        previous,
-        id,
-        directory,
-        canonical: canonical ? AbsolutePath.make(path.resolve(canonical.root)) : directory,
-        vcs: { type: "jj" as const, store },
-      }
+      const id = normalized
+        ? ID.make(Hash.fast(`git-remote:${normalized}`))
+        : ID.make(Hash.fast(`jj-store:${gitDir ?? store}`))
+      return { previous: undefined, id, directory, canonical, vcs: { type: "jj" as const, store } }
     })
 
     // Mercurial identity uses the cached ID or the first root changeset; remote-derived
