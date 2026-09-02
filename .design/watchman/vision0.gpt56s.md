@@ -463,3 +463,331 @@ Two independent reviews remain in flight: a failure-path/test audit and a
 radical simplification comparison. A follow-up review is also challenging the
 coarse-invalidation hypothesis against every current consumer. Their results
 will be appended here before a consolidated revision is attempted.
+
+# Addendum: Four-review synthesis
+
+Generated 2026-09-01T21:39:07-04:00 by `model:openai-gpt-5.6-sol`, after all
+four independent reviews were written and committed:
+
+- [`review-architecture0.gpt56s.md`](/.design/watchman/review-architecture0.gpt56s.md)
+- [`review-ownership0.gpt56s.md`](/.design/watchman/review-ownership0.gpt56s.md)
+- [`review-simplification0.gpt56s.md`](/.design/watchman/review-simplification0.gpt56s.md)
+- [`review-failure-paths0.gpt56s.md`](/.design/watchman/review-failure-paths0.gpt56s.md)
+
+This addendum supersedes factual errors in the initial freeze and narrows the
+working direction. It still does not declare an accepted replacement design.
+
+## Corrections to the initial freeze
+
+The failure-path and ownership audits found several material corrections. Keep
+the original text as a freeze frame, but use this table when the two disagree.
+
+| Initial statement or implication | Corrected finding |
+| --- | --- |
+| The floating bookmark had four commits of debt | It had six at the ownership-review freeze and now has **ten** real commits above it after the four review documents. One of those, `98b4d82fcae6` (`cleanup docs`), carries an unrelated upstream `AGENTS.md` deletion and beads `.gitignore` edits that require a separate carrier decision. |
+| Current upstream intersects only `bun.lock` | Watchman runtime integration still intersects only `bun.lock`, but the contaminated feature line also intersects `AGENTS.md` because `cleanup docs` deletes it. There is still no semantic upstream collision in watcher, Config, Skill, Watchman, or server-option source. |
+| Root fatality was effectively process-lifetime | `state.fatal` belongs to one `makeConnection` and lasts while a same-root lease retains that connection. Parcel fallback can retain the lease for a long time, making poison appear process-long. After final release, a new connection has clean behavior. The **metric** is separately registry-sticky and can remain `fatal: true` after behavioral recovery. |
+| Concurrent acquisitions share one failed creation as a herd | Nonfatal first-contact failures are serialized but not memoized: the next waiter can create a new client and succeed. Herd behavior is real for cached terminal state and for collateral establishments that lose a shared active generation. The desired supervisor would deliberately single-flight retries. |
+| Initial acquisition is five daemon round trips | Client construction is not a daemon request. A new root uses four requests: capability, `watch`, `clock`, and `subscribe`. An active root needs `clock` plus `subscribe`; compatible cursor recovery currently needs only `subscribe`. |
+| Initial acquisition is uniformly one-shot | A new interest arriving while `state.recovering` exists awaits the shared root recovery. Its later subscription establishment remains one-shot and can still fall to Parcel. |
+| The adapter catches "any error" | The relevant `Effect.catch` sites catch typed failures, not interruption or defects. One dynamic import uses `Effect.promise`, so rejection behavior is not identical to the `tryPromise`-wrapped transport load. |
+| Directory rows are noise that Parcel does not emit | Parcel and the local mapper both emit new-directory creates. Suppressing directory rows also loses empty-directory create/delete signals. `always_include_directories: false` is an independent semantic choice, not part of the response correctness fix. |
+
+At this synthesis point the parent is `049d732c` and the line is 36 real
+commits above the declared `43d09b9d` base. The floating and immutable dated
+Watchman bookmarks remain at `4bb2c5d8`; do not advance the floating bookmark
+blindly across the unrelated `cleanup docs` content.
+
+## Broader response-delivery finding
+
+The since-query defect affects **every** `establish`, not only socket recovery.
+Watchwoman's subscribe response can carry:
+
+```text
+subscribe, clock, is_fresh_instance, root, files
+```
+
+The current schema strips all but `subscribe`, then the client stores the
+requested `since` clock rather than the acknowledged response clock. This
+applies to initial acquisition, ordinary reconnect, canceled-subscription
+re-establishment, route changes, and fresh-clock retries.
+
+There is a second boundary the initial vision did not capture. During first
+acquisition, `native.subscribe()` runs before `Watcher` attaches
+`Stream.fromPubSub`. Publishing response rows from `establish` therefore sends
+them into a non-replay hub with no subscriber. The same publication works on a
+later reconnect because the logical stream is already attached.
+
+Consequently, "decode rows and call `publishFiles`" is not a complete initial
+fix. The contract must choose one of these deliberately:
+
+1. Buffer initial exact rows until a logical stream can consume them.
+2. Represent initial acknowledgement as a coarse current-state invalidation
+   that reaches every final state owner.
+
+The existing private `ready` callback is an instance of option 2 for direct
+`WatchInterests` owners. It is not yet a complete implementation because
+Config's indirect owners reject its synthetic watched-root path.
+
+## Review consensus
+
+Three design reviews converge strongly, while the policy-neutral failure audit
+confirms the required mechanics without choosing the final fallback row.
+
+### Strong consensus
+
+1. **One root supervisor.** Cold acquisition, generation replacement,
+   subscription replay, backoff, cancellation requests, and unsubscribe fencing
+   belong to one downstream root lifecycle. The first acknowledgement must not
+   choose a different recovery algorithm.
+2. **Explicit failure scope and disposition.** Operation labels such as
+   `route`, `subscribe`, and `decode` are not policy classes. Failures need
+   root-retryable, subscription-terminal, and backend/root-terminal meaning at
+   creation or one authoritative classifier.
+3. **No reversible Parcel bridge.** Live adapter migration requires handoff,
+   overlap, duplicate-delivery, cancellation, and promotion machinery in the
+   upstream-owned exact-interest registry. It adds the largest state space and
+   the worst carrier seam.
+4. **Files remain Node-only.** This is a static type partition with no recursive
+   crawl to amortize, not a failed Watchman acquisition.
+5. **Delivery policy must name exact events versus invalidation.** A watched-root
+   path masquerading as an ordinary file update is not a sufficient broad
+   invalidation contract.
+6. **Keep observation through the rewrite, then trim it.** Existing metrics are
+   useful while validating lifecycle changes, but fallback, sticky-fatal, and
+   cursor/output fields must not survive with meanings that no longer match the
+   implementation.
+7. **Build a final-state replacement carrier.** The new Watchman directory is
+   cheap to carry; generic watcher, source-owner, server assembly, and graph
+   changes are the conflict surface. Preserve the historical line instead of
+   carrying add-then-delete refinements forever.
+
+### Leading policy, not yet accepted
+
+The leading backend policy is now:
+
+```text
+parcel or absent -> Node files + Parcel directories
+watchman          -> Node files + Watchman directories
+                     retry availability failures with bounded jitter
+                     never switch a directory to Parcel
+```
+
+The architecture and simplification reviews recommend this directly. The
+failure audit records a competing centralized pre-ack-fallback policy but does
+not find a correctness requirement for it. Strict retry-forever remains the
+better working hypothesis because:
+
+- it deletes mixed-backend roots and timing-dependent adapter choice;
+- the absent/default Parcel selection already serves users who do not want a
+  daemon dependency;
+- `WatchInterests.ensure` starts acquisition in owner fibers, so a pending
+  daemon delays hot reload rather than initial server/config readiness;
+- it needs no migration or promotion manager.
+
+Strict selection must land with the root supervisor. Removing fallback while
+retaining today's one-shot initial establishment would merely expose the
+duplicated source-owner retry loops and their weak backoff.
+
+The unresolved terminal row remains important: a proven protocol
+incompatibility should fail visibly without either silently selecting Parcel or
+looping forever. Ambiguous operational callback failures should prefer bounded
+retry over cached poison.
+
+## The event-contract fork is now the central design decision
+
+The reviews expose two coherent total systems and one incoherent middle.
+
+### Direction A: exact live events plus cursor response replay
+
+- Normal PDUs and reconnect responses deliver exact create/update/delete paths.
+- The acknowledged response clock becomes the next cursor.
+- Initial exact response rows require buffering or an explicit initial-state
+  exception; publishing them before `RcMap.lookup` returns is invalid.
+- Existing Agent, Command, and Plugin Source path filters remain selective.
+- Most changes stay in downstream-only Watchman files.
+
+This is the lowest carry-risk immediate repair. It fixes ordinary outage gaps,
+but it is not total convergence:
+
+- a long same-generation gap can lose all deletion tombstones;
+- a target-level conservative update still does not reach Config's indirect
+  exact-path owners;
+- delayed **first** acknowledgement after those owners already scanned can miss
+  changes that happened before the fresh acquisition clock;
+- fresh-instance, route-change, and canceled target updates have the same
+  indirect-consumer weakness.
+
+Response replay is strongly corrective, but it must not be described as
+mathematically lossless for the current consumer graph.
+
+### Direction B: exact live events plus first-class coarse recovery invalidation
+
+- Normal connected PDUs retain exact paths, preserving selective steady-state
+  reloads.
+- Initial acknowledgement and every loss-of-continuity transition emit a typed
+  subtree invalidation, not a fake ordinary update at the watched root.
+- Config, Skill, Agent, Command, and Plugin Source treat that invalidation as
+  "current descendant state is unknown; rescan your source domain."
+- Recovery is based on current state, so response rows, tombstone history, and
+  per-subscription resume cursors become optional optimizations and can be
+  deleted after the contract is proven.
+
+This is the more compelling total-system simplification. It closes delayed
+initial acquisition, daemon restart, route change, cancellation, and pruned
+all-deletion gaps with one semantic tool. It also makes the backend's role
+honest: exact events while continuity is known, explicit invalidation when it is
+not.
+
+Its cost is carryability. A typed invalidation crosses the downstream
+`WatchInterests`/Watcher seam into upstream-owned Config plus Agent, Command,
+and Plugin Source. It also changes metrics from an exact-update-only model to
+separate exact-update and invalidation counts.
+
+### Incoherent middle to avoid
+
+Do not emit `{ path: watchedRoot, type: "update" }`, call it conservative, and
+assume all source owners refresh. Config republishes that value as a raw event;
+its indirect consumers test whether the path is inside a more specific child
+directory and reject it. This is already how several current conservative
+signals fail to realize the accepted design.
+
+The next total design should compare Direction A against Direction B explicitly.
+The current leading judgment is:
+
+- Direction A is the safest isolated correctness patch.
+- Direction B is likely the better final architecture if its small but
+  upstream-owned contract expansion proves carryable.
+- Pure target coalescing for every live PDU is unnecessary. It would sacrifice
+  selective reloads and require metrics and ignore semantics to change in
+  steady state as well as recovery.
+
+## Cancellation and readiness are distinct transitions
+
+The state machine cannot reduce every notification to "one update after a
+successful establish."
+
+- Initial publication inside `establish` is too early for the generic PubSub;
+  owner `ready` is the current safe post-ack path.
+- A canceled PDU currently invalidates **before** re-establishment. Moving its
+  only signal after success would hide deletion/topology changes while the
+  daemon or exact target remains unavailable.
+- Resume success may need a separate loss-of-continuity invalidation.
+- A fresh-instance PDU is another explicit continuity-loss signal.
+
+The replacement design should name `initial-ready`, `canceled-before-retry`,
+`resumed`, and `fresh-instance` outcomes. Coalescing may happen in the source
+owner, but the protocol lifecycle must not erase the distinction before
+correctness is defined.
+
+## Independent generic watcher defect
+
+Parcel/native acquisition currently converts unsupported, rejected, or timed
+out acquisition into `undefined`. `Watcher` shuts down the PubSub and the
+logical stream ends successfully without readiness. `WatchInterests` reacts to
+errors but not normal EOF, so Config and Skill do not immediately redemand.
+
+This is not a reason to retain Watchman-to-Parcel fallback. It is a separate
+generic contract defect: inactive acquisition should fail visibly or have an
+explicit unavailable result. A later `ensure` may currently recover only by
+accident after unrelated reconciliation.
+
+This correction is a plausible independent upstreamable slice, but it touches
+the high-risk generic watcher seam and should not be conflated with the root
+supervisor rewrite.
+
+## Revised sequence
+
+The initial sequence said to land response replay immediately. The reviews show
+that implementation should wait for one narrower contract decision so we do not
+cement another half-solution.
+
+1. **Pin the contract failures first.** Add deterministic tests for response
+   clock/rows, pre-ack publication, delayed first acknowledgement, indirect
+   Config owners, collateral new interests, cancellation while unavailable,
+   and inactive Parcel EOF.
+2. **Choose Direction A or B.** If choosing exact replay, define initial batch
+   buffering and accept/document the long-gap residual. If choosing coarse
+   recovery invalidation, define the typed seam and adapt all final state owners
+   together.
+3. **Unify root lifecycle and failure disposition.** Build one supervisor in
+   downstream-only `root.ts`; initial and established interests share it.
+4. **Make backend selection strict.** Remove construction and per-interest
+   Watchman-to-Parcel catches, mixed-backend metrics, and fallback logs only
+   once initial acquisition has the shared retry path.
+5. **Verify live continuity loss.** Exercise delayed daemon start, restart,
+   writes and deletions during outage, canceled subscriptions, and many-root
+   cold start.
+6. **Trim observation and options.** Keep command-timeout configurability, which
+   has incident evidence. Reassess public retry, Parcel timeout, metrics mode,
+   and metrics interval knobs. Prefer state-transition logs or a much smaller
+   observer once the state space is reduced.
+7. **Build a clean replacement carrier.** Separate generic source interests,
+   generic watcher seam, strict Watchman backend, selector plumbing, optional
+   diagnostics, and consolidated docs into independently droppable final-state
+   commits.
+
+## Test gates before a total revision
+
+Use scripted callbacks and `Deferred` barriers, not sleeps or randomized
+backoff. The minimum gates are:
+
+| Gate | Required proof |
+| --- | --- |
+| Response batch | A reconnect response with create/update/delete rows and clock `c:3` publishes the selected contract and makes a third reconnect use `c:3` in exact mode |
+| Initial attachment | A native publication before acquisition returns is either buffered observably or deliberately represented by one owner-visible coarse invalidation |
+| Delayed first ack | Change/delete Agent, Command, and Plugin sources after their initial scans but before Watchman first acknowledges; all derived state must converge |
+| Timing symmetry | The same retryable generation failure immediately before and after first acknowledgement receives the same root disposition |
+| Collateral interest | A new unacknowledged interest that loses an established root generation follows the shared root recovery and never chooses a different backend |
+| Root single-flight | N initial or recovering interests share one intentional acquisition sequence under the new supervisor |
+| Terminal scope | Root-terminal failure affects one root; subscription-terminal failure affects one interest; another root and sibling remain live as specified |
+| Cancellation | A canceled interest invalidates current state even when re-establishment cannot yet succeed; unsubscribe still prevents resurrection |
+| Parcel inactive | Unsupported/timeout acquisition is visible, never false-ready or silent healthy completion, and permits deliberate owner redemand |
+| Directory semantics | Keeping or suppressing directory rows is tested with empty-directory create/delete behavior rather than assumed from backend parity |
+| Metrics honesty | Runtime and gauge lifetime agree; exact rows, ignored rows, and coarse invalidations are not conflated into a false drop-rate formula |
+
+## Carrier update
+
+The ownership review strengthens the carrier strategy:
+
+- Use `jj`, not the workspace's unrelated beads `.git`, for source history.
+- Treat `v2@origin`, not the misleading remote named `upstream`, as Anomaly's
+  baseline.
+- The Watchman source hotspots have no current semantic upstream collision; a
+  replacement can be built now without first polishing the stale behavior.
+- Resolve the unrelated `cleanup docs` commit before moving the floating
+  bookmark. Do not move `watchman-20260901`.
+- Keep source-owned interests independently droppable. They are useful to
+  Parcel too, but their adoption in Config and Skill is one of the highest
+  carry-risk portions of the feature.
+- Freeze the generic `Watcher.Native` contract where possible. Root policy,
+  error classification, and subscription replay belong below it in new files.
+- If Direction B wins, acknowledge its upstream-owned invalidation hunk as an
+  intentional correctness seam rather than allowing broadness to leak through
+  fake path events.
+
+## Cross-review comparison
+
+| Review | Particular strength | Relative limitation |
+| --- | --- | --- |
+| [`review-architecture0.gpt56s.md`](/.design/watchman/review-architecture0.gpt56s.md) | Best total architecture and adversarial comparison of exact replay versus cursorless invalidation; catches readiness, cancellation, ignore, extra-clock, and metrics consequences | Static review; implementation sizes and final preference remain judgments |
+| [`review-ownership0.gpt56s.md`](/.design/watchman/review-ownership0.gpt56s.md) | Authoritative downstream/upstream map, repository-lineage warning, current collision check, bookmark debt, and empirically grounded carry-risk map | Does not choose runtime policy and records a moving repository freeze |
+| [`review-simplification0.gpt56s.md`](/.design/watchman/review-simplification0.gpt56s.md) | Clearest strict-selection/retry recommendation, deletion inventory, option/metrics trim, and compact replacement-carrier shape | Its original cursorless proposal required the later exact-path limitation; the committed review correctly makes deletion conditional |
+| [`review-failure-paths0.gpt56s.md`](/.design/watchman/review-failure-paths0.gpt56s.md) | Strongest verified runtime evidence: focused tests and probes, pre-ack PubSub loss, response clock, fatal lifetime, silent EOF, directory parity, and deterministic matrix | Deliberately leaves strict selection versus centralized pre-ack fallback unresolved; its Candidate A preserves more mixed behavior than the leading simplification |
+
+Together they support a narrower conclusion than any one review alone: strict
+selection plus one root supervisor is the leading policy, but the delivery seam
+must become honest before cursor machinery can safely be kept or deleted.
+
+## Addendum cross-references
+
+- [`review-architecture0.gpt56s.md`](/.design/watchman/review-architecture0.gpt56s.md)
+  supplies the architecture recommendation and conditional invalidation proof.
+- [`review-ownership0.gpt56s.md`](/.design/watchman/review-ownership0.gpt56s.md)
+  supplies the source-line ownership, repository topology, collision, and
+  carrier evidence.
+- [`review-simplification0.gpt56s.md`](/.design/watchman/review-simplification0.gpt56s.md)
+  supplies the strict retry policy, deletion plan, metrics trim, and final-state
+  stack proposal.
+- [`review-failure-paths0.gpt56s.md`](/.design/watchman/review-failure-paths0.gpt56s.md)
+  supplies the verified corrections and minimum deterministic tests.
