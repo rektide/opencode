@@ -49,7 +49,7 @@ interface Data {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Vcs") {}
 
-const layer = Layer.effect(const layer = Layer.effect(
+const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const fs = yield* FSUtil.Service
@@ -145,6 +145,15 @@ const layer = Layer.effect(const layer = Layer.effect(
       transform: state.transform,
       reload: state.reload,
       info: Effect.fn("Vcs.info")(function* () {
+        // Jujutsu working-copy state advances without filesystem markers, so its
+        // info must be read live instead of serving the refresh cache.
+        if (vcs?.type === "jj") {
+          const provider = selected()
+          if (provider)
+            current.info = yield* protect(provider, "info", provider.info(scope).pipe(Effect.flatMap(decodeInfo)), {
+              branch: {},
+            })
+        }
         return current.info
       }),
       base: Effect.fn("Vcs.base")(function* () {
@@ -162,7 +171,6 @@ const layer = Layer.effect(const layer = Layer.effect(
             [],
           )
         return []
-        return state.info
       }),
       status: Effect.fn("Vcs.status")(function* () {
         const provider = selected()

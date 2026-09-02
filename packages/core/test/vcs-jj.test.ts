@@ -8,31 +8,36 @@ import { Bus } from "@opencode-ai/core/bus"
 import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Vcs } from "@opencode-ai/core/vcs"
+import { VcsJjPlugin } from "@opencode-ai/core/plugin/vcs/jj"
+import { AppProcess } from "@opencode-ai/util/process"
+import { FSUtil } from "@opencode-ai/util/fs-util"
 import { location } from "./fixture/location"
 import { tmpdir } from "./fixture/tmpdir"
+import { host } from "./plugin/host"
 import { it } from "./lib/effect"
 
 const describeJj = Bun.which("jj") ? describe : describe.skip
 
 const provide = (directory: string, worktree = directory) =>
   Effect.provide(
-    LayerNode.compile(LayerNode.group([Vcs.node, Bus.node]), [
-      [
-        Location.node,
-        Layer.succeed(
-          Location.Service,
-          Location.Service.of(
-            location(
-              { directory: AbsolutePath.make(directory) },
-              {
-                projectDirectory: AbsolutePath.make(worktree),
-                vcs: { type: "jj", store: AbsolutePath.make(path.join(worktree, ".jj", "repo", "store", "git")) },
-              },
+    LayerNode.compile(LayerNode.group([Vcs.node, Bus.node, AppProcess.node, FSUtil.node, Location.node]), {
+      replacements: [
+        Location.node.replace(
+          Layer.succeed(
+            Location.Service,
+            Location.Service.of(
+              location(
+                { directory: AbsolutePath.make(directory) },
+                {
+                  projectDirectory: AbsolutePath.make(worktree),
+                  vcs: { type: "jj", store: AbsolutePath.make(path.join(worktree, ".jj", "repo", "store", "git")) },
+                },
+              ),
             ),
           ),
         ),
       ],
-    ]),
+    }),
   )
 
 const withJj = <A, E, R>(f: (directory: string) => Effect.Effect<A, E, R>) =>
@@ -41,7 +46,19 @@ const withJj = <A, E, R>(f: (directory: string) => Effect.Effect<A, E, R>) =>
     (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
   ).pipe(
     Effect.flatMap((tmp) =>
-      Effect.promise(() => $`jj git init`.cwd(tmp.path).quiet()).pipe(Effect.andThen(f(tmp.path).pipe(provide(tmp.path)))),
+      Effect.promise(() => $`jj git init`.cwd(tmp.path).quiet()).pipe(
+        Effect.andThen(
+          Effect.gen(function* () {
+            const vcs = yield* Vcs.Service
+            const context = host()
+            yield* VcsJjPlugin.Plugin.effect({
+              ...context,
+              vcs: { ...context.vcs, transform: vcs.transform, reload: vcs.reload },
+            })
+            return yield* f(tmp.path)
+          }).pipe(provide(tmp.path)),
+        ),
+      ),
     ),
   )
 
@@ -148,7 +165,13 @@ describeJj("Vcs Jujutsu", () => {
           await fs.mkdir(nested)
           await fs.writeFile(path.join(nested, "file.txt"), "hello\n")
         })
-          const scoped = yield* (yield* Vcs.Service).diff("working")
+          const vcs = yield* Vcs.Service
+          const context = host()
+          yield* VcsJjPlugin.Plugin.effect({
+            ...context,
+            vcs: { ...context.vcs, transform: vcs.transform, reload: vcs.reload },
+          })
+          const scoped = yield* vcs.diff("working")
 
           expect(scoped.map((item) => item.file)).toEqual(["file.txt"])
           expect(scoped[0].patch).toContain("nested/file.txt")

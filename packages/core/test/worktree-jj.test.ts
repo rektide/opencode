@@ -58,7 +58,12 @@ function storedMetadata(projectID: Project.ID, directory: AbsolutePath) {
       .from(WorktreeTable)
       .where(and(eq(WorktreeTable.project_id, projectID), eq(WorktreeTable.directory, directory)))
       .get()
-      .pipe(Effect.orDie),
+      .pipe(
+        Effect.orDie,
+        Effect.map((row) =>
+          row === undefined ? undefined : { strategy: row.strategy ?? undefined, metadata: row.metadata ?? undefined },
+        ),
+      ),
   )
 }
 

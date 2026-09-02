@@ -314,8 +314,6 @@ export type ProjectCommands = { start?: string }
 
 export type ProjectTime = { created: number; updated: number; initialized?: number }
 
-export type ProjectCurrent = { id: string; directory: string; canonical: string }
- 
 export type FormMetadata = { [x: string]: JsonValue }
 
 export type FormValue = string | number | boolean | Array<string>
@@ -418,13 +416,30 @@ export type ReferenceGitSource = {
   hidden?: boolean
 }
 
-export type WorktreeDirectory = { directory: string; strategy?: string }
+export type WorktreeGitWorktreeMetadata = { type: "git_worktree" }
 
-export type WorktreeInfo = { directory: string }
+export type WorktreeJjWorkspaceMetadata = {
+  type: "jj_workspace"
+  workspace: string
+  base?: string
+  changeID?: string
+  commitID?: string
+}
 
 export type WorkspaceDestroyResult = { destroyed: boolean }
 
 export type VcsBranch = { current?: string; default?: string }
+
+export type VcsWorkingCopy = {
+  label?: string
+  workspace?: string
+  changeID?: string
+  commitID?: string
+  bookmarks: Array<string>
+  description?: string
+  conflicted: boolean
+  empty: boolean
+}
 
 export type VcsBase = { name: string; ref: string; source: "reflog" | "default" }
 
@@ -1642,9 +1657,9 @@ export type SessionStatusUpdated = {
 
 export type ReferenceSource = ReferenceLocalSource | ReferenceGitSource
 
-export type WorktreeList = Array<WorktreeDirectory>
+export type WorktreeMetadata = WorktreeGitWorktreeMetadata | WorktreeJjWorkspaceMetadata
 
-export type VcsInfo = { branch: VcsBranch }
+export type VcsInfo = { branch: VcsBranch; workingCopy?: VcsWorkingCopy }
 
 export type PermissionRuleset = Array<PermissionRule>
 
@@ -1870,6 +1885,10 @@ export type ReferenceInfo = {
   hidden?: boolean
   source: ReferenceSource
 }
+
+export type WorktreeDirectory = { directory: string; strategy?: string; metadata?: WorktreeMetadata }
+
+export type WorktreeInfo = { directory: string; strategy: string; metadata: WorktreeMetadata }
 
 export type AgentInfo = {
   id: string
@@ -2101,6 +2120,8 @@ export type SessionMessageAssistantTool1 = {
 export type FormFields = [FormField, ...Array<FormField>]
 
 export type FormFields2 = [FormField1, ...Array<FormField1>]
+
+export type WorktreeList = Array<WorktreeDirectory>
 
 export type SessionInboxInfo = SessionInboxUser | SessionInboxSynthetic | SessionInboxCompaction | SessionInboxMove
 
@@ -6071,38 +6092,51 @@ export type WorktreeListOutput = WorktreeList
 
 export type WorktreeCreateInput = {
   readonly projectID: { readonly projectID: string }["projectID"]
-  readonly strategy: {
-    readonly strategy: string
+  readonly strategy?: {
+    readonly strategy?: string
     readonly from?: string
     readonly branch?: string
+    readonly base?: string
     readonly directory: string
     readonly name?: string
   }["strategy"]
   readonly from?: {
-    readonly strategy: string
+    readonly strategy?: string
     readonly from?: string
     readonly branch?: string
+    readonly base?: string
     readonly directory: string
     readonly name?: string
   }["from"]
   readonly branch?: {
-    readonly strategy: string
+    readonly strategy?: string
     readonly from?: string
     readonly branch?: string
+    readonly base?: string
     readonly directory: string
     readonly name?: string
   }["branch"]
-  readonly directory: {
-    readonly strategy: string
+  readonly base?: {
+    readonly strategy?: string
     readonly from?: string
     readonly branch?: string
+    readonly base?: string
+    readonly directory: string
+    readonly name?: string
+  }["base"]
+  readonly directory: {
+    readonly strategy?: string
+    readonly from?: string
+    readonly branch?: string
+    readonly base?: string
     readonly directory: string
     readonly name?: string
   }["directory"]
   readonly name?: {
-    readonly strategy: string
+    readonly strategy?: string
     readonly from?: string
     readonly branch?: string
+    readonly base?: string
     readonly directory: string
     readonly name?: string
   }["name"]

@@ -35,14 +35,13 @@ export const make = Effect.gen(function* () {
       const entries = yield* git.worktree.list(repository)
       return yield* Effect.forEach(entries, (entry) =>
         canonical(fs, entry.directory).pipe(
-          Effect.map(
-            (directory) =>
-              ({
-                directory,
-                type: entry.kind === "main" ? "root" : "worktree",
-                metadata: entry.kind === "main" ? undefined : ({ type: "git_worktree" } as const),
-              }) as const,
-          ),
+          Effect.map((directory) => {
+            const item: ListEntry =
+              entry.kind === "main"
+                ? { directory, type: "root" }
+                : { directory, type: "worktree", metadata: { type: "git_worktree" } }
+            return item
+          }),
           Effect.catchTag("Worktree.DirectoryUnavailableError", () => Effect.undefined),
         ),
       ).pipe(Effect.map((items) => items.filter((item): item is ListEntry => item !== undefined)))

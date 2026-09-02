@@ -389,7 +389,9 @@ const layer = Layer.effect(
       if (jj) return yield* persist(jj)
 
       const directory = AbsolutePath.make(yield* fs.resolve(input))
-      const native = yield* fs.up({ targets: [".jj", ".git", ".hg"], start: directory, mode: "first" }).pipe(
+      // A damaged colocated .jj must not shadow the git fallback, so .git wins
+      // the marker scan; healthy jj repositories resolve earlier via jjDiscover.
+      const native = yield* fs.up({ targets: [".git", ".jj", ".hg"], start: directory, mode: "first" }).pipe(
         Effect.map((matches) => matches[0]),
         Effect.orElseSucceed(() => undefined),
       )

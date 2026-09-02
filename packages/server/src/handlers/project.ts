@@ -51,5 +51,4 @@ export const ProjectHandler = HttpApiBuilder.group(Api, "server.project", (handl
         }
       }),
     )
-    ),
 )

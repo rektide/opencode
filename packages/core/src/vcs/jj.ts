@@ -15,7 +15,7 @@ import {
   PATCH_CONTEXT_LINES,
 } from "./patch"
 
-export function make(proc: AppProcess.Interface, input: { directory: string; worktree: string }): Interface {
+export function make(proc: AppProcess.Interface, input: { directory: string; worktree: string }) {
   const jj = makeJj(proc, input.worktree)
   const scope = path.relative(input.worktree, input.directory) || "."
   const local = (file: string) => (scope === "." ? file : path.relative(scope, file).replaceAll("\\", "/"))

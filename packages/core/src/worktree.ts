@@ -56,7 +56,7 @@ export type List = typeof List.Type
 export const ListEntry = Schema.Struct({
   directory: AbsolutePath,
   type: Schema.Literals(["root", "worktree"]),
-  metadata: Worktree.Metadata.optional(),
+  metadata: Schema.optional(Worktree.Metadata),
 }).annotate({ identifier: "Worktree.ListEntry" })
 export type ListEntry = typeof ListEntry.Type
 
@@ -226,12 +226,13 @@ const layer = Layer.effect(
           .pipe(Effect.orDie)
         const strategy = input.strategy ?? null
         const metadata = input.metadata ?? null
-        if (
-          current &&
-          current.strategy === strategy &&
-          JSON.stringify(current.metadata ?? null) === JSON.stringify(metadata)
-        )
-          return false
+        // Rows written before metadata existed carry none; a strategy's default
+        // metadata (git worktree identity) must not register as a change.
+        const changed =
+          current === undefined ||
+          current.strategy !== strategy ||
+          (current.metadata !== null && JSON.stringify(current.metadata) !== JSON.stringify(metadata))
+        if (!changed) return false
         return yield* client
           .insert(WorktreeTable)
           .values({ project_id: input.projectID, directory: input.directory, strategy, metadata })
@@ -360,7 +361,7 @@ const layer = Layer.effect(
       const stored = yield* ops.find(input.projectID, worktreeDirectory)
       if (!stored?.strategy) return yield* new InvalidDirectoryError({ directory: worktreeDirectory })
       const strategy = yield* getStrategy(StrategyID.make(stored.strategy))
-      const primary = yield* ops.primary(input.projectID)
+      const primary = (yield* ops.primary(input.projectID))?.directory
       if (!primary) return yield* new SourceDirectoryNotFoundError({ projectID: input.projectID })
       yield* strategy.remove({
         directory: worktreeDirectory,
@@ -387,7 +388,12 @@ const layer = Layer.effect(
         .where(eq(ProjectTable.id, input.projectID))
         .get()
         .pipe(Effect.orDie, Effect.map((row) => row?.vcs))
-      const selected = Array.from(registry.values()).filter((strategy) => strategy.vcs === projectVcs)
+      // Strategies declare the VCS they manage; unclassified projects keep the
+      // upstream behavior of probing every registered strategy.
+      const selected =
+        projectVcs === null || projectVcs === undefined
+          ? Array.from(registry.values())
+          : Array.from(registry.values()).filter((strategy) => strategy.vcs === projectVcs)
       const previous = new Map(stored.map((item) => [item.directory, item] as const))
       const discovered = yield* Effect.forEach(
         sourceDirectories,

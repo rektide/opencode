@@ -55,22 +55,22 @@ export const make = Effect.gen(function* () {
       records,
       (item) =>
         canonical(fs, AbsolutePath.make(item.root)).pipe(
-          Effect.map(
-            (root) =>
-              ({
-                directory: root,
-                type: root === source ? "root" : "worktree",
-                metadata:
-                  root === source
-                    ? undefined
-                    : ({
-                        type: "jj_workspace",
-                        workspace: item.workspace,
-                        changeID: item.changeID || undefined,
-                        commitID: item.commitID || undefined,
-                      } satisfies Worktree.JjWorkspaceMetadata),
-              }) satisfies ListEntry,
-          ),
+          Effect.map((root) => {
+            const entry: ListEntry =
+              root === source
+                ? { directory: root, type: "root" }
+                : {
+                    directory: root,
+                    type: "worktree",
+                    metadata: {
+                      type: "jj_workspace",
+                      workspace: item.workspace,
+                      changeID: item.changeID || undefined,
+                      commitID: item.commitID || undefined,
+                    },
+                  }
+            return entry
+          }),
           Effect.catchTag("Worktree.DirectoryUnavailableError", () => Effect.succeed(undefined)),
         ),
     ).pipe(Effect.map((items) => items.filter(defined)))
