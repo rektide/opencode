@@ -20,21 +20,38 @@ const DEFAULT_TIME_TO_LIVE = "60 minutes"
  * fall back to the default.
  */
 export const resolveTimeToLive = Effect.fnUntraced(function* (options: { readonly timeToLive?: Duration.Input }) {
-  if (options.timeToLive !== undefined) return Duration.fromInputUnsafe(options.timeToLive)
+  const resolved = resolve(options)
+  if (resolved.invalid !== undefined) {
+    yield* Effect.logWarning(
+      `ignoring invalid OPENCODE_LOCATION_CACHE_TTL ${JSON.stringify(resolved.invalid)}; using ${DEFAULT_TIME_TO_LIVE}`,
+    )
+  }
+  // The source breadcrumb makes an ambient env override visible at layer
+  // build instead of only through surprising eviction timing later.
+  yield* Effect.logInfo("location activity time-to-live", {
+    source: resolved.source,
+    timeToLive: Duration.format(resolved.timeToLive),
+  })
+  return resolved.timeToLive
+})
+
+function resolve(options: { readonly timeToLive?: Duration.Input }) {
+  if (options.timeToLive !== undefined) {
+    return { timeToLive: Duration.fromInputUnsafe(options.timeToLive), source: "option" }
+  }
   const raw = process.env.OPENCODE_LOCATION_CACHE_TTL?.trim()
-  if (raw === undefined || raw === "") return Duration.fromInputUnsafe(DEFAULT_TIME_TO_LIVE)
+  if (raw === undefined || raw === "") {
+    return { timeToLive: Duration.fromInputUnsafe(DEFAULT_TIME_TO_LIVE), source: "default" }
+  }
   // An Infinity TTL means activity entries never expire, so active locations
   // are never evicted by the sweep. `fromInput` totals over arbitrary runtime
   // strings (None on bad syntax); the `Duration.Input` type only constrains
   // what callers can write as literals.
   const parsed =
     raw.toLowerCase() === "infinity" ? Option.some(Duration.infinity) : Duration.fromInput(raw as Duration.Input)
-  if (Option.isSome(parsed)) return parsed.value
-  yield* Effect.logWarning(
-    `ignoring invalid OPENCODE_LOCATION_CACHE_TTL ${JSON.stringify(raw)}; using ${DEFAULT_TIME_TO_LIVE}`,
-  )
-  return Duration.fromInputUnsafe(DEFAULT_TIME_TO_LIVE)
-})
+  if (Option.isSome(parsed)) return { timeToLive: parsed.value, source: "env" }
+  return { timeToLive: Duration.fromInputUnsafe(DEFAULT_TIME_TO_LIVE), source: "default", invalid: raw }
+}
 
 export function layer(options: { readonly timeToLive?: Duration.Input; readonly sweepInterval?: Duration.Input } = {}) {
   return Layer.effect(
