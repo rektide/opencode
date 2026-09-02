@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test"
 import { Effect, Fiber, Layer, Logger, Schema, Stream } from "effect"
 import { FastCheck } from "effect/testing"
 import { Config } from "@opencode-ai/core/config"
+import { Ignore } from "@opencode-ai/core/filesystem/ignore"
 import { AgentsDirectory, Directory, Document, Event, Info } from "@opencode-ai/schema/config"
 import { ConfigModel } from "@opencode-ai/schema/config/model"
 import { ConfigProvider } from "@opencode-ai/schema/config/provider"
@@ -852,7 +853,7 @@ describe("Config", () => {
               {
                 type: "directory",
                 path: AbsolutePath.make(path.join(tmp.path, "global")),
-                ignore: ["**/{node_modules,.git}/**", ".git", "node_modules"],
+                ignore: [...new Set(Ignore.PATTERNS)].sort(),
               },
             ])
           }).pipe(Effect.provide(testLayer(tmp.path, undefined, undefined, undefined, Watcher.testLayer)))

@@ -7,6 +7,7 @@ import { Global } from "@opencode-ai/util/global"
 import path from "path"
 import { Effect, PubSub, Semaphore, Stream } from "effect"
 import { Config } from "../../config.js"
+import { Ignore } from "../../filesystem/ignore.js"
 import { Watcher } from "../../filesystem/watcher.js"
 import { WatchInterests } from "../../filesystem/watcher/interests.js"
 import { Location } from "../../location.js"
@@ -40,8 +41,12 @@ export const Plugin = define({
       type: Watcher.WatchInput["type"],
     ) {
       const target = path.resolve(directory)
-      desired.push({ path: target, type })
-      yield* interests.ensure([{ path: target, type }])
+      const input =
+        type === "directory"
+          ? { path: target, type, ignore: Ignore.PATTERNS }
+          : { path: target, type }
+      desired.push(input)
+      yield* interests.ensure([input])
     })
 
     function firstMissing(target: string): Effect.Effect<string | undefined> {

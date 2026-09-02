@@ -3,6 +3,7 @@ import path from "path"
 import { describe, expect, test } from "bun:test"
 import { Deferred, Effect, Fiber, Layer, Schema, Stream } from "effect"
 import { Config } from "@opencode-ai/core/config"
+import { Ignore } from "@opencode-ai/core/filesystem/ignore"
 import { AgentsDirectory, ClaudeDirectory, Directory, Document, type Entry, Info } from "@opencode-ai/schema/config"
 import { ConfigSkillPlugin } from "@opencode-ai/core/config/plugin/skill"
 import { SkillFile } from "@opencode-ai/core/config/plugin/skill-file"
@@ -26,6 +27,12 @@ import { host } from "../plugin/host"
 
 const emptyDiscovery = SkillDiscovery.Service.of({ pull: () => Effect.succeed([]) })
 const watcherLayer = Watcher.testLayer
+// Directory watch inputs normalize their ignore list (dedup + sort).
+const directoryInput = (path: string) => ({
+  path,
+  type: "directory" as const,
+  ignore: [...new Set(Ignore.PATTERNS)].sort(),
+})
 const it = testEffect(
   Layer.merge(AppNodeBuilder.build(LayerNode.group([Skill.node, Bus.node, FSUtil.node])), watcherLayer),
 )
@@ -191,7 +198,7 @@ describe("ConfigSkillPlugin.Plugin", () => {
             home,
           )
           const watcher = yield* Watcher.Test
-          expect(yield* watcher.subscriptions()).toEqual(expected.map((item) => ({ path: item, type: "directory" })))
+          expect(yield* watcher.subscriptions()).toEqual(expected.map((item) => directoryInput(item)))
         }),
       ),
     ),
@@ -359,7 +366,7 @@ describe("ConfigSkillPlugin.Plugin", () => {
           const skill = yield* start([source], tmp.path)
           const watcher = yield* Watcher.Test
           expect((yield* skill.list()).find((item) => item.id === "bro")?.description).toBe("Initial")
-          expect(yield* watcher.subscriptions()).toContainEqual({ path: target, type: "directory" })
+          expect(yield* watcher.subscriptions()).toContainEqual(directoryInput(target))
 
           yield* Effect.promise(() => fs.writeFile(file, "---\nname: bro\ndescription: Updated\n---\n# bro"))
           yield* emitAndWait({ type: "update", path: file })
@@ -388,7 +395,7 @@ describe("ConfigSkillPlugin.Plugin", () => {
           const watcher = yield* Watcher.Test
           expect((yield* skill.list()).find((item) => item.id === "bro")?.description).toBe("First")
           expect(yield* watcher.subscriptions()).toEqual([
-            { path: first, type: "directory" },
+            directoryInput(first),
             { path: source, type: "file" },
           ])
 
@@ -400,9 +407,9 @@ describe("ConfigSkillPlugin.Plugin", () => {
 
           expect((yield* skill.list()).find((item) => item.id === "bro")?.description).toBe("Second")
           expect(yield* watcher.subscriptions()).toEqual([
-            { path: first, type: "directory" },
+            directoryInput(first),
             { path: source, type: "file" },
-            { path: second, type: "directory" },
+            directoryInput(second),
           ])
         }),
       ),
