@@ -46,6 +46,26 @@ const withJj = <A, E, R>(f: (directory: string) => Effect.Effect<A, E, R>) =>
   )
 
 describeJj("Vcs Jujutsu", () => {
+  it.live("labels the working copy by nearest ancestor bookmark and distance", () =>
+    withJj((directory) =>
+      Effect.gen(function* () {
+        yield* Effect.promise(async () => {
+          await fs.writeFile(path.join(directory, "a.txt"), "one\n")
+          await $`jj commit -m first`.cwd(directory).quiet()
+          await $`jj bookmark set main -r @-`.cwd(directory).quiet()
+          await fs.writeFile(path.join(directory, "b.txt"), "two\n")
+          await $`jj commit -m second`.cwd(directory).quiet()
+          await fs.writeFile(path.join(directory, "c.txt"), "three\n")
+        })
+        const vcs = yield* Vcs.Service
+
+        const info = yield* vcs.info()
+        expect(info.workingCopy?.label).toBe("main+1")
+        expect(info.workingCopy?.bookmarks).toEqual([])
+      }),
+    ),
+  )
+
   it.live("reports native working-copy changes without inventing a branch", () =>
     withJj((directory) =>
       Effect.gen(function* () {

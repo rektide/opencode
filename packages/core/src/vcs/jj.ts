@@ -86,13 +86,24 @@ const kind = (status: string): Kind => {
 
 function makeJj(proc: AppProcess.Interface, worktree: string) {
   const run = Effect.fnUntraced(
-    function* (args: string[], options?: { maxOutputBytes?: number }) {
+    function* (args: string[], options?: { metadata?: boolean; maxOutputBytes?: number }) {
       const result = yield* proc.run(
-        ChildProcess.make("jj", ["--no-pager", "--color=never", ...args], {
-          cwd: worktree,
-          extendEnv: true,
-          stdin: "ignore",
-        }),
+        ChildProcess.make(
+          "jj",
+          [
+            "--no-pager",
+            "--color=never",
+            // Metadata answers never depend on unsaved edits, and jj snapshots
+            // the working copy on load unless told not to.
+            ...(options?.metadata ? ["--ignore-working-copy"] : []),
+            ...args,
+          ],
+          {
+            cwd: worktree,
+            extendEnv: true,
+            stdin: "ignore",
+          },
+        ),
         { maxOutputBytes: options?.maxOutputBytes },
       )
       return {
@@ -125,14 +136,17 @@ function makeJj(proc: AppProcess.Interface, worktree: string) {
   })
 
   const conflicts = Effect.fn("VcsJj.conflicts")(function* (scope: string) {
-    const result = yield* run([
-      "log",
-      "--no-graph",
-      "-r",
-      "@",
-      "-T",
-      'conflicted_files.map(|file| file.path() ++ "\\0").join("")',
-    ])
+    const result = yield* run(
+      [
+        "log",
+        "--no-graph",
+        "-r",
+        "@",
+        "-T",
+        'conflicted_files.map(|file| file.path() ++ "\\0").join("")',
+      ],
+      { metadata: true },
+    )
     if (result.exitCode !== 0) return []
     const prefix = scope === "." ? "" : scope.replaceAll("\\", "/").replace(/\/$/, "") + "/"
     return result.text.split("\0").filter((file) => file && (!prefix || file === scope || file.startsWith(prefix)))
@@ -148,11 +162,43 @@ function makeJj(proc: AppProcess.Interface, worktree: string) {
   })
 
   const trunk = Effect.fn("VcsJj.trunk")(function* () {
-    const result = yield* run(["log", "--no-graph", "-r", "trunk()", "-T", "commit_id"])
+    const result = yield* run(["log", "--no-graph", "-r", "trunk()", "-T", "commit_id"], { metadata: true })
     if (result.exitCode !== 0) return undefined
     const commit = result.text.trim()
     if (!commit || /^0+$/.test(commit)) return undefined
     return commit
+  })
+
+  // Label fallback when the working copy carries no local bookmark: name the
+  // nearest bookmarked ancestor with its distance, e.g. main+5. Both queries
+  // are metadata — distances count commits, not unsaved edits.
+  const nearest = Effect.fn("VcsJj.nearest")(function* () {
+    const found = yield* run(
+      [
+        "log",
+        "--no-graph",
+        "-r",
+        "heads(::@ & bookmarks())",
+        "-T",
+        'bookmarks.map(|b| b.name()).join("\\x1f") ++ "\\n"',
+      ],
+      { metadata: true },
+    )
+    if (found.exitCode !== 0) return undefined
+    const name = found.text
+      .split("\n")
+      .flatMap((line) => line.split("\x1f"))
+      .filter(Boolean)
+      .toSorted()[0]
+    if (!name) return undefined
+    const counted = yield* run(["log", "--no-graph", "-r", `${name}..@`, "-T", 'commit_id ++ "\\n"'], {
+      metadata: true,
+    })
+    if (counted.exitCode !== 0) return undefined
+    // The range includes the working-copy commit itself; report only the
+    // commits of real history past the bookmark.
+    const ahead = Math.max(0, counted.text.split("\n").filter(Boolean).length - 1)
+    return ahead > 0 ? `${name}+${ahead}` : name
   })
 
   const info = Effect.fn("VcsJj.workingCopy")(function* () {
@@ -166,7 +212,7 @@ function makeJj(proc: AppProcess.Interface, worktree: string) {
           "-T",
           'change_id ++ "\\0" ++ commit_id ++ "\\0" ++ local_bookmarks.map(|bookmark| bookmark.name()).join("\\x1f") ++ "\\0" ++ description.first_line() ++ "\\0" ++ conflict ++ "\\0" ++ empty ++ "\\0"',
         ]),
-        run(["workspace", "list", "-T", 'name ++ "\\0" ++ root ++ "\\0"']),
+        run(["workspace", "list", "-T", 'name ++ "\\0" ++ root ++ "\\0"'], { metadata: true }),
       ],
       { concurrency: 2 },
     )
@@ -182,7 +228,7 @@ function makeJj(proc: AppProcess.Interface, worktree: string) {
       root: workspaceFields[index * 2 + 1],
     })).find((item) => item.name && path.resolve(item.root) === path.resolve(worktree))?.name
     return {
-      label: bookmarks[0] ?? changeID.slice(0, 12),
+      label: bookmarks[0] ?? (yield* nearest()) ?? changeID.slice(0, 12),
       workspace,
       changeID,
       commitID,
