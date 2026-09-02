@@ -112,6 +112,18 @@ export const VcsState = Persistence.struct({
     Persistence.struct({
       branch: Schema.optional(Schema.String),
       default_branch: Schema.optional(Schema.String),
+      workingCopy: Schema.optional(
+        Persistence.struct({
+          label: Schema.optional(Schema.String),
+          workspace: Schema.optional(Schema.String),
+          changeID: Schema.optional(Schema.String),
+          commitID: Schema.optional(Schema.String),
+          bookmarks: Persistence.array(Schema.String),
+          description: Schema.optional(Schema.String),
+          conflicted: Schema.Boolean,
+          empty: Schema.Boolean,
+        }),
+      ),
     }),
   ),
 })
