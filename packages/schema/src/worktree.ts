@@ -3,15 +3,18 @@ export * as Worktree from "./worktree.js"
 import { Schema } from "effect"
 import { durable, ephemeral, inventory } from "./event.js"
 import { AbsolutePath, optional } from "./schema.js"
+import { ProjectID } from "./project-id.js"
 import { Project } from "./project.js"
 
 export const StrategyID = Schema.Trim.pipe(Schema.check(Schema.isNonEmpty()), Schema.brand("Worktree.StrategyID"))
 export type StrategyID = typeof StrategyID.Type
 
 export const CreateInput = Schema.Struct({
+  projectID: optional(ProjectID),
   strategy: optional(StrategyID),
   from: optional(AbsolutePath),
   branch: optional(Schema.Trim.pipe(Schema.check(Schema.isNonEmpty()))),
+  base: optional(Schema.String),
   directory: optional(AbsolutePath).annotate({
     description:
       "Parent directory for the new worktree. Uses the location's configuration, then defaults to the server's data directory under worktree/<first six project ID characters>.",
@@ -21,6 +24,7 @@ export const CreateInput = Schema.Struct({
 export interface CreateInput extends Schema.Schema.Type<typeof CreateInput> {}
 
 export const RemoveInput = Schema.Struct({
+  projectID: optional(ProjectID),
   directory: AbsolutePath,
   force: Schema.Boolean,
 }).annotate({ identifier: "Worktree.RemoveInput" })

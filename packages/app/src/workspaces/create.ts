@@ -11,7 +11,6 @@ export async function createWorktree(input: {
   const project = input.project ?? (await input.api.location.get({ location: { directory: input.directory } })).project
   const created = await input.api.worktree.create({
     location: { directory: input.directory },
-    strategy: "git",
     from: project.canonical,
     branch: input.branch,
   })

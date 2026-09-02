@@ -36,7 +36,9 @@ function badRequest<A, R>(effect: Effect.Effect<A, Worktree.Error, R>) {
           data: {
             message: message(error),
             forceRequired:
-              error instanceof Git.WorktreeError || error instanceof Worktree.OperationError
+              error instanceof Git.WorktreeError ||
+              error instanceof Worktree.OperationError ||
+              error instanceof Worktree.JjWorkspaceError
                 ? error.forceRequired
                 : undefined,
           },
@@ -55,5 +57,6 @@ function message(error: Worktree.Error) {
   if (error instanceof Worktree.InvalidDirectoryError) return `Invalid worktree directory: ${error.directory}`
   if (error instanceof Worktree.StrategyUnavailableError) return `Worktree strategy unavailable: ${error.strategy}`
   if (error instanceof Worktree.UnsupportedLocationError) return "Worktree operations only support local locations"
+  if (error instanceof Worktree.JjWorkspaceError) return error.message
   return error.message
 }

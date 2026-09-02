@@ -1,3 +1,4 @@
+import path from "node:path"
 import { createEffect, createMemo, createSignal, onCleanup } from "solid-js"
 import { useTuiPaths } from "../../context/runtime"
 import { errorMessage } from "../../util/error"
@@ -38,6 +39,8 @@ export function usePromptMove(input: { projectID: () => string | undefined; sess
       if (!project) throw new Error("Unable to determine current project")
       const result = await client.api.worktree.create({
         location: { directory: location.directory, workspace: location.workspaceID },
+        from: project.canonical,
+        directory: path.join(paths.worktree, project.id.slice(0, 6)),
         name,
       })
       const directory = result.directory
