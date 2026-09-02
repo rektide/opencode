@@ -314,6 +314,10 @@ known defect.
 
 ## Follow-ups
 
+- Publish the subscribe response's `files` on resume (and set
+  `always_include_directories: false`) so the Amendment 3 full-dump
+  degradation actually reaches consumers; see
+  [`topic-query0.glm53.md`](/.design/watchman/topic-query0.glm53.md).
 - Measure many-project cold-daemon startup and reconnect spread before making
   Watchman the default; the channel metrics dumps are the intended instrument
   for this.
@@ -343,5 +347,10 @@ known defect.
 - [`cookie-clash0.gpt56s.md`](/.design/watchman/cookie-clash0.gpt56s.md) traces cookie lifecycle,
   cross-daemon and nested-root visibility, current Skill containment, and the
   remaining application, operational, and upstream solution threads.
+- [`topic-query0.glm53.md`](/.design/watchman/topic-query0.glm53.md) assesses
+  watchwoman-systemd's probe-verified since-query semantics against this
+  backend: live streaming aligns, but resume discards the subscribe
+  response's daemon-computed delta that Amendment 3's degradation story
+  depends on, plus tombstone-GC and directory-noise notes.
 - [`draft1.gpt56t.md`](/.design/watch/draft1.gpt56t.md) is the retained
   one-subscription-per-interest design from the earlier wave.
