@@ -139,7 +139,7 @@ const layer = Layer.effect(
       }
     })
 
-    if (vcs) {
+    if (vcs && vcs.type !== "jj") {
       const store = yield* fs.realPath(vcs.store).pipe(Effect.orElseSucceed(() => vcs.store))
       const isBranchMetadata =
         vcs.type === "git"
@@ -164,6 +164,15 @@ const layer = Layer.effect(
       transform: state.transform,
       reload: state.reload,
       info: Effect.fn("Vcs.info")(function* () {
+        // Jujutsu working-copy state advances without filesystem markers, so its
+        // info must be read live instead of serving the refresh cache.
+        if (vcs?.type === "jj") {
+          const provider = selected()
+          if (provider)
+            current.info = yield* protect(provider, "info", provider.info(scope).pipe(Effect.flatMap(decodeInfo)), {
+              branch: {},
+            })
+        }
         return current.info
       }),
       base: Effect.fn("Vcs.base")(function* () {
