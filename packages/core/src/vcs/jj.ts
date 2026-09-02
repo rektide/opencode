@@ -51,7 +51,8 @@ export function make(proc: AppProcess.Interface, input: { directory: string; wor
 
   return {
     info: Effect.fn("VcsJj.info")(function* () {
-      return { branch: {} } satisfies Info
+      const workingCopy = yield* jj.info()
+      return { branch: {}, workingCopy } satisfies Info
     }),
     status: Effect.fn("VcsJj.status")(function* () {
       return (yield* changes({ type: "working" })).map(
@@ -172,5 +173,75 @@ function makeJj(proc: AppProcess.Interface, worktree: string) {
     return commit
   })
 
-  return { items, conflicts, patch, trunk }
+  // Label fallback when the working copy carries no local bookmark: name the
+  // nearest bookmarked ancestor with its distance, e.g. main+5. Both queries
+  // are metadata — distances count commits, not unsaved edits.
+  const nearest = Effect.fn("VcsJj.nearest")(function* () {
+    const found = yield* run(
+      [
+        "log",
+        "--no-graph",
+        "-r",
+        "heads(::@ & bookmarks())",
+        "-T",
+        'bookmarks.map(|b| b.name()).join("\\x1f") ++ "\\n"',
+      ],
+      { metadata: true },
+    )
+    if (found.exitCode !== 0) return undefined
+    const name = found.text
+      .split("\n")
+      .flatMap((line) => line.split("\x1f"))
+      .filter(Boolean)
+      .toSorted()[0]
+    if (!name) return undefined
+    const counted = yield* run(["log", "--no-graph", "-r", `${name}..@`, "-T", 'commit_id ++ "\\n"'], {
+      metadata: true,
+    })
+    if (counted.exitCode !== 0) return undefined
+    // The range includes the working-copy commit itself; report only the
+    // commits of real history past the bookmark.
+    const ahead = Math.max(0, counted.text.split("\n").filter(Boolean).length - 1)
+    return ahead > 0 ? `${name}+${ahead}` : name
+  })
+
+  const info = Effect.fn("VcsJj.workingCopy")(function* () {
+    const [identity, workspaces] = yield* Effect.all(
+      [
+        run([
+          "log",
+          "--no-graph",
+          "-r",
+          "@",
+          "-T",
+          'change_id ++ "\\0" ++ commit_id ++ "\\0" ++ local_bookmarks.map(|bookmark| bookmark.name()).join("\\x1f") ++ "\\0" ++ description.first_line() ++ "\\0" ++ conflict ++ "\\0" ++ empty ++ "\\0"',
+        ]),
+        run(["workspace", "list", "-T", 'name ++ "\\0" ++ root ++ "\\0"'], { metadata: true }),
+      ],
+      { concurrency: 2 },
+    )
+    if (identity.exitCode !== 0 || workspaces.exitCode !== 0) return undefined
+    const fields = identity.text.split("\0")
+    const changeID = fields[0]?.trim()
+    const commitID = fields[1]?.trim()
+    if (!changeID || !commitID) return undefined
+    const bookmarks = (fields[2] ?? "").split("\x1f").filter(Boolean).toSorted()
+    const workspaceFields = workspaces.text.split("\0")
+    const workspace = Array.from({ length: Math.floor(workspaceFields.length / 2) }, (_, index) => ({
+      name: workspaceFields[index * 2],
+      root: workspaceFields[index * 2 + 1],
+    })).find((item) => item.name && path.resolve(item.root) === path.resolve(worktree))?.name
+    return {
+      label: bookmarks[0] ?? (yield* nearest()) ?? changeID.slice(0, 12),
+      workspace,
+      changeID,
+      commitID,
+      bookmarks,
+      description: fields[3] || undefined,
+      conflicted: fields[4] === "true",
+      empty: fields[5] === "true",
+    }
+  })
+
+  return { items, conflicts, patch, trunk, info }
 }

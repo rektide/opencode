@@ -9,8 +9,21 @@ export const Branch = Schema.Struct({
 }).annotate({ identifier: "Vcs.Branch" })
 export interface Branch extends Schema.Schema.Type<typeof Branch> {}
 
+export const WorkingCopy = Schema.Struct({
+  label: optional(Schema.String),
+  workspace: optional(Schema.String),
+  changeID: optional(Schema.String),
+  commitID: optional(Schema.String),
+  bookmarks: Schema.Array(Schema.String),
+  description: optional(Schema.String),
+  conflicted: Schema.Boolean,
+  empty: Schema.Boolean,
+}).annotate({ identifier: "Vcs.WorkingCopy" })
+export interface WorkingCopy extends Schema.Schema.Type<typeof WorkingCopy> {}
+
 export const Info = Schema.Struct({
   branch: Branch,
+  workingCopy: optional(WorkingCopy),
 }).annotate({ identifier: "Vcs.Info" })
 export interface Info extends Schema.Schema.Type<typeof Info> {}
 
