@@ -24,6 +24,7 @@ import {
 import { TestClock } from "effect/testing"
 import { Agent } from "@opencode/core/agent"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
+import { makeGlobalNode } from "@opencode/util/effect/app-node"
 import { LayerNode } from "@opencode/util/effect/layer-node"
 import { Global } from "@opencode/util/global"
 import { LocationServiceMap, type LocationServices } from "@opencode/core/location-services"
@@ -71,9 +72,18 @@ const activityLocations = Layer.effect(
     { idleTimeToLive: Duration.infinity },
   ),
 )
+const pinnedActivity = makeGlobalNode({
+  service: LocationActivity.Service,
+  layer: LocationActivity.layer({ timeToLive: "60 minutes" }),
+  deps: [Bus.node, LocationServiceMap.node],
+})
 const itWithActivity = testEffect(
   AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node, LocationServiceMap.node, LocationActivity.node]), [
     LocationServiceMap.node.replace(activityLocations),
+    // Pin the TTL so deployment environments exporting
+    // OPENCODE_LOCATION_CACHE_TTL (the live service ships "8 hours") cannot
+    // change what these eviction tests observe.
+    LocationActivity.node.replace(pinnedActivity),
   ]),
 )
 
