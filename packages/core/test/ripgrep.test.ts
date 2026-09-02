@@ -74,7 +74,7 @@ describe("Ripgrep", () => {
     ),
   )
 
-  it.live("never includes git metadata", () =>
+  it.live("never includes VCS metadata", () =>
     Effect.acquireUseRelease(
       Effect.promise(() => tmpdir()),
       (tmp) =>
@@ -83,11 +83,14 @@ describe("Ripgrep", () => {
           yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, ".opencode", "config"), "needle\n"))
           yield* Effect.promise(() => fs.mkdir(path.join(tmp.path, ".git")))
           yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, ".git", "config"), "needle\n"))
+          yield* Effect.promise(() => fs.mkdir(path.join(tmp.path, ".jj")))
+          yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, ".jj", "config"), "needle\n"))
           const ripgrep = yield* Ripgrep.Service
 
           const files = yield* ripgrep.find({ cwd: tmp.path, pattern: "**/*", limit: 10 })
           expect(files.map((item) => item.path)).toContain(RelativePath.make(".opencode/config"))
           expect(files.map((item) => item.path)).not.toContain(RelativePath.make(".git/config"))
+          expect(files.map((item) => item.path)).not.toContain(RelativePath.make(".jj/config"))
 
           const observed: string[] = []
           const limited = yield* ripgrep.find({
@@ -101,6 +104,7 @@ describe("Ripgrep", () => {
           const matches = yield* ripgrep.grep({ cwd: tmp.path, pattern: "needle", include: "config", limit: 10 })
           expect(matches.map((item) => item.entry.path)).toContain(RelativePath.make(".opencode/config"))
           expect(matches.map((item) => item.entry.path)).not.toContain(RelativePath.make(".git/config"))
+          expect(matches.map((item) => item.entry.path)).not.toContain(RelativePath.make(".jj/config"))
         }),
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
     ),
