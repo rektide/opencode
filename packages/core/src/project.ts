@@ -49,7 +49,7 @@ export interface Resolved {
 export const root = Effect.fn("Project.root")(function* (
   fs: FSUtil.Interface,
   input: AbsolutePath,
-  markers: readonly string[] = [".git", ".hg"],
+  markers: readonly string[] = [".jj", ".git", ".hg"],
 ) {
   return yield* fs.up({ targets: [...markers], start: input, mode: "first" }).pipe(
     Effect.map((matches) => (matches[0] ? AbsolutePath.make(path.dirname(matches[0])) : undefined)),
@@ -132,7 +132,7 @@ const layer = Layer.effect(
         directories.push({
           projectID: project.id,
           directory: project.directory,
-          strategy: project.vcs.type === "git" ? "git" : undefined,
+          strategy: project.vcs.type === "git" ? "git" : project.vcs.type === "jj" ? "jj_workspace" : undefined,
         })
       // A missing directory row means this directory's resolution is a new durable
       // fact. The row insert commits atomically with the event, so a crash between
@@ -169,7 +169,7 @@ const layer = Layer.effect(
               if (candidate.id === item.projectID) return false
               if (!FSUtil.contains(directory, candidate.directory)) return false
               const found = yield* fs
-                .up({ targets: [".git", ".hg"], start: candidate.directory, stop: directory, mode: "first" })
+                .up({ targets: [".jj", ".git", ".hg"], start: candidate.directory, stop: directory, mode: "first" })
                 .pipe(Effect.orElseSucceed(() => []))
               if (!found[0]) return false
               return (yield* fs.resolve(path.dirname(found[0]))) === directory
@@ -277,6 +277,71 @@ const layer = Layer.effect(
       return root ? ID.make(root) : undefined
     })
 
+    const command = Effect.fnUntraced(function* (cwd: AbsolutePath, executable: string, args: string[]) {
+      const result = yield* proc
+        .run(ChildProcess.make(executable, args, { cwd, extendEnv: true, stdin: "ignore" }))
+        .pipe(Effect.catch(() => Effect.succeed(undefined)))
+      if (!result || result.exitCode !== 0) return undefined
+      return result.stdout.toString("utf8")
+    })
+
+    const jjDiscover = Effect.fnUntraced(function* (input: AbsolutePath) {
+      const marker = yield* fs.up({ targets: [".jj", ".git", ".hg"], start: input, mode: "first" }).pipe(
+        Effect.map((matches) => matches[0]),
+        Effect.catch(() => Effect.succeed(undefined)),
+      )
+      if (!marker || path.basename(marker) !== ".jj") return undefined
+      const workspace = path.dirname(marker)
+      const directory = AbsolutePath.make(
+        yield* fs.resolve(workspace).pipe(Effect.catch(() => Effect.succeed(workspace))),
+      )
+
+      // .jj/repo is the repository in the main workspace and a pointer file in
+      // secondary workspaces (layout verified against jj 0.40). A dangling
+      // pointer degrades to the git or directory path instead of shelling out.
+      const reference = path.join(marker, "repo")
+      const direct = yield* fs.isDir(reference)
+      const pointer = direct
+        ? undefined
+        : yield* fs.readFileStringSafe(reference).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      const target = direct ? reference : pointer === undefined ? undefined : path.resolve(marker, pointer.trim())
+      if (!target) return undefined
+      const store = yield* fs.realPath(target).pipe(
+        Effect.map((value) => AbsolutePath.make(value)),
+        Effect.catch(() => Effect.succeed(undefined)),
+      )
+      if (!store) return undefined
+      const canonical = AbsolutePath.make(path.dirname(path.dirname(store)))
+
+      // The git backing store without invoking jj: colocated repositories
+      // point at the checkout .git through store/git_target, older standalone
+      // layouts keep their git dir under store/git.
+      const storeDir = path.join(store, "store")
+      const gitTarget = yield* fs
+        .readFileStringSafe(path.join(storeDir, "git_target"))
+        .pipe(Effect.catch(() => Effect.succeed(undefined)))
+      const gitDir =
+        gitTarget !== undefined
+          ? AbsolutePath.make(path.resolve(storeDir, gitTarget.trim()))
+          : (yield* fs.isDir(path.join(storeDir, "git")))
+            ? AbsolutePath.make(path.join(storeDir, "git"))
+            : undefined
+
+      // Cached identity first: an already-known project resolves with zero
+      // subprocesses, and a stable ID never churns when a remote appears later.
+      const previous = yield* cached(gitDir ?? store)
+      if (previous) return { previous, id: previous, directory, canonical, vcs: { type: "jj" as const, store } }
+
+      const origin = gitDir
+        ? yield* command(directory, "git", ["--git-dir", gitDir, "remote", "get-url", "origin"])
+        : undefined
+      const normalized = origin ? url(origin) : undefined
+      const id = normalized
+        ? ID.make(Hash.fast(`git-remote:${normalized}`))
+        : ID.make(Hash.fast(`jj-store:${gitDir ?? store}`))
+      return { previous: undefined, id, directory, canonical, vcs: { type: "jj" as const, store } }
+    })
+
     // Mercurial identity uses the cached ID or the first root changeset; remote-derived
     // identity (the git `remote()` path) is a follow-up.
     const hgRoot = Effect.fnUntraced(function* (worktree: AbsolutePath) {
@@ -317,8 +382,13 @@ const layer = Layer.effect(
       input: AbsolutePath,
       _options?: { readonly discovery?: boolean },
     ) {
+      const jj = yield* jjDiscover(input)
+      if (jj) return yield* persist(jj)
+
       const directory = AbsolutePath.make(yield* fs.resolve(input))
-      const native = yield* fs.up({ targets: [".git", ".hg"], start: directory, mode: "first" }).pipe(
+      // A damaged colocated .jj must not shadow the git fallback, so .git wins
+      // the marker scan; healthy jj repositories resolve earlier via jjDiscover.
+      const native = yield* fs.up({ targets: [".git", ".jj", ".hg"], start: directory, mode: "first" }).pipe(
         Effect.map((matches) => matches[0]),
         Effect.orElseSucceed(() => undefined),
       )

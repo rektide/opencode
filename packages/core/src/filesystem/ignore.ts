@@ -12,6 +12,7 @@ const FOLDERS = new Set([
   "bin",
   "obj",
   ".git",
+  ".jj",
   ".svn",
   ".hg",
   ".vscode",
