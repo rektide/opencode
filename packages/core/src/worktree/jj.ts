@@ -39,6 +39,9 @@ export const make = Effect.gen(function* () {
   const list = Effect.fn("Worktree.Jj.list")(function* (directory: AbsolutePath) {
     const source = yield* canonical(fs, directory)
     const text = yield* run("list", source, [
+      // Metadata answers never depend on unsaved edits, and jj snapshots the
+      // working copy on load unless told not to.
+      "--ignore-working-copy",
       "workspace",
       "list",
       "-T",
