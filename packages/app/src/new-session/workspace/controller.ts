@@ -34,7 +34,7 @@ export function resolveNewSessionBranch(input: {
 }
 
 export function resolveNewSessionGit(input: { projectVcs?: string; branch?: string }) {
-  return input.projectVcs === "git" || input.branch !== undefined
+  return input.projectVcs === "git" || input.projectVcs === "jj" || input.branch !== undefined
 }
 
 export function createNewSessionWorkspaceController(input: {
