@@ -49,6 +49,7 @@ originals remain in the repo under their old change IDs.
 | `sokysuus` | `feat: expose watchman binary override` - passthrough to the transport's existing CLI path option, plus per-root subscription counts in connection logs |
 | `qpqtqors` | `feat(core): add watchman channel metrics` - wide-event counter/gauge telemetry per channel with per-window deltas, wide and line-per-channel modes, and a shutdown final dump |
 | `myqxruxs` | `feat(server): expose watchman metrics options` - `metricsIntervalMs` and `metricsMode` in `ServerOptions` plus env plumbing |
+| `yvzzxvyv` | `feat(core): widen ignore patterns and wire them into watch owners` - `.jj`/`.venv`/`venv`/`.tox`/`.mypy_cache` plus root-level and nested watchman-cookie globs in `Ignore.PATTERNS`, which now backs Config's directory ignore list and ConfigSkillPlugin directory interests instead of a hand-rolled three-entry list |
 
 The source-owner change stays in upstream's current `Config` and
 `ConfigSkillPlugin` modules rather than reviving the withdrawn
