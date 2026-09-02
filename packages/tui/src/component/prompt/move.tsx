@@ -39,7 +39,6 @@ export function usePromptMove(input: { projectID: () => string | undefined; sess
       if (!project) throw new Error("Unable to determine current project")
       const result = await client.api.worktree.create({
         projectID: project.id,
-        strategy: "git",
         from: project.canonical,
         directory: path.join(paths.worktree, project.id.slice(0, 6)),
         name,

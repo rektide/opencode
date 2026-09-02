@@ -1935,9 +1935,10 @@ export type WorktreeListOperation<E = never> = (input: WorktreeListInput) => Eff
 
 export type WorktreeCreateInput = {
   readonly projectID: Project.ID
-  readonly strategy: Worktree.StrategyID
+  readonly strategy?: Worktree.StrategyID | undefined
   readonly from?: AbsolutePath | undefined
   readonly branch?: string | undefined
+  readonly base?: string | undefined
   readonly directory: AbsolutePath
   readonly name?: string | undefined
 }

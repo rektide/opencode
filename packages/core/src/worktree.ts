@@ -16,6 +16,7 @@ import { Worktree } from "@opencode-ai/schema/worktree"
 import { WorktreeTable } from "./worktree/sql.js"
 import { canonical, DirectoryUnavailableError } from "./worktree/directory.js"
 import { WorktreeGit } from "./worktree/git.js"
+import { WorktreeJj } from "./worktree/jj.js"
 import type { EffectDrizzleSqlite } from "./database/drizzle.js"
 import { ProjectTable } from "./project/sql.js"
 import { AppProcess } from "@opencode-ai/util/process"
@@ -79,6 +80,13 @@ export class StrategyUnavailableError extends Schema.TaggedError<StrategyUnavail
   { strategy: StrategyID },
 ) {}
 
+export class JjWorkspaceError extends Schema.TaggedError<JjWorkspaceError>()("Worktree.JjWorkspaceError", {
+  operation: Schema.Literals(["create", "remove", "list"]),
+  message: Schema.String,
+  directory: Schema.optional(AbsolutePath),
+  forceRequired: Schema.optional(Schema.Boolean),
+}) {}
+
 export class DuplicateStrategyError extends Schema.TaggedError<DuplicateStrategyError>()(
   "Worktree.DuplicateStrategyError",
   { strategy: StrategyID },
@@ -90,21 +98,28 @@ export type Error =
   | DirectoryUnavailableError
   | InvalidDirectoryError
   | StrategyUnavailableError
+  | JjWorkspaceError
   | AppProcess.AppProcessError
   | Git.WorktreeError
 
 export interface Strategy {
   readonly id: StrategyID
+  readonly vcs?: ProjectSchema.Vcs["type"]
   readonly create: (input: {
     sourceDirectory: AbsolutePath
     directory: AbsolutePath
     branch?: string
-  }) => Effect.Effect<Info, Git.WorktreeError | DirectoryUnavailableError>
+    base?: string
+  }) => Effect.Effect<Info, Git.WorktreeError | JjWorkspaceError | DirectoryUnavailableError>
   readonly remove: (input: {
     directory: AbsolutePath
     force: boolean
-  }) => Effect.Effect<void, Git.WorktreeError | DirectoryUnavailableError>
-  readonly list: (directory: AbsolutePath) => Effect.Effect<ListEntry[], Git.WorktreeError | DirectoryUnavailableError>
+    metadata?: Worktree.Metadata
+    sourceDirectory: AbsolutePath
+  }) => Effect.Effect<void, Git.WorktreeError | JjWorkspaceError | DirectoryUnavailableError>
+  readonly list: (
+    directory: AbsolutePath,
+  ) => Effect.Effect<ListEntry[], Git.WorktreeError | JjWorkspaceError | DirectoryUnavailableError>
 }
 
 export const Event = Worktree.Event
@@ -255,6 +270,9 @@ const layer = Layer.effect(
     const gitStrategy = yield* WorktreeGit.make
     yield* register(gitStrategy).pipe(Effect.orDie)
 
+    const jjStrategy = yield* WorktreeJj.make
+    yield* register(jjStrategy).pipe(Effect.orDie)
+
     const source = Effect.fnUntraced(function* (input: AbsolutePath | undefined, projectID: ProjectSchema.ID) {
       const sourceDirectory = input ?? (yield* ops.primary(projectID))?.directory
       if (!sourceDirectory) return yield* new SourceDirectoryNotFoundError({ projectID })
@@ -271,7 +289,20 @@ const layer = Layer.effect(
     })
 
     const create = Effect.fn("Worktree.create")(function* (input: CreateInput) {
-      const selected = yield* getStrategy(input.strategy)
+      const projectVcs = yield* db
+        .select({ vcs: ProjectTable.vcs })
+        .from(ProjectTable)
+        .where(eq(ProjectTable.id, input.projectID))
+        .get()
+        .pipe(Effect.orDie, Effect.map((row) => row?.vcs))
+      const strategyID =
+        input.strategy ??
+        (projectVcs === "jj"
+          ? Worktree.StrategyID.make("jj_workspace")
+          : projectVcs === "git"
+            ? Worktree.StrategyID.make("git")
+            : Worktree.StrategyID.make(projectVcs ?? "unknown"))
+      const selected = yield* getStrategy(strategyID)
       const sourceDirectory = yield* source(input.from, input.projectID)
       yield* fs.makeDirectory(input.directory, { recursive: true }).pipe(Effect.orDie)
       const name = input.name ?? Slug.create()
@@ -287,13 +318,14 @@ const layer = Layer.effect(
         directory: worktreeDirectory,
         sourceDirectory,
         branch: input.branch,
+        base: input.base,
       })
       yield* changed(
         input.projectID,
         yield* ops.create({
           projectID: input.projectID,
           directory: result.directory,
-          strategy: input.strategy,
+          strategy: strategyID,
           metadata: result.metadata,
         }),
       )
@@ -329,9 +361,13 @@ const layer = Layer.effect(
       const stored = yield* ops.find(input.projectID, worktreeDirectory)
       if (!stored?.strategy) return yield* new InvalidDirectoryError({ directory: worktreeDirectory })
       const strategy = yield* getStrategy(StrategyID.make(stored.strategy))
+      const primary = (yield* ops.primary(input.projectID))?.directory
+      if (!primary) return yield* new SourceDirectoryNotFoundError({ projectID: input.projectID })
       yield* strategy.remove({
         directory: worktreeDirectory,
         force: input.force,
+        metadata: stored.metadata,
+        sourceDirectory: primary,
       })
       yield* changed(input.projectID, yield* ops.remove(input.projectID, worktreeDirectory))
     })
@@ -346,12 +382,28 @@ const layer = Layer.effect(
       const sourceDirectories = checked
         .filter((item) => item.strategy === undefined && item.exists)
         .map((item) => item.directory)
+      const projectVcs = yield* db
+        .select({ vcs: ProjectTable.vcs })
+        .from(ProjectTable)
+        .where(eq(ProjectTable.id, input.projectID))
+        .get()
+        .pipe(Effect.orDie, Effect.map((row) => row?.vcs))
+      // Strategies declare the VCS they manage; unclassified projects keep the
+      // upstream behavior of probing every registered strategy.
+      const selected =
+        projectVcs === null || projectVcs === undefined
+          ? Array.from(registry.values())
+          : Array.from(registry.values()).filter((strategy) => strategy.vcs === projectVcs)
+      const previous = new Map(stored.map((item) => [item.directory, item] as const))
       const discovered = yield* Effect.forEach(
         sourceDirectories,
         (sourceDirectory) =>
-          Effect.forEach(Array.from(registry.values()), (strategy) =>
+          Effect.forEach(selected, (strategy) =>
             strategy.list(sourceDirectory).pipe(
-              Effect.catchTag("Worktree.DirectoryUnavailableError", () => Effect.succeed([])),
+              Effect.catchTags({
+                "Worktree.DirectoryUnavailableError": () => Effect.succeed([]),
+                "Worktree.JjWorkspaceError": () => Effect.succeed([]),
+              }),
               Effect.map((items) =>
                 items.map((item) => ({
                   directory: item.directory,
@@ -363,7 +415,17 @@ const layer = Layer.effect(
           ),
         { concurrency: "unbounded" },
       ).pipe(
-        Effect.map((sets) => new Map(sets.flat(2).map((item) => [item.directory, item] as const)).values().toArray()),
+        Effect.map((sets) =>
+          new Map(sets.flat(2).map((item) => [item.directory, item] as const))
+            .values()
+            .map((item) => {
+              const before = previous.get(item.directory)?.metadata
+              if (before?.type !== "jj_workspace" || item.metadata?.type !== "jj_workspace") return item
+              if (before.workspace !== item.metadata.workspace) return item
+              return { ...item, metadata: { ...item.metadata, base: before.base } }
+            })
+            .toArray(),
+        ),
       )
       const removed = checked.filter((item) => !item.exists).map((item) => item.directory)
       const changes = yield* db
