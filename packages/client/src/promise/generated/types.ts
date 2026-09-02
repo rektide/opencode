@@ -416,9 +416,15 @@ export type ReferenceGitSource = {
   hidden?: boolean
 }
 
-export type WorktreeDirectory = { directory: string; strategy?: string }
+export type WorktreeGitWorktreeMetadata = { type: "git_worktree" }
 
-export type WorktreeInfo = { directory: string }
+export type WorktreeJjWorkspaceMetadata = {
+  type: "jj_workspace"
+  workspace: string
+  base?: string
+  changeID?: string
+  commitID?: string
+}
 
 export type WorkspaceDestroyResult = { destroyed: boolean }
 
@@ -1640,7 +1646,7 @@ export type SessionStatusUpdated = {
 
 export type ReferenceSource = ReferenceLocalSource | ReferenceGitSource
 
-export type WorktreeList = Array<WorktreeDirectory>
+export type WorktreeMetadata = WorktreeGitWorktreeMetadata | WorktreeJjWorkspaceMetadata
 
 export type VcsInfo = { branch: VcsBranch }
 
@@ -1868,6 +1874,10 @@ export type ReferenceInfo = {
   hidden?: boolean
   source: ReferenceSource
 }
+
+export type WorktreeDirectory = { directory: string; strategy?: string; metadata?: WorktreeMetadata }
+
+export type WorktreeInfo = { directory: string; strategy: string; metadata: WorktreeMetadata }
 
 export type AgentInfo = {
   id: string
@@ -2099,6 +2109,8 @@ export type SessionMessageAssistantTool1 = {
 export type FormFields = [FormField, ...Array<FormField>]
 
 export type FormFields2 = [FormField1, ...Array<FormField1>]
+
+export type WorktreeList = Array<WorktreeDirectory>
 
 export type SessionInboxInfo = SessionInboxUser | SessionInboxSynthetic | SessionInboxCompaction | SessionInboxMove
 
