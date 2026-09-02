@@ -95,7 +95,8 @@ Both sides' dangers, one line each — full reasoning lived in the dropped
 | Plugin module load + `npm.add(refresh: true)` inside `Project.resolve`; config `mtime` re-triggers | theirs | open (accepted: cool, known) | none at port scope; propose scan/load caching upstream |
 | Marker declarations last-wins, no collision detection — a plugin can redeclare `.git`/`.jj` | theirs | open, low today | propose reserved-builtin-markers patch if we adopt markers |
 | `vcsBackend: "jj"` set from marker presence despite failed jj discovery | theirs | open, dismissed as dumb fault mode | documented; one-line upstream fix (gate on discovery success) |
-| Standalone-jj identity disjoint from git identity | theirs | open — **the blocker concern** | keep our identity layer (that is the plan) |
+| Standalone-jj identity disjoint from git identity | theirs | open — **the blocker concern**; precisely: not a flip but a permanent fork — standalone jj never consults the remote, so jj and git views of one repo stay two projects | keep our identity layer (that is the plan) |
+| Remote-add re-IDs git/colocated projects (remote-first ordering) | both (stock) | by-design flip to remote ID; new row, old row orphaned until cleanup | accepted — test-pinned stock behavior ("prefers normalized origin over root commit"); our jj-typed path is cache-first and does not flip |
 | Canonical `dirname²(store)` couples to jj on-disk layout | both (we adopted it) | open, guarded | live workspace/canonical tests convert silent breakage into freshen-time failures |
 | Detection mutates `@` via auto-snapshot | ours | **fixed** (`fd3eadd2`) | metadata commands carry `--ignore-working-copy` |
 | Detection spawns 3–4 subprocesses per resolve | ours | **fixed** (`0b2dc399`) | zero jj calls; one git call on cache miss |
@@ -173,8 +174,9 @@ the key choice decides whether two views of one repository unify.
 | pure jj repo (no colocate), main workspace | `cached(<repo>/store/git)` → miss → probe `origin` → remote ID if present, else `jj-store:` hash | `cached(<repo>)` → miss → `jj-repository:<repo>` hash — **no probe** |
 | secondary workspaces of that repo | pointer resolves to the same store/git → **same cache key, same ID** | same store → same hash — same ID within jj |
 | open the same repo as a git checkout elsewhere | same remote ID → **same project** | jj ID ≠ git ID → **two projects** |
-| pure jj gains a remote later | cache-first: ID never churns (stays store hash) — stable | ID becomes remote-derived on the git path → **identity changes** |
-| pure jj later colocated | if remote existed: same ID as the git era; if not: cache key moves store/git → `.git`, new ID | cache key moves `<repo>` → `commonDirectory` (guaranteed miss) → new ID |
+| pure jj gains a remote later (`jj git remote add`) | cache-first: ID never churns | **nothing changes either** — the git branch never runs for standalone jj (no `.git` marker), so the ID stays the store hash; the cost is the permanent fork above, not a flip |
+| pure jj later colocated | cache-first: ID never churns | colocate-onto-an-existing-git-checkout keeps the same `<root>/.git` cache key and remote-first re-derives the same ID — no break |
+| git or colocated project gains a remote later | plain-git: **flips by design** to the remote ID (remote-first, new project row, old row orphaned until cleanup — stock behavior, test-pinned "prefers normalized origin over root commit"); jj-typed: cache-first, no flip | colocated: **flips by design** — same stock git path |
 
 Net: ours trades one `git remote get-url` on cache miss for a single ID
 space in every transition we plausibly hit (jj-mandated machines, colocated
