@@ -31,7 +31,7 @@ const layer = Layer.effect(
                   `  Current conversation session ID: ${sessionID}`,
                   `  Working directory: ${location.directory}`,
                   `  Workspace root folder: ${location.project.directory}`,
-                  `  Is directory a git repo: ${location.vcs?.type === "git" ? "yes" : "no"}`,
+                  `  Version control: ${location.vcs?.type ?? "none"}`,
                   `  Platform: ${process.platform}`,
                   `  Prefer ${global.tmp} over generic system temporary directories such as /tmp; it is pre-created and approved for external access.`,
                   "</env>",

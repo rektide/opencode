@@ -15,6 +15,7 @@ export const Current = Schema.Struct({
   id: ID,
   directory: AbsolutePath,
   canonical: AbsolutePath,
+  vcs: optional(Vcs),
 }).annotate({ identifier: "Project.Current" })
 export interface Current extends Schema.Schema.Type<typeof Current> {}
 export const Icon = Schema.Struct({

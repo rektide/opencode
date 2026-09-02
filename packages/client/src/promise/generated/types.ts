@@ -314,8 +314,6 @@ export type ProjectCommands = { start?: string }
 
 export type ProjectTime = { created: number; updated: number; initialized?: number }
 
-export type ProjectCurrent = { id: string; directory: string; canonical: string }
-
 export type FormMetadata = { [x: string]: JsonValue }
 
 export type FormValue = string | number | boolean | Array<string>
@@ -1460,6 +1458,8 @@ export type McpServer = {
 }
 
 export type McpResourceCatalog = { resources: Array<McpResource>; templates: Array<McpResourceTemplate> }
+
+export type ProjectCurrent = { id: string; directory: string; canonical: string; vcs?: ProjectVcs }
 
 export type Project = {
   id: string

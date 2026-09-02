@@ -167,12 +167,10 @@ export async function bootstrapDirectory(input: {
   if (loading) input.setStore("status", "partial")
 
   const slow = [
-    seededProject
-      ? undefined
-      : () =>
-          retry(() => input.api.project.current({ location: { directory: input.directory } })).then((project) =>
-            input.setStore("project", project.id),
-          ),
+    () =>
+      retry(() => input.api.project.current({ location: { directory: input.directory } })).then((project) =>
+        input.setStore("project", project.id),
+      ),
   ].filter((task): task is () => Promise<void> => !!task)
 
   await waitForPaint()
