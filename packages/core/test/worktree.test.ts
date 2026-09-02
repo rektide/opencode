@@ -710,6 +710,7 @@ describe("Worktree", () => {
       expect(yield* worktrees.list()).toContainEqual({
         directory: created.directory,
         strategy: "git",
+        metadata: { type: "git_worktree" },
       })
       yield* registration.dispose
       const fallback = yield* worktrees.create({ name: "default" })

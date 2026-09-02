@@ -103,6 +103,7 @@ interface StoredInput {
   readonly directory: AbsolutePath
   readonly strategy?: string
   readonly replace?: boolean
+  readonly metadata?: Worktree.Metadata
 }
 
 type DatabaseClient = EffectDrizzleSqlite.EffectSQLiteDatabase
@@ -165,36 +166,73 @@ const layer = Layer.effect(
     const ops = {
       list: Effect.fnUntraced(function* () {
         const rows = yield* db
-          .select({ directory: WorktreeTable.directory, strategy: WorktreeTable.strategy })
+          .select({
+            directory: WorktreeTable.directory,
+            strategy: WorktreeTable.strategy,
+            metadata: WorktreeTable.metadata,
+          })
           .from(WorktreeTable)
           .where(eq(WorktreeTable.project_id, projectID))
           .orderBy(desc(WorktreeTable.time_created), asc(WorktreeTable.directory))
           .all()
           .pipe(Effect.orDie)
-        return rows.map((row) => ({ directory: row.directory, strategy: row.strategy ?? undefined }))
+        return rows.map((row) => ({
+          directory: row.directory,
+          strategy: row.strategy ?? undefined,
+          metadata: row.metadata ?? undefined,
+        }))
       }),
       find: Effect.fnUntraced(function* (directory: AbsolutePath) {
         const row = yield* db
-          .select({ directory: WorktreeTable.directory, strategy: WorktreeTable.strategy })
+          .select({
+            directory: WorktreeTable.directory,
+            strategy: WorktreeTable.strategy,
+            metadata: WorktreeTable.metadata,
+          })
           .from(WorktreeTable)
           .where(and(eq(WorktreeTable.project_id, projectID), eq(WorktreeTable.directory, directory)))
           .get()
           .pipe(Effect.orDie)
-        return row ? { directory: row.directory, strategy: row.strategy ?? undefined } : undefined
+        return row
+          ? { directory: row.directory, strategy: row.strategy ?? undefined, metadata: row.metadata ?? undefined }
+          : undefined
       }),
-      create: (input: StoredInput, tx?: Transaction) =>
-        (tx ?? db)
+      primary: Effect.fnUntraced(function* (projectID: ProjectSchema.ID) {
+        return yield* db
+          .select({ directory: ProjectTable.worktree })
+          .from(ProjectTable)
+          .where(eq(ProjectTable.id, projectID))
+          .get()
+          .pipe(Effect.orDie)
+      }),
+      create: Effect.fnUntraced(function* (input: StoredInput, tx?: Transaction) {
+        const client = tx ?? db
+        const current = yield* client
+          .select({ strategy: WorktreeTable.strategy, metadata: WorktreeTable.metadata })
+          .from(WorktreeTable)
+          .where(and(eq(WorktreeTable.project_id, projectID), eq(WorktreeTable.directory, input.directory)))
+          .get()
+          .pipe(Effect.orDie)
+        const strategy = input.strategy ?? null
+        const metadata = input.metadata ?? null
+        // Rows written before metadata existed carry none; a strategy's default
+        // metadata (git worktree identity) must not register as a change.
+        const changed =
+          current === undefined ||
+          current.strategy !== strategy ||
+          (current.metadata !== null && JSON.stringify(current.metadata) !== JSON.stringify(metadata))
+        if (!changed) return false
+        return yield* client
           .insert(WorktreeTable)
           .values({
             project_id: projectID,
             directory: input.directory,
-            strategy: input.strategy,
+            strategy,
+            metadata,
           })
           .onConflictDoUpdate({
             target: [WorktreeTable.project_id, WorktreeTable.directory],
-            set: {
-              strategy: input.strategy ?? null,
-            },
+            set: { strategy, metadata },
             // Discovery may claim an unowned row, but never replace another strategy's ownership.
             setWhere: input.replace ? undefined : input.strategy ? isNull(WorktreeTable.strategy) : sql`false`,
           })
@@ -203,7 +241,8 @@ const layer = Layer.effect(
           .pipe(
             Effect.orDie,
             Effect.map((row) => row !== undefined),
-          ),
+          )
+      }),
       remove: (directory: AbsolutePath, tx?: Transaction) =>
         (tx ?? db)
           .delete(WorktreeTable)
@@ -261,6 +300,7 @@ const layer = Layer.effect(
           directory: result.directory,
           strategy: selected.id,
           replace: true,
+          metadata: created.metadata,
         }),
       )
       const project = yield* db
@@ -330,6 +370,7 @@ const layer = Layer.effect(
             discovered.set(directory, {
               directory,
               strategy: entry.type === "worktree" ? strategy.id : undefined,
+              metadata: entry.metadata,
             })
           }
         }
