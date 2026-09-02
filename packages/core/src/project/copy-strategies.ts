@@ -85,6 +85,7 @@ export function makeJjWorkspaceStrategy(input: {
   const list = Effect.fn("ProjectCopy.JjWorkspace.list")(function* (directory: AbsolutePath) {
     const source = yield* input.canonical(directory)
     const text = yield* run("list", source, [
+      "--ignore-working-copy",
       "workspace",
       "list",
       "-T",
