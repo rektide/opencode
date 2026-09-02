@@ -23,8 +23,6 @@ export const Plugin = define({
         id: "jj",
         name: "Jujutsu",
         info: () => adapter.info(),
-        // Bookmark listing arrives with the working-copy label work; the
-        // provider interface requires a value today.
         branches: () => Effect.succeed([]),
         status: () => adapter.status(),
         diff: (input) => adapter.diff(input.mode, { context: input.context, base: input.base }),
