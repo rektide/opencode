@@ -248,7 +248,7 @@ export function createChildStoreManager(input: {
             get vcs() {
               const vcs = input.data.location.vcs.info({ directory })
               if (!vcs) return vcsStore.value
-              return { branch: vcs.branch.current, default_branch: vcs.branch.default }
+              return { branch: vcs.branch.current, default_branch: vcs.branch.default, workingCopy: vcs.workingCopy }
             },
           })
           children[key] = child
@@ -265,7 +265,7 @@ export function createChildStoreManager(input: {
 
           onPersistedInit(vcs[2], () => {
             const cached = vcsStore.value
-            if (!cached?.branch) return
+            if (!cached?.branch && !cached?.workingCopy) return
             child[1]("vcs", (value) => value ?? cached)
           })
 
