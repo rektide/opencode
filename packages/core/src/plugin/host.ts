@@ -33,10 +33,10 @@ import { WebSearch } from "../websearch.js"
 import { Generate } from "../generate.js"
 import { Permission } from "../permission.js"
 import { PluginHooks } from "./hooks.js"
+import { PluginRuntime } from "./runtime.js"
 import type { Interface } from "../plugin.js"
 import { LayerNode } from "@opencode-ai/util/effect/layer-node"
 import { Project } from "../project.js"
-import { Session } from "../session.js"
 import { SessionMessage } from "../session/message.js"
 
 const mutable = <T>(value: T) => value as DeepMutable<T>
@@ -97,6 +97,7 @@ export const make = Effect.fn("PluginHost.make")(function* (
   const generate = yield* Generate.Service
   const permission = yield* Permission.Service
   const hooks = yield* PluginHooks.Service
+  const runtime = yield* PluginRuntime.Service
   const sessions = yield* Session.Service
   const persistentPty = yield* PersistentPty.Service
   const locations = yield* LocationServiceMap.Service
@@ -608,6 +609,7 @@ export const requirements = LayerNode.group([
   Generate.node,
   Permission.node,
   PluginHooks.node,
+  PluginRuntime.node,
   Session.node,
   PersistentPty.node,
   LocationServiceMap.node,
