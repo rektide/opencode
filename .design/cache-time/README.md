@@ -98,6 +98,18 @@ the line is coherent:
 - **Bookmarks**: `cache-ttl` + `cache-ttl-20260902` at this commit; the
   pre-rebuild line survives at `cache-ttl-20260901`.
 
+## Refresh onto `7ba5f3e5b220` (2026-09-03)
+
+Freshened the 4-commit line onto `v2@origin` `7ba5f3e5b220` via
+duplicate-then-rebase: 94-commit upstream delta, **0 conflicts**,
+carried diff byte-identical. Collision check clean (`location-activity.ts`
+untouched upstream); rider `174bd670` remains covered by line commit 2.
+Verification: ttl 5/5, location-layer 24/24 (12 pre-existing + 12 new
+upstream retry tests), typecheck clean, all with
+`OPENCODE_LOCATION_CACHE_TTL` unset. Bookmarks `cache-ttl` +
+`cache-ttl-20260903` at the refresh docs commit. Details:
+[`refresh-20260903.glm53f.md`](refresh-20260903.glm53f.md).
+
 ## History
 
 The superseded flat-RcMap line, the diagnosis, and the prioritization
