@@ -879,3 +879,51 @@ events through the selected backend (and the daemon allowlist), create+delete
 pairs both count (op_heads compaction), and excluded VCS churn paths deliver
 nothing. Cross-workspace: a jj operation in workspace B invalidates state in
 a session rooted in workspace A of the same repo.
+
+# Addendum: Direction decision — B2 encoding, full composite scope
+
+Decided 2026-09-03 by the user (human:rektide), recorded by
+`model:glm-5.3` (this session).
+
+## Encoding: B2 — typed invalidation at the Config boundary
+
+- Config classifies updates whose path is one of its own watched roots and
+  emits a **tagged invalidation** on `Config.changes`; the three domain
+  consumers (Agent, Command, Plugin Source) switch on the tag instead of
+  path-shape guessing. B1 (per-consumer predicate widening) is rejected as a
+  duplicated rule with a weak upstream story; the immediate consumer-side
+  staleness bugfix lands as part of B2 rather than as predicate widening.
+- **Tag vocabulary is chosen to match the future watcher-level variant** so
+  the eventual move (below) is a layer shift, not a rework: whatever B2 calls
+  the invalidation case, `Watcher.Update`'s future union member uses the same
+  name and field.
+- B3 — typing `Watcher.Update` itself — is **deferred, not rejected**, and is
+  written up in full as the future end-state contract in
+  [`typed-watcher0.glm53.md`](/.design/watchman/typed-watcher0.glm53.md)
+  (written at the user's request). Revisit triggers: generic physical-watch
+  recovery landing, a second non-Config owner needing native invalidation, or
+  preparing the upstream PR.
+
+## Scope: (b) — full composite on the current line
+
+Confirmed sequence, each step gated by the deterministic matrix (now
+including the VCS allowlist gates):
+
+1. Contract-failure tests first (response clock/rows, pre-ack publication,
+   delayed first ack, indirect Config owners, collateral interests,
+   cancellation while unavailable, inactive Parcel EOF) — plus the B2 typed
+   consumer fix, which repairs the live indirect-owner staleness bug.
+2. Root supervisor + explicit failure dispositions in downstream `root.ts`.
+3. Strict backend selection; delete both Watchman-to-Parcel fallback sites
+   and their metrics/logs.
+4. Fresh-clock-always backend with invalidation-on-continuity-loss; delete
+   the cursor machinery (`SubscriptionState.clock`, compatibility and
+   cursor-rejection branches, cursor metrics).
+5. Metrics/knob trim (keep command-timeout configurability; state-transition
+   observation replaces deleted states' counters).
+6. Carrier rebuilt from final state — architecture shaped by the pending
+   clean-slate plan document, not by the historical 30+-commit refinement
+   sequence.
+
+Live PDUs stay **exact paths** (no steady-state coalescing). Metrics are kept
+through the rewrite and trimmed after verification.
