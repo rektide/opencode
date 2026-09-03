@@ -159,6 +159,7 @@ export type SessionChildrenInput = Pick<SessionListInput, "cursor" | "limit"> & 
 export type SessionDomain = Pick<
   SessionApi,
   | "list"
+  | "active"
   | "create"
   | "get"
   | "switchAgent"
@@ -175,5 +176,6 @@ export type SessionDomain = Pick<
 > & {
   readonly children: (input: SessionChildrenInput) => ReturnType<SessionApi["list"]>
   readonly messages: MessageApi["list"]
+  readonly inbox: Pick<SessionApi["inbox"], "list">
   readonly hook: ModelHooks<SessionHooks>
 }

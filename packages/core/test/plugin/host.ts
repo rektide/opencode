@@ -166,6 +166,10 @@ export function host(overrides: Overrides = {}): Plugin.Context {
       list: overrides.session?.list ?? (() => Effect.die("unused session.list")),
       children: overrides.session?.children ?? (() => Effect.die("unused session.children")),
       messages: overrides.session?.messages ?? (() => Effect.die("unused session.messages")),
+      active: overrides.session?.active ?? (() => Effect.die("unused session.active")),
+      inbox: {
+        list: overrides.session?.inbox?.list ?? (() => Effect.die("unused session.inbox.list")),
+      },
       create: overrides.session?.create ?? (() => Effect.die("unused session.create")),
       get: overrides.session?.get ?? (() => Effect.die("unused session.get")),
       switchAgent: overrides.session?.switchAgent ?? (() => Effect.die("unused session.switchAgent")),
