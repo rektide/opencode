@@ -19,6 +19,7 @@ import { Mcp } from "@opencode-ai/core/mcp/index"
 import { Npm } from "@opencode-ai/util/npm"
 import { Plugin } from "@opencode-ai/core/plugin"
 import { PluginHooks } from "@opencode-ai/core/plugin/hooks"
+import { PluginRuntime } from "@opencode-ai/core/plugin/runtime"
 import { Session } from "@opencode-ai/core/session"
 import { PersistentPty } from "@opencode-ai/core/persistent-pty"
 import { LocationServiceMap } from "@opencode-ai/core/location-service-map"
@@ -75,6 +76,8 @@ export const PluginTestLayer = AppNodeBuilder.build(
     Generate.node,
     LayerNodePlatform.httpClient,
     Plugin.node,
+    PluginRuntime.node,
+    PluginRuntime.providerNode,
     Agent.node,
     AISDK.node,
     Catalog.node,

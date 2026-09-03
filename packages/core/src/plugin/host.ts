@@ -6,7 +6,7 @@ import { EventManifest } from "@opencode-ai/schema/event-manifest"
 import type { Event } from "@opencode-ai/schema/event"
 import { ServerConfig } from "@opencode-ai/schema/mcp"
 import { App } from "../app.js"
-import { Effect, Schema, Stream } from "effect"
+import { DateTime, Effect, Schema, Stream } from "effect"
 import { Agent } from "../agent.js"
 import { AISDK } from "../aisdk.js"
 import { Catalog } from "../catalog.js"
@@ -34,8 +34,10 @@ import { Worktree } from "../worktree.js"
 import { Generate } from "../generate.js"
 import { Permission } from "../permission.js"
 import { PluginHooks } from "./hooks.js"
+import { PluginRuntime } from "./runtime.js"
 import type { Interface } from "../plugin.js"
 import { LayerNode } from "@opencode-ai/util/effect/layer-node"
+import { SessionMessage } from "../session/message.js"
 
 const mutable = <T>(value: T) => value as DeepMutable<T>
 type RpcEvent = Event.Payload & {
@@ -44,6 +46,16 @@ type RpcEvent = Event.Payload & {
   readonly data: Readonly<Record<string, unknown>>
 }
 const isRpcEvent = (event: Event.Payload): event is RpcEvent => event.type.startsWith("rpc.")
+
+type SessionListInput = Exclude<Parameters<Plugin.Context["session"]["list"]>[0], undefined>
+type SessionListCursor = Exclude<SessionListInput["cursor"], undefined>
+
+const MessageCursor = Schema.Struct({
+  id: SessionMessage.ID,
+  order: Schema.Literals(["asc", "desc"]),
+  direction: Schema.Literals(["previous", "next"]),
+})
+
 export const make = Effect.fn("PluginHost.make")(function* (
   plugin: Pick<Interface, "list">,
   pluginID: string = "test",
@@ -71,6 +83,7 @@ export const make = Effect.fn("PluginHost.make")(function* (
   const persistentPty = yield* PersistentPty.Service
   const locations = yield* LocationServiceMap.Service
   const worktrees = yield* Worktree.Service
+  const runtime = yield* PluginRuntime.Service
   const locationInfo = () =>
     new Location.Info({
       directory: location.directory,
@@ -89,6 +102,57 @@ export const make = Effect.fn("PluginHost.make")(function* (
     ref.directory === location.directory && ref.workspaceID === location.workspaceID
   const response = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     effect.pipe(Effect.map((data) => ({ location: locationInfo(), data })))
+  const sessionList = (input?: SessionListInput, parentID?: Session.ID) =>
+    Effect.gen(function* () {
+      const decoded = input?.cursor === undefined ? sessionListQuery(input) : yield* decodeSessionCursor(input.cursor)
+      const query = parentID === undefined ? decoded : { ...decoded, parentID }
+      const page = yield* runtime.session.list({ ...query, limit: input?.limit ?? 50 })
+      const first = page.data[0]
+      const last = page.data.at(-1)
+      return {
+        data: page.data,
+        cursor: {
+          previous:
+            first === undefined
+              ? undefined
+              : encodeSessionCursor(query, {
+                  id: first.id,
+                  time: DateTime.toEpochMillis(first.time.updated),
+                  direction: "previous",
+                }),
+          next:
+            last === undefined
+              ? undefined
+              : encodeSessionCursor(query, {
+                  id: last.id,
+                  time: DateTime.toEpochMillis(last.time.updated),
+                  direction: "next",
+                }),
+        },
+      }
+    })
+  const sessionMessages = (input: Parameters<Plugin.Context["session"]["messages"]>[0]) =>
+    Effect.gen(function* () {
+      if (input.cursor !== undefined && input.order !== undefined)
+        return yield* Effect.fail(new Error("Invalid cursor"))
+      const decoded = input.cursor === undefined ? undefined : yield* decodeMessageCursor(input.cursor)
+      const order = decoded?.order ?? input.order ?? "desc"
+      const messages = yield* runtime.session.messages({
+        sessionID: input.sessionID,
+        limit: input.limit ?? 50,
+        order,
+        cursor: decoded === undefined ? undefined : { id: decoded.id, direction: decoded.direction },
+      })
+      const first = messages[0]
+      const last = messages.at(-1)
+      return {
+        data: messages,
+        cursor: {
+          previous: first === undefined ? undefined : encodeMessageCursor(first, order, "previous"),
+          next: last === undefined ? undefined : encodeMessageCursor(last, order, "next"),
+        },
+      }
+    })
 
   const atWorktree = <A, E>(
     ref: Location.Ref | undefined,
@@ -503,6 +567,9 @@ export const make = Effect.fn("PluginHost.make")(function* (
     },
     session: {
       hook: (name, callback, options) => hooks.register("session", name, callback, options),
+      list: sessionList,
+      children: (input) => sessionList({ cursor: input.cursor, limit: input.limit }, input.sessionID),
+      messages: sessionMessages,
       create: (input) =>
         sessions.create({
           id: input?.id,
@@ -553,10 +620,66 @@ export const requirements = LayerNode.group([
   Generate.node,
   Permission.node,
   PluginHooks.node,
+  PluginRuntime.node,
   Session.node,
   PersistentPty.node,
   LocationServiceMap.node,
 ])
+
+function sessionListQuery(input?: SessionListInput): Session.ListInput {
+  const common = {
+    workspaceID: input?.workspace,
+    search: input?.search,
+    order: input?.order,
+    parentID: input?.parentID,
+  }
+  if (input?.directory !== undefined) return { ...common, directory: input.directory }
+  if (input?.project !== undefined) return { ...common, project: input.project, subpath: input.subpath }
+  return common
+}
+
+function encodeSessionCursor(query: Session.ListInput, anchor: Session.ListAnchor): SessionListCursor {
+  const value = {
+    workspace: query.workspaceID,
+    search: query.search,
+    order: query.order,
+    parentID: query.parentID,
+    anchor,
+    ...("directory" in query ? { directory: query.directory } : {}),
+    ...("project" in query ? { project: query.project, subpath: query.subpath } : {}),
+  }
+  return Buffer.from(JSON.stringify(value)).toString("base64url") as SessionListCursor
+}
+
+function decodeSessionCursor(input: string) {
+  return Effect.try({
+    try: () => JSON.parse(Buffer.from(input, "base64url").toString("utf8")),
+    catch: () => new Error("Invalid cursor"),
+  }).pipe(
+    Effect.flatMap((value) => {
+      if (typeof value !== "object" || value === null) return Effect.fail(new Error("Invalid cursor"))
+      return Schema.decodeUnknownEffect(Session.ListInput)({
+        ...value,
+        workspaceID: "workspace" in value ? value.workspace : undefined,
+      })
+    }),
+    Effect.mapError(() => new Error("Invalid cursor")),
+  )
+}
+
+function encodeMessageCursor(message: SessionMessage.Info, order: "asc" | "desc", direction: "previous" | "next") {
+  return Buffer.from(JSON.stringify({ id: message.id, order, direction })).toString("base64url")
+}
+
+function decodeMessageCursor(input: string) {
+  return Effect.try({
+    try: () => JSON.parse(Buffer.from(input, "base64url").toString("utf8")),
+    catch: () => new Error("Invalid cursor"),
+  }).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(MessageCursor)),
+    Effect.mapError(() => new Error("Invalid cursor")),
+  )
+}
 
 export function storage(kv: KV.Interface, pluginID: string): Plugin.Context["storage"] {
   const namespace = `plugin:${pluginID

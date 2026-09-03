@@ -225,6 +225,7 @@ export function fromPromise(plugin: Plugin) {
         const GenerateEndpoints = ClientApi.groups["server.generate"].endpoints
         const IntegrationEndpoints = ClientApi.groups["server.integration"].endpoints
         const McpEndpoints = ClientApi.groups["server.mcp"].endpoints
+        const MessageEndpoints = ClientApi.groups["server.message"].endpoints
         const ModelEndpoints = ClientApi.groups["server.model"].endpoints
         const PluginEndpoints = ClientApi.groups["server.plugin"].endpoints
         const PermissionEndpoints = ClientApi.groups["server.permission"].endpoints
@@ -280,6 +281,10 @@ export function fromPromise(plugin: Plugin) {
                 callback(editor)
               }),
             )
+        const sessionList = adaptApiMethod<PromiseContext["session"]["list"]>(
+          SessionEndpoints["session.list"],
+          host.session.list,
+        )
 
         const context2: PromiseContext = {
           app: host.app,
@@ -565,6 +570,14 @@ export function fromPromise(plugin: Plugin) {
               register(
                 host.session.hook(name, (event) => Effect.promise(() => Promise.resolve(callback(event))), options),
               ),
+            list: sessionList,
+            children: (input) =>
+              sessionList({
+                parentID: input.sessionID,
+                cursor: input.cursor,
+                limit: input.limit,
+              }),
+            messages: adaptApiMethod(MessageEndpoints["session.messages"], host.session.messages),
             create: adaptApiMethod(SessionEndpoints["session.create"], host.session.create),
             get: adaptApiMethod(SessionEndpoints["session.get"], host.session.get),
             switchAgent: adaptApiMethod(SessionEndpoints["session.switchAgent"], host.session.switchAgent),
