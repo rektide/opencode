@@ -10,7 +10,7 @@ verified: { by: unassigned, at: never }
 stale_after: 2026-09-16
 sources:
   - id: local-stack
-    resource: jj-vcs bookmark @ ca1d2bb5606e (12 commits on c29968bf0850)
+    resource: jj-vcs-rektide bookmark @ ca1d2bb5606e (12 commits on c29968bf0850)
     title: Local jj-vcs WIP (rektide)
   - id: upstream-jj-line
     resource: https://github.com/anomalyco/opencode/commits/jj-vcs-plugin
@@ -37,7 +37,7 @@ recognized.
 
 There are now two implementations of jj support in flight:
 
-- **Ours**: the `jj-vcs` bookmark, 12 commits by rektide, base
+- **Ours**: the `jj-vcs-rektide` bookmark, 12 commits by rektide, base
   `c29968bf0850` (~3 weeks old), tip `ca1d2bb5606e`
   `feat(project): select copy strategy from VCS`, plus an empty working `@`.
 - **Upstream**: Shoubhit Dash's line on [anomalyco/opencode](https://github.com/anomalyco/opencode),

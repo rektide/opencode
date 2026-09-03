@@ -50,14 +50,14 @@ sheet the agents work from and the record of setup state.
 
 | Bookmark | At | Meaning |
 | --- | --- | --- |
-| `jj-vcs` (floating) | `3cf3bf20` | feature tip before the two 09-02 evening docs commits |
+| `jj-vcs-rektide` (floating) | `3cf3bf20` | feature tip before the two 09-02 evening docs commits |
 | `jj-vcs-20260902` | `a5542af3` | morning immutable snapshot (pre same-day fixes) |
 | `jj-vcs-custom1` | `a5542af3` | duplicate of the morning snapshot |
 | `jj-vcs-20260815` | `ca1d2bb5` (divergent change-id) | old snapshot; known, untouched |
 
 Setup adds: **`jj-vcs-20260902-evening`** — immutable snapshot at the
 final pre-rewrite tip (old line including this doc), then fast-forwards
-floating `jj-vcs` to the same commit so nothing above `3cf3bf20` is
+floating `jj-vcs-rektide` to the same commit so nothing above `3cf3bf20` is
 orphaned. **`jj-vcs-rewrite`** — construction bookmark on the new line,
 fast-forwarded by the orchestrator after each verified batch.
 
@@ -194,7 +194,7 @@ Verify: typecheck `packages/core` `packages/schema` `packages/tui`
   `worktree/jj.ts`, both test files should match modulo intentional
   adaptations; shared files match modulo upstream movement such as the
   `notify` change). Drift beyond style-level noise stops the promotion.
-- **Bookkeeping**: move floating `jj-vcs` to the finished tip (the
+- **Bookkeeping**: move floating `jj-vcs-rektide` to the finished tip (the
   evening snapshot already preserves the old line), re-create the
   `design/jj-vcs/` docs as trailing `docs(design):` commits on the new
   line, update `~/ado/patches.md` (base `318a82f784`, 8 commits,
@@ -262,6 +262,6 @@ leaves it; C8 left it too); the provider `branches` stub stays empty
 (end-state parity); `worktree.test.ts` `stored()` asserts metadata
 only implicitly.
 
-Bookmarks: floating `jj-vcs` promoted to this line;
+Bookmarks: floating `jj-vcs-rektide` promoted to this line;
 `jj-vcs-20260902-evening` preserves the pre-rewrite line at `abf295af`;
 `jj-vcs-rewrite` was the per-batch construction checkpoint.
