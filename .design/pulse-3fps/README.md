@@ -300,3 +300,18 @@ config-v2 22 pass, tab-pulse 8 pass, TUI typecheck clean. Full record:
 instruction named baseline `ce6247bd2f28`, which does not exist in the repo;
 the actual fetched `v2@origin` is `43d09b9d` (distances 97/43 match the
 instruction exactly) — see the refresh note's baseline section.
+
+# Addendum 8 — 2026-09-03 — refresh onto 7ba5f3e5
+
+Duplicate-then-rebase of the 10-commit line from `43d09b9d` onto `v2@origin`
+`7ba5f3e5b220` ("fix(core): restore Ctrl+C in Windows terminals (#47163)").
+Zero textual conflicts and zero forced adaptations: the 181-commit delta
+touches 4 of this line's files but every hunk region is disjoint, and no
+animation/fps equivalent landed upstream. Diffstat identical to the previous
+line (12 files, +534/−22). Verification: config-v2 21 pass (upstream rewrote
+one test there: 22→21), tab-pulse 8 pass, TUI typecheck clean. Tip
+`pulse-3fps` = `pulse-3fps-20260903` = `a81f97c3`; `pulse-3fps-20260901`
+untouched. Full record:
+[`refresh-20260903.glm53f.md`](/refresh-20260903.glm53f.md). Watch item:
+upstream upgraded OpenTUI to 0.5.10 in this delta; the README's 2026-08-20
+render-loop audit cites 0.5.4 line numbers.
