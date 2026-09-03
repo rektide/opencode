@@ -17,6 +17,8 @@ export interface Interface {
     | "get"
     | "create"
     | "messages"
+    | "inbox"
+    | "active"
     | "prompt"
     | "generate"
     | "command"
@@ -72,6 +74,8 @@ export const layerWithCell = (cell: Cell): Layer.Layer<Service> =>
         get: (sessionID) => require(cell, (runtime) => runtime.session.get(sessionID)),
         create: (input) => require(cell, (runtime) => runtime.session.create(input)),
         messages: (input) => require(cell, (runtime) => runtime.session.messages(input)),
+        inbox: (sessionID) => require(cell, (runtime) => runtime.session.inbox(sessionID)),
+        active: require(cell, (runtime) => runtime.session.active),
         prompt: (input) => require(cell, (runtime) => runtime.session.prompt(input)),
         generate: (input) => require(cell, (runtime) => runtime.session.generate(input)),
         command: (input) => require(cell, (runtime) => runtime.session.command(input)),
