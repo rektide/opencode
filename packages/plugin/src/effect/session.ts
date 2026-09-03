@@ -1,4 +1,4 @@
-import type { SessionApi } from "@opencode/client/effect/api"
+import type { MessageApi, SessionApi } from "@opencode/client/effect/api"
 import type { GenerationOptionsFields, Message, SystemPart } from "@opencode/ai"
 import type { Agent } from "@opencode/schema/agent"
 import type { Model } from "@opencode/schema/model"
@@ -150,8 +150,15 @@ export interface SessionHooks {
   readonly retry: SessionRetry
 }
 
+type SessionListInput = Exclude<Parameters<SessionApi<unknown>["list"]>[0], undefined>
+
+export type SessionChildrenInput = Pick<SessionListInput, "cursor" | "limit"> & {
+  readonly sessionID: Session.ID
+}
+
 export type SessionDomain = Pick<
   SessionApi<unknown>,
+  | "list"
   | "create"
   | "get"
   | "switchAgent"
@@ -166,5 +173,7 @@ export type SessionDomain = Pick<
   | "wait"
   | "context"
 > & {
+  readonly children: (input: SessionChildrenInput) => ReturnType<SessionApi<unknown>["list"]>
+  readonly messages: MessageApi<unknown>["list"]
   readonly hook: ModelHooks<SessionHooks>
 }
