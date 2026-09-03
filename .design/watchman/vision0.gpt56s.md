@@ -791,3 +791,91 @@ must become honest before cursor machinery can safely be kept or deleted.
   stack proposal.
 - [`review-failure-paths0.gpt56s.md`](/.design/watchman/review-failure-paths0.gpt56s.md)
   supplies the verified corrections and minimum deterministic tests.
+
+# Addendum: VCS-internal watching as a first-class requirement
+
+Generated 2026-09-03 by `model:glm-5.3` (this session) after reading
+[`watches.glm53.md`](/.design/watchman/watches.glm53.md) (committed as
+`be8158a4`; the floating `watchman` bookmark and `watchman-20260902` snapshot
+already include it). The user direction: the consolidated design **must**
+support VCS watching for the jj-vcs/git/hg applications that document
+describes.
+
+## What is being asked
+
+Allow precisely-targeted watches *inside* VCS directories that the deployment
+otherwise deliberately excludes:
+
+| Target | Type | Consumer use |
+| --- | --- | --- |
+| `<store>/HEAD`, `<store>/packed-refs`, `<store>/.hg/branch` | file | branch-switch / ref-rewrite signal |
+| `<store>/refs/heads/` | directory | local branch create/move/delete |
+| `<vcs.store>/op_heads/heads/` (jj) | directory | every state-changing jj operation, repo-wide, cross-workspace |
+
+Everything else under `.git`/`.hg`/`.jj` stays excluded. The doc's central
+point: these watches are **invalidation signals, not data** — every consumer
+pairs the event with a cheap metadata re-read.
+
+## Why this fits the consolidation direction naturally
+
+1. **VCS watching is invalidation-native.** The consumers never apply event
+   payloads; any event under the target means "re-read state." This is exactly
+   the Direction B consumption style, and it confirms coarse invalidation as a
+   first-class system-wide pattern rather than a Config-only workaround.
+   Under B, a continuity-loss invalidation after daemon restart is *also*
+   correct for VCS (re-read now). Under A it would also work (exact rows →
+   same re-read), so the requirement does not force the A/B choice — it
+   strengthens B's framing.
+2. **Architecture mapping already exists.** A VCS owner (core `vcs.ts` or the
+   jj-vcs plugin) declares its own `WatchInterests` with explicit targets:
+   - file targets (`HEAD`, `packed-refs`, `branch`) ride the Node adapter
+     under every backend selection — the files-too0 invariant holds;
+   - directory targets (`refs/heads`, `op_heads/heads`) are directory
+     interests; stores frequently resolve outside the project root (jj
+     secondary workspaces resolve to the main repo), so they take **exact
+     placement** and get one exact `RootConnection` per store. That is the
+     designed exact-intent path — deliberate, not the accidental
+     socket-multiplication files-too0 warned about, and worth +1 connection
+     per repository for cross-workspace awareness nothing else provides.
+   - No consumer-authored routing: the owner declares interests; placement
+     and the selected backend do the rest.
+3. **Consumption channel.** The VCS owner consumes `interests.changes`
+   directly (like Skill), not `Config.changes` — so the B1/B2 encoding
+   decision is untouched by this requirement. B2's typed Config invalidation
+   and a coarse-by-choice VCS owner coexist cleanly.
+4. **Two allowlists are required, client and daemon.**
+   - Client: the deployment's `watcher.ignore` reaches
+     [`LocationWatcherPolicy`](/packages/core/src/config/plugin/location-watcher.ts),
+     whose aliases disable the location watcher's HEAD/branch file watch when
+     the store is listed. The VCS owner's own interests must carry their own
+     ignore lists so `Ignore.PATTERNS`/`watcher.ignore` exclusions do not
+     swallow the allowlisted targets; the exclusion entries need to become
+     precise enough to spare them.
+   - Daemon: the watchwoman config must permit exactly the matrix targets
+     (`.git/HEAD`, `.git/refs/heads/**`, `.git/packed-refs`,
+     `.jj/repo/op_heads/**`) while keeping the churn paths excluded. Without
+     the daemon side, Watchman-served directory targets under excluded paths
+     would subscribe successfully and **silently receive nothing** — a
+     verification gate, not an assumption.
+5. **Strict-selection interaction.** Under `watchman` with retry-forever, a
+   daemon outage pauses VCS label freshness — the same acceptable
+   hot-reload-unavailable bucket as config/skill. The watches doc's
+   unlock list (live labels, conflict badge, fresh copy lists,
+   cross-workspace awareness, re-resolution triggers) all reduce to
+   "invalidate → re-read," which the supervisor provides.
+6. **Open placement question.** `vcs.ts` today rides
+   `FileSystem.Event.Changed` bus events published by
+   [`location-watcher.ts`](/packages/core/src/filesystem/location-watcher.ts)
+   (single file target per location). The clean shape is a VCS interests
+   owner superseding that wiring; decide during implementation whether
+   location-watcher absorbs the matrix or a parallel owner owns VCS targets
+   outright. Either way the interest-owner boundary — not consumer routing —
+   is the seam.
+
+## New verification gate
+
+Add to the test matrix: allowlisted VCS directory targets actually deliver
+events through the selected backend (and the daemon allowlist), create+delete
+pairs both count (op_heads compaction), and excluded VCS churn paths deliver
+nothing. Cross-workspace: a jj operation in workspace B invalidates state in
+a session rooted in workspace A of the same repo.
