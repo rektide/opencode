@@ -188,7 +188,7 @@ workspaces of the same jj repo — so no patch-file round trip is needed.
 1. **Pre-flight**: re-run the upstream probes against `origin/v2`
    (last verified `33dd4e3ba8e9`, zero jj/vcs/worktree content in the
    delta). Base the rewrite on the tip found, not on a remembered SHA.
-2. **Snapshot**: `3cf3bf20` is the floating `jj-vcs` tip and is not yet
+2. **Snapshot**: `3cf3bf20` is the floating `jj-vcs-rektide` tip and is not yet
    snapshotted (`jj-vcs-20260902` sits at the older `a5542af3`). Create
    the immutable snapshot before moving anything.
 3. **Lift**: `jj duplicate` the composed slice `1a7f1941..7e6345ea` plus
@@ -213,7 +213,7 @@ workspaces of the same jj repo — so no patch-file round trip is needed.
    composed jj-vcs slice's content (modulo the folds being invisible in
    end-state). If the parity diff shows anything but style-level noise,
    the rewrite drifted — stop and reconcile before promoting.
-7. **Bookkeeping**: move floating `jj-vcs` to the new tip; update the
+7. **Bookkeeping**: move floating `jj-vcs-rektide` to the new tip; update the
    `patches.md` manifest entry (base, count, refresh note); refresh the
    `jj-vcs2` stance table with the orphaned-upstream finding (work-list
    item 3); leave cache-ttl's TTL pin to cache-ttl.
