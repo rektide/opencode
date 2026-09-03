@@ -658,13 +658,22 @@ await ctx.permission.reply({ sessionID, requestID, reply: "once" })
 
 ### Sessions
 
-Create or read a session.
+Create sessions, enumerate them, or read retained projected history. `children`
+is a plugin-only paginated view of direct child sessions; it includes forks.
 
 ```ts
 const created = await ctx.session.create({ title: "Review" })
 const session = await ctx.session.get({ sessionID })
-const messages = await ctx.session.context({ sessionID })
+const page = await ctx.session.list({ directory: ctx.location.directory, limit: 50 })
+const children = await ctx.session.children({ sessionID, limit: 50 })
+const history = await ctx.session.messages({ sessionID, order: "asc", limit: 50 })
+const context = await ctx.session.context({ sessionID })
 ```
+
+`list`, `children`, and `messages` return `cursor.previous` and `cursor.next`
+values for pagination. `messages` reads retained history across completed
+compactions, while `context` returns only the messages in the active model
+context after the last completed compaction.
 
 Change the agent or model used by subsequent requests.
 
@@ -697,6 +706,9 @@ Schemas: [`Session.Info`](/api#schema-Session.Info), [`Model.Ref`](/api#schema-M
 
 ```ts
 interface SessionContext {
+  list(input?: SessionListInput, requestOptions?: RequestOptions): Promise<SessionListOutput>
+  children(input: SessionChildrenInput): Promise<SessionListOutput>
+  messages(input: MessageListInput, requestOptions?: RequestOptions): Promise<MessageListOutput>
   create(input?: SessionCreateInput, requestOptions?: RequestOptions): Promise<SessionInfo>
   get(input: SessionGetInput, requestOptions?: RequestOptions): Promise<SessionInfo>
   context(input: SessionContextInput, requestOptions?: RequestOptions): Promise<readonly SessionMessageInfo[]>
