@@ -19,6 +19,12 @@ sources:
 
 # Root-scoped Watchman maintenance log
 
+> **Remake architecture:**
+> [`carrier1.gpt56s.md`](/.design/watchman/carrier1.gpt56s.md) describes the
+> proposed clean rebuild around typed continuity, strict selection, and one
+> root supervisor. This log continues to describe the implemented historical
+> fallback/cursor/metrics line until that replacement lands.
+
 This workspace carries the implementation of
 [`draft2.gpt56t.md`](/.design/watchman/draft2.gpt56t.md) as an independent stack over
 `v2@origin` `43d09b9d`, freshened 2026-09-01 from the previous `6a2c3e91` base
@@ -353,5 +359,5 @@ known defect.
   backend: live streaming aligns, but resume discards the subscribe
   response's daemon-computed delta that Amendment 3's degradation story
   depends on, plus tombstone-GC and directory-noise notes.
-- [`draft1.gpt56t.md`](/.design/watch/draft1.gpt56t.md) is the retained
+- [`draft1.gpt56t.md`](/.design/watchman/draft1.gpt56t.md) is the retained
   one-subscription-per-interest design from the earlier wave.
