@@ -10,7 +10,7 @@ verified: { by: unassigned, at: never }
 stale_after: 2026-09-16
 sources:
   - id: local-stack
-    resource: jj-vcs bookmark @ fd3eadd2 (14 commits on c29968bf0850)
+    resource: jj-vcs-rektide bookmark @ fd3eadd2 (14 commits on c29968bf0850)
     title: Local jj-vcs WIP (rektide), including 2026-09-02 fixes 0b2dc399 + fd3eadd2
   - id: upstream-jj-line
     resource: https://github.com/anomalyco/opencode/commits/jj-vcs-plugin
