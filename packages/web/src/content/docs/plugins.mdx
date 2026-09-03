@@ -383,3 +383,22 @@ Format as a structured prompt that a new agent can use to resume work.
 ```
 
 When `output.prompt` is set, it completely replaces the default compaction prompt. The `output.context` array is ignored in this case.
+
+---
+
+## Session reads
+
+Plugins can create sessions, enumerate them, or read retained projected history. `children` is a plugin-only paginated view of direct child sessions; it includes forks.
+
+```ts
+const created = await ctx.session.create({ title: "Review" })
+const session = await ctx.session.get({ sessionID })
+const page = await ctx.session.list({ directory: ctx.location.directory, limit: 50 })
+const children = await ctx.session.children({ sessionID, limit: 50 })
+const history = await ctx.session.messages({ sessionID, order: "asc", limit: 50 })
+const context = await ctx.session.context({ sessionID })
+const pending = await ctx.session.inbox.list({ sessionID })
+const active = await ctx.session.active()
+```
+
+`list`, `children`, and `messages` return `cursor.previous` and `cursor.next` values for pagination. `messages` reads retained history across completed compactions, while `context` returns only the messages in the active model context after the last completed compaction. `inbox.list` returns durable work that has not yet been delivered. `active` reports sessions currently running in this OpenCode process. The plugin inbox surface is read-only.

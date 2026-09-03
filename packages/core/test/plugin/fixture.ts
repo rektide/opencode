@@ -20,6 +20,7 @@ import { Model } from "@opencode/core/model"
 import { Npm } from "@opencode/util/npm"
 import { Plugin } from "@opencode/core/plugin"
 import { PluginHooks } from "@opencode/core/plugin/hooks"
+import { PluginRuntime } from "@opencode/core/plugin/runtime"
 import { Provider } from "@opencode/core/provider"
 import { Session } from "@opencode/core/session"
 import { PersistentPty } from "@opencode/core/persistent-pty"
@@ -79,6 +80,8 @@ export const PluginTestLayer = AppNodeBuilder.build(
     Generate.node,
     LayerNodePlatform.httpClient,
     Plugin.node,
+    PluginRuntime.node,
+    PluginRuntime.providerNode,
     Agent.node,
     AISDK.node,
     Provider.node,
