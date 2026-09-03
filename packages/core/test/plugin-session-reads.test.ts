@@ -9,6 +9,7 @@ import { Session } from "@opencode/core/session"
 import { SessionMessage } from "@opencode/core/session/message"
 import { define } from "@opencode/plugin/promise/plugin"
 import { Money } from "@opencode/schema/money"
+import { SessionInbox } from "@opencode/schema/session-inbox"
 import { testEffect } from "./lib/effect"
 import { PluginTestLayer } from "./plugin/fixture"
 import { host as testHost } from "./plugin/host"
@@ -119,6 +120,43 @@ describe("plugin session reads", () => {
     }),
   )
 
+  it.effect("exposes read-only inbox and active session facts", () =>
+    Effect.gen(function* () {
+      const plugins = yield* Plugin.Service
+      const fallback = yield* PluginRuntime.Service
+      const sessionID = Session.ID.make("ses_running")
+      const item = SessionInbox.User.make({
+        id: SessionMessage.ID.make("msg_pending"),
+        sessionID,
+        time: { created: DateTime.makeUnsafe(40) },
+        type: "user",
+        payload: { text: "Queued prompt" },
+        delivery: "queue",
+      })
+      const seen: Session.ID[] = []
+      const cell = PluginRuntime.makeCell()
+      cell.runtime = {
+        ...fallback,
+        session: {
+          ...fallback.session,
+          inbox: (id) =>
+            Effect.sync(() => {
+              seen.push(id)
+              return [item]
+            }),
+          active: Effect.succeed(new Set([sessionID])),
+        },
+      }
+      const runtime = yield* PluginRuntime.Service.pipe(Effect.provide(PluginRuntime.layerWithCell(cell)))
+      const host = yield* PluginHost.make(plugins).pipe(Effect.provideService(PluginRuntime.Service, runtime))
+
+      expect(yield* host.session.inbox.list({ sessionID })).toEqual([item])
+      expect(yield* host.session.active()).toEqual({ [sessionID]: { type: "running" } })
+      expect(Object.keys(host.session.inbox)).toEqual(["list"])
+      expect(seen).toEqual([sessionID])
+    }),
+  )
+
   it.effect("adapts Promise session history reads through protocol schemas", () =>
     Effect.gen(function* () {
       const seen: unknown[] = []
@@ -152,6 +190,54 @@ describe("plugin session reads", () => {
         { parentID: Session.ID.make("ses_parent"), limit: 3 },
         { sessionID: Session.ID.make("ses_parent"), limit: 4, order: "asc" },
       ])
+    }),
+  )
+
+  it.effect("adapts Promise inbox and active reads through protocol schemas", () =>
+    Effect.gen(function* () {
+      const sessionID = Session.ID.make("ses_running")
+      const item = SessionInbox.User.make({
+        id: SessionMessage.ID.make("msg_pending"),
+        sessionID,
+        time: { created: DateTime.makeUnsafe(40) },
+        type: "user",
+        payload: { text: "Queued prompt" },
+        delivery: "queue",
+      })
+      const seen: Session.ID[] = []
+      const context = testHost({
+        session: {
+          active: () => Effect.succeed({ [sessionID]: { type: "running" } }),
+          inbox: {
+            list: (input) => {
+              seen.push(input.sessionID)
+              return Effect.succeed([item])
+            },
+          },
+        },
+      })
+
+      yield* PluginPromise.fromPromise(
+        define({
+          id: "promise-session-state",
+          setup: async (ctx) => {
+            expect(await ctx.session.active()).toEqual({ [sessionID]: { type: "running" } })
+            expect(await ctx.session.inbox.list({ sessionID })).toEqual([
+              {
+                id: "msg_pending",
+                sessionID: "ses_running",
+                time: { created: 40 },
+                type: "user",
+                payload: { text: "Queued prompt" },
+                delivery: "queue",
+              },
+            ])
+            expect(Object.keys(ctx.session.inbox)).toEqual(["list"])
+          },
+        }),
+      ).effect(context)
+
+      expect(seen).toEqual([sessionID])
     }),
   )
 })
