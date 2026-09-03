@@ -1895,7 +1895,36 @@ allowed source-block Unicode from accidental prose Unicode.
 
 **Goals served.** Doc-corpus QA and durable carrier documentation gates.
 
-## 4. Live daemon lifecycle and VCS allowlist orchestrator
+## 4. Claims index and validation script
+
+**Proposed home:** `script/docs/claims.ts`, sharing the Markdown scanner from
+`script/docs/check-corpus.ts`; expose non-writing `check:claims` and generated
+`fix:claims` package scripts.
+
+Scan `.design/**/*.md` for claim IDs minted in headings, bold labels, and
+optional `<a id="C5"></a>` anchors. Namespaces are wave filenames without the
+model suffix (`fallbacks0.glm53.md` becomes `fallbacks0`): cross-document
+citations use `docname#ID`, while a bare ID resolves only inside its own
+document. Generate or replace the `## Claims` section in `.design/index.md`
+with ID, document, line, one-line claim, and supersession status. Reject
+dangling citations and duplicate IDs within one document, and interpret
+declarative `supersedes docname#ID` notes when computing status. The scanner
+recognizes but does not police the soft series vocabulary: F finding, V
+verified finding, M matrix row, H hypothesis, C carrier claim, A amendment, D
+decision, G gate, and Q open question. Stable HTML anchors are optional for
+renderers; grep remains the agent lookup mechanism.
+
+**Acceptance.** Existing F1-F4, V1-V9, M1-M6, H1-H6, carrier C claims, and
+draft Amendments are indexed; valid local and cross-document references
+resolve mechanically; duplicate local IDs and dangling `docname#ID` references
+fail; and a supersession note updates the generated status without rewriting
+the source claim.
+
+**Goals served.** Mechanical citation resolution across the consolidation
+corpus and doc-corpus QA. This is a claims ruleset atop the corpus checker, not
+a second parser.
+
+## 5. Live daemon lifecycle and VCS allowlist orchestrator
 
 **Proposed home:** deterministic fixtures under
 `packages/core/test/filesystem/fixture/watchman/daemon.ts`, with opt-in operator
@@ -1916,7 +1945,7 @@ artifact directory sufficient to diagnose a timeout.
 **Goals served.** Live failure-path gates, VCS allowlist verification, and
 cross-workspace invalidation.
 
-## 5. Watchman process auditor
+## 6. Watchman process auditor
 
 **Proposed home:** `script/watchman/process-audit.ts`.
 
@@ -1934,7 +1963,7 @@ shell, or daemon mutation.
 **Goals served.** Operational failure-path diagnosis and environment
 hermeticity.
 
-## 6. Watchman environment fixture policy
+## 7. Watchman environment fixture policy
 
 **Proposed home:** extend `packages/cli/test/fixture/environment.ts`; reuse
 `packages/core/test/fixture/env.ts` for in-process tests.
@@ -1959,9 +1988,10 @@ gates.
 | 1 | Scripted Watchman protocol harness | It turns the highest-risk supervisor and disposition work into deterministic M1-M3/M6 tests before implementation. |
 | 2 | Read-only jj feature/carrier auditor | It protects the imminent old-line surgery and clean-carrier rebuild while upstream and bookmarks continue moving. |
 | 3 | Documentation corpus checker | The corpus already exceeds ten thousand lines and carries many exact local/host line links; silent drift is now likely. |
-| 4 | Live daemon/VCS orchestrator | Required before final promotion, but most policy can first be proved hermetically. |
-| 5 | Environment fixture policy | Small and valuable; naturally lands with C10 rather than blocking C1-C9. |
-| 6 | Process auditor | Operationally useful but not required to construct the carrier. |
+| 4 | Claims index and validation | It shares the corpus scanner and turns grep-only claim names into checked, navigable citations. |
+| 5 | Live daemon/VCS orchestrator | Required before final promotion, but most policy can first be proved hermetically. |
+| 6 | Environment fixture policy | Small and valuable; naturally lands with C10 rather than blocking C1-C9. |
+| 7 | Process auditor | Operationally useful but not required to construct the carrier. |
 
 # What should remain one-shot
 
