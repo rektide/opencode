@@ -345,6 +345,11 @@ known defect.
 
 - [`draft2.gpt56t.md`](/.design/watchman/draft2.gpt56t.md) is the implemented architecture and
   its watchwoman routing amendment governs conflicts with the earlier body.
+- [`upstream-delta0.glm53h.md`](/.design/watchman/upstream-delta0.glm53h.md)
+  assesses `v2@origin` movement since the carrier1 baseline freeze
+  (`4772b6a3` → `43bd2a516b`): upstream landed a source-derived config watch
+  plan, an `entries` watch kind, and a public `onReady` acknowledgement, so the
+  remake's generic-foundation steps must generalize rather than introduce them.
 - [`metrics0.glm53.md`](/.design/watchman/metrics0.glm53.md) is the channel-metrics reading
   guide: dump shape, deltas, gauges, symptom→field table, and jq recipes.
 - [`watchwoman0.unknown.md`](/.design/watchman/watchwoman0.unknown.md) validates daemon crawl,
