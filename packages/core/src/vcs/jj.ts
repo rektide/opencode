@@ -6,7 +6,7 @@ import { ChildProcess } from "effect/unstable/process"
 import { FileDiff } from "@opencode-ai/schema/file-diff"
 import { FileStatus, Info, Mode } from "@opencode-ai/schema/vcs"
 import { AppProcess } from "@opencode-ai/util/process"
-import type { DiffOptions } from "../vcs"
+import type { BranchOptions, DiffOptions } from "../vcs"
 import {
   chunksByFile,
   countPatch,
@@ -53,6 +53,12 @@ export function make(proc: AppProcess.Interface, input: { directory: string; wor
     info: Effect.fn("VcsJj.info")(function* () {
       const workingCopy = yield* jj.info()
       return { branch: {}, workingCopy } satisfies Info
+    }),
+    branches: Effect.fn("VcsJj.branches")(function* (options?: BranchOptions) {
+      const search = options?.search?.trim().toLowerCase()
+      return (yield* jj.bookmarks())
+        .filter((bookmark) => !search || bookmark.toLowerCase().includes(search))
+        .slice(0, options?.limit)
     }),
     status: Effect.fn("VcsJj.status")(function* () {
       return (yield* changes({ type: "working" })).map(
@@ -173,6 +179,15 @@ function makeJj(proc: AppProcess.Interface, worktree: string) {
     return commit
   })
 
+  const bookmarks = Effect.fn("VcsJj.bookmarks")(function* (revision?: string) {
+    const result = yield* run(
+      ["bookmark", "list", ...(revision ? ["-r", revision] : []), "--sort", "name", "-T", 'name ++ "\\0"'],
+      { metadata: true },
+    )
+    if (result.exitCode !== 0) return []
+    return result.text.split("\0").filter(Boolean)
+  })
+
   // Label fallback when the working copy carries no local bookmark: name the
   // nearest bookmarked ancestor with its distance, e.g. main+5. Both queries
   // are metadata — distances count commits, not unsaved edits.
@@ -243,5 +258,5 @@ function makeJj(proc: AppProcess.Interface, worktree: string) {
     }
   })
 
-  return { items, conflicts, patch, trunk, info }
+  return { items, conflicts, patch, trunk, info, bookmarks }
 }

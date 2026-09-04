@@ -83,6 +83,24 @@ describeJj("Vcs Jujutsu", () => {
     ),
   )
 
+  it.live("lists bookmarks for the branches picker", () =>
+    withJj((directory) =>
+      Effect.gen(function* () {
+        yield* Effect.promise(async () => {
+          await fs.writeFile(path.join(directory, "a.txt"), "one\n")
+          await $`jj commit -m first`.cwd(directory).quiet()
+          await $`jj bookmark set main -r @-`.cwd(directory).quiet()
+          await $`jj bookmark set feature/x -r @-`.cwd(directory).quiet()
+        })
+        const vcs = yield* Vcs.Service
+
+        expect(yield* vcs.branches()).toEqual(["feature/x", "main"])
+        expect(yield* vcs.branches({ search: "FEAT" })).toEqual(["feature/x"])
+        expect(yield* vcs.branches({ limit: 1 })).toEqual(["feature/x"])
+      }),
+    ),
+  )
+
   it.live("reports native working-copy changes without inventing a branch", () =>
     withJj((directory) =>
       Effect.gen(function* () {
