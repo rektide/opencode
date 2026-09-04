@@ -226,6 +226,52 @@ test("runtime theme overrides compose and dispose to the latest configured theme
   }
 })
 
+test("malformed override named like the fallback reveals the configured theme", async () => {
+  let themes: ReturnType<typeof useThemes> | undefined
+  let failure: ThemeError | undefined
+  let unsubscribe: (() => void) | undefined
+  const configured = structuredClone(DEFAULT_THEMES.opencode)
+  configured.theme.background = "#123456"
+
+  function Probe() {
+    themes = useThemes()
+    unsubscribe = themes.onError((error) => (failure = error))
+    return <text>{themes.selected}</text>
+  }
+
+  const app = await testRender(
+    () => (
+      <ConfigProvider config={createTuiResolvedConfig({ theme: { name: "configured", mode: "dark" } })}>
+        <ThemeProvider
+          mode="dark"
+          source={{
+            discover: () =>
+              Promise.resolve({ configured, opencode: { version: 2, dark: { categorical: [] } } }),
+          }}
+        >
+          <Probe />
+        </ThemeProvider>
+      </ConfigProvider>
+    ),
+    { width: 20, height: 2 },
+  )
+  app.renderer.start()
+
+  try {
+    await wait(() => themes?.ready === true)
+    if (!themes) throw new Error("Theme provider is not mounted")
+    const dispose = themes.override(() => "opencode")
+    expect(themes.selected).toBe("configured")
+    expect(themes.current.background.default.equals(RGBA.fromHex("#123456"))).toBeTrue()
+    expect(failure?.name).toBe("opencode")
+    dispose()
+  } finally {
+    unsubscribe?.()
+    app.renderer.destroy()
+    setCustomThemes({})
+  }
+})
+
 test.each([
   ["schema", { version: 2, light: { categorical: [] } }],
   ["mode merging", { version: 2, light: { mergeMode: true } }],
