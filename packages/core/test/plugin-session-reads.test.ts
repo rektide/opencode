@@ -1,6 +1,6 @@
 import { describe, expect } from "bun:test"
-import { DateTime, Effect, Exit } from "effect"
 import { Location } from "@opencode/core/location"
+import { Project } from "@opencode/core/project"
 import { Plugin } from "@opencode/core/plugin"
 import { PluginHost } from "@opencode/core/plugin/host"
 import { PluginPromise } from "@opencode/core/plugin/promise"
@@ -9,6 +9,7 @@ import { Session } from "@opencode/core/session"
 import { SessionMessage } from "@opencode/core/session/message"
 import { define } from "@opencode/plugin/promise/plugin"
 import { Money } from "@opencode/schema/money"
+import { AbsolutePath } from "@opencode/core/schema"
 import { SessionInbox } from "@opencode/schema/session-inbox"
 import { DateTime, Effect, Encoding, Exit, Schema } from "effect"
 import { testEffect } from "./lib/effect"
@@ -17,61 +18,76 @@ import { host as testHost } from "./plugin/host"
 
 const it = testEffect(PluginTestLayer)
 const sessionCursor = Schema.String.pipe(Schema.brand("SessionsCursor")).make("foreign-parent-cursor")
+  const message = SessionMessage.User.make({
+    id: SessionMessage.ID.make("msg_history"),
+    type: "user",
+    text: "Earlier prompt",
+    time: { created: DateTime.makeUnsafe(30) },
+  })
+
+
+function recordingRuntime(
+  fallback: PluginRuntime.Interface,
+  reads: {
+    readonly list: (input: Parameters<PluginRuntime.Interface["session"]["list"]>[0]) => { readonly data: Session.Info[] }
+    readonly messages: (input: Parameters<PluginRuntime.Interface["session"]["messages"]>[0]) => SessionMessage.Info[]
+  },
+): PluginRuntime.Interface {
+  return {
+    ...fallback,
+    session: {
+      ...fallback.session,
+      list: (input) => Effect.sync(() => reads.list(input)),
+      messages: (input) => Effect.sync(() => reads.messages(input)),
+    },
+  }
+}
 
 describe("plugin session reads", () => {
-  it.effect("preserves session and message pagination through the Effect host", () =>
+  const makeHost = (reads: {
+    readonly list: (input: Parameters<PluginRuntime.Interface["session"]["list"]>[0]) => { readonly data: Session.Info[] }
+    readonly messages: (input: Parameters<PluginRuntime.Interface["session"]["messages"]>[0]) => SessionMessage.Info[]
+  }) =>
     Effect.gen(function* () {
       const plugins = yield* Plugin.Service
       const fallback = yield* PluginRuntime.Service
-      const location = yield* Location.Service
-      const parentID = Session.ID.make("ses_parent")
-      const otherParentID = Session.ID.make("ses_other")
-      const session = Session.Info.make({
-        id: Session.ID.make("ses_child"),
-        parentID,
-        projectID: location.project.id,
-        cost: Money.USD.make(0),
-        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-        time: { created: DateTime.makeUnsafe(10), updated: DateTime.makeUnsafe(20) },
-        location: Location.Ref.make({ directory: location.directory }),
-      })
-      const message = SessionMessage.User.make({
-        id: SessionMessage.ID.make("msg_history"),
-        type: "user",
-        text: "Earlier prompt",
-        time: { created: DateTime.makeUnsafe(30) },
-      })
-      const lists: Session.ListInput[] = []
-      const messages: Parameters<typeof fallback.session.messages>[0][] = []
       const host = yield* PluginHost.make(plugins).pipe(
-        Effect.provideService(
-          PluginRuntime.Service,
-          PluginRuntime.Service.of({
-            ...fallback,
-            session: {
-              ...fallback.session,
-              list: (input) =>
-                Effect.sync(() => {
-                  lists.push(input ?? {})
-                  return { data: [session] }
-                }),
-              messages: (input) =>
-                Effect.sync(() => {
-                  messages.push(input)
-                  return [message]
-                }),
-            },
-          }),
-        ),
+        Effect.provideService(PluginRuntime.Service, PluginRuntime.Service.of(recordingRuntime(fallback, reads))),
       )
+      return { host, fallback }
+    })
+
+  const parentID = Session.ID.make("ses_parent")
+  const otherParentID = Session.ID.make("ses_other")
+  const sessionTime = { created: DateTime.makeUnsafe(10), updated: DateTime.makeUnsafe(20) }
+  const session = Session.Info.make({
+    id: Session.ID.make("ses_child"),
+    parentID,
+    projectID: Project.ID.make("probe-project"),
+    cost: Money.USD.make(0),
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: sessionTime,
+    location: Location.Ref.make({ directory: AbsolutePath.make("/workspace") }),
+  })
+
+  it.effect("preserves session list pagination through the Effect host", () =>
+    Effect.gen(function* () {
+      const lists: Session.ListInput[] = []
+      const { host } = yield* makeHost({
+        list: (input) => {
+          lists.push(input ?? {})
+          return { data: [session] }
+        },
+        messages: () => [],
+      })
 
       const first = yield* host.session.list({ parentID: otherParentID, order: "asc", search: "child", limit: 1 })
       yield* host.session.list({ cursor: first.cursor.next, limit: 2 })
       yield* host.session.list({ cursor: first.cursor.previous, limit: 3 })
       yield* host.session.children({ sessionID: parentID, cursor: first.cursor.next, limit: 4 })
       const filtered = yield* host.session.list({
-        directory: location.directory,
-        project: location.project.id,
+        directory: host.location.directory,
+        project: host.location.project.id,
         limit: 5,
       })
       yield* host.session.list({ cursor: filtered.cursor.next, limit: 6 })
@@ -108,8 +124,8 @@ describe("plugin session reads", () => {
           search: undefined,
           order: undefined,
           parentID: undefined,
-          directory: location.directory,
-          project: location.project.id,
+          directory: host.location.directory,
+          project: host.location.project.id,
           subpath: undefined,
           limit: 5,
         },
@@ -118,7 +134,7 @@ describe("plugin session reads", () => {
           search: undefined,
           order: undefined,
           parentID: undefined,
-          directory: location.directory,
+          directory: host.location.directory,
           anchor: { id: session.id, time: 20, direction: "next" },
           limit: 6,
         },
@@ -136,6 +152,25 @@ describe("plugin session reads", () => {
       expect(
         Exit.isFailure(yield* Reflect.apply(host.session.list, undefined, [{ cursor: "%%%" }]).pipe(Effect.exit)),
       ).toBe(true)
+    }) as Effect.Effect<void, unknown, Plugin.Service | PluginRuntime.Service>,
+  )
+
+  it.effect("preserves message pagination through the Effect host", () =>
+    Effect.gen(function* () {
+      const message = SessionMessage.User.make({
+        id: SessionMessage.ID.make("msg_history"),
+        type: "user",
+        text: "Earlier prompt",
+        time: { created: DateTime.makeUnsafe(30) },
+      })
+      const messages: Parameters<PluginRuntime.Interface["session"]["messages"]>[0][] = []
+      const { host } = yield* makeHost({
+        list: () => ({ data: [] }),
+        messages: (input) => {
+          messages.push(input)
+          return [message]
+        },
+      })
 
       const firstMessages = yield* host.session.messages({ sessionID: parentID, order: "asc", limit: 1 })
       yield* host.session.messages({ sessionID: parentID, cursor: firstMessages.cursor.next, limit: 2 })
