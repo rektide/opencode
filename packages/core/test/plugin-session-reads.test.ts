@@ -119,8 +119,6 @@ describe("plugin session reads", () => {
           order: undefined,
           parentID: undefined,
           directory: location.directory,
-          project: location.project.id,
-          subpath: undefined,
           anchor: { id: session.id, time: 20, direction: "next" },
           limit: 6,
         },
