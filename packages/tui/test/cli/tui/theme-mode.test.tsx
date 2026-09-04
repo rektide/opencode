@@ -208,6 +208,7 @@ test("runtime theme overrides compose and dispose to the latest configured theme
     expect(current().set("second")).toBeTrue()
     await wait(() => updates === 3)
     expect(current().configured).toBe("opencode")
+    await wait(() => current().selected === "opencode")
     expect(config.theme?.name).toBeUndefined()
   } finally {
     app.renderer.destroy()
