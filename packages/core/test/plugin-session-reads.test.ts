@@ -10,11 +10,13 @@ import { SessionMessage } from "@opencode/core/session/message"
 import { define } from "@opencode/plugin/promise/plugin"
 import { Money } from "@opencode/schema/money"
 import { SessionInbox } from "@opencode/schema/session-inbox"
+import { DateTime, Effect, Encoding, Exit, Schema } from "effect"
 import { testEffect } from "./lib/effect"
 import { PluginTestLayer } from "./plugin/fixture"
 import { host as testHost } from "./plugin/host"
 
 const it = testEffect(PluginTestLayer)
+const sessionCursor = Schema.String.pipe(Schema.brand("SessionsCursor")).make("foreign-parent-cursor")
 
 describe("plugin session reads", () => {
   it.effect("preserves session and message pagination through the Effect host", () =>
@@ -67,6 +69,12 @@ describe("plugin session reads", () => {
       yield* host.session.list({ cursor: first.cursor.next, limit: 2 })
       yield* host.session.list({ cursor: first.cursor.previous, limit: 3 })
       yield* host.session.children({ sessionID: parentID, cursor: first.cursor.next, limit: 4 })
+      const filtered = yield* host.session.list({
+        directory: location.directory,
+        project: location.project.id,
+        limit: 5,
+      })
+      yield* host.session.list({ cursor: filtered.cursor.next, limit: 6 })
       yield* host.session.list()
 
       expect(lists).toEqual([
@@ -95,8 +103,41 @@ describe("plugin session reads", () => {
           anchor: { id: session.id, time: 20, direction: "next" },
           limit: 4,
         },
+        {
+          workspaceID: undefined,
+          search: undefined,
+          order: undefined,
+          parentID: undefined,
+          directory: location.directory,
+          project: location.project.id,
+          subpath: undefined,
+          limit: 5,
+        },
+        {
+          workspaceID: undefined,
+          search: undefined,
+          order: undefined,
+          parentID: undefined,
+          directory: location.directory,
+          project: location.project.id,
+          subpath: undefined,
+          anchor: { id: session.id, time: 20, direction: "next" },
+          limit: 6,
+        },
         { workspaceID: undefined, search: undefined, order: undefined, parentID: undefined, limit: 50 },
       ])
+
+      expect(Exit.isFailure(yield* host.session.list({ limit: 0 }).pipe(Effect.exit))).toBe(true)
+      expect(
+        Exit.isFailure(
+          yield* Reflect.apply(host.session.list, undefined, [{ cursor: Encoding.encodeBase64Url("{}") }]).pipe(
+            Effect.exit,
+          ),
+        ),
+      ).toBe(true)
+      expect(
+        Exit.isFailure(yield* Reflect.apply(host.session.list, undefined, [{ cursor: "%%%" }]).pipe(Effect.exit)),
+      ).toBe(true)
 
       const firstMessages = yield* host.session.messages({ sessionID: parentID, order: "asc", limit: 1 })
       yield* host.session.messages({ sessionID: parentID, cursor: firstMessages.cursor.next, limit: 2 })
@@ -117,6 +158,9 @@ describe("plugin session reads", () => {
       expect(
         Exit.isFailure(yield* host.session.messages({ sessionID: parentID, cursor: "invalid" }).pipe(Effect.exit)),
       ).toBe(true)
+      expect(Exit.isFailure(yield* host.session.messages({ sessionID: parentID, limit: 201 }).pipe(Effect.exit))).toBe(
+        true,
+      )
     }),
   )
 
@@ -164,6 +208,10 @@ describe("plugin session reads", () => {
         session: {
           list: (input) => {
             seen.push(input)
+            return Effect.succeed({ data: [], cursor: { next: sessionCursor } })
+          },
+          children: (input) => {
+            seen.push(input)
             return Effect.succeed({ data: [], cursor: {} })
           },
           messages: (input) => {
@@ -177,8 +225,12 @@ describe("plugin session reads", () => {
         define({
           id: "promise-session-history",
           setup: async (ctx) => {
-            await ctx.session.list({ parentID: null, limit: 2 })
-            await ctx.session.children({ sessionID: Session.ID.make("ses_parent"), limit: 3 })
+            const listed = await ctx.session.list({ parentID: null, limit: 2 })
+            await ctx.session.children({
+              sessionID: Session.ID.make("ses_parent"),
+              limit: 3,
+              cursor: listed.cursor.next ?? undefined,
+            })
             await ctx.session.messages({ sessionID: Session.ID.make("ses_parent"), limit: 4, order: "asc" })
             await expect(Reflect.apply(ctx.session.list, undefined, [{ directory: 42 }])).rejects.toBeDefined()
           },
@@ -187,7 +239,7 @@ describe("plugin session reads", () => {
 
       expect(seen).toEqual([
         { parentID: null, limit: 2 },
-        { parentID: Session.ID.make("ses_parent"), limit: 3 },
+        { sessionID: Session.ID.make("ses_parent"), cursor: "foreign-parent-cursor", limit: 3 },
         { sessionID: Session.ID.make("ses_parent"), limit: 4, order: "asc" },
       ])
     }),
