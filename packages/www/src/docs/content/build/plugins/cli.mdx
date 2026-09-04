@@ -405,6 +405,38 @@ context.ui.slot({ after: "home.footer", render: () => <text>After footer slot</t
 context.ui.slot({ replace: "home.footer", render: () => <text>New footer</text> })
 ```
 
+## Exit epilogue
+
+Add one structured row to the Session summary printed after the terminal is restored. The projection must be cheap and
+synchronous: read live cached data, return `undefined` when no row applies, and do not fetch or start other work.
+
+```ts
+return context.ui.epilogue.register(({ sessionID }) => {
+  const session = context.data.session.get(sessionID)
+  if (!session) return
+  return {
+    label: "Updated",
+    value: { type: "relative-time", timestamp: session.time.updated },
+  }
+})
+```
+
+Use `{ type: "text", text }` for already-formatted values. `relative-time` keeps the timestamp semantic so OpenCode can
+format every row against the same shutdown clock.
+
+Rows follow plugin enable order and then registration order within each plugin. Duplicate plugin labels are allowed,
+while `Session`, `Active`, and `Continue` are reserved for OpenCode.
+
+Each plugin may contribute through its first eight registrations. Labels are limited to 24 display columns and text
+values to 48; empty, multiline, ANSI-styled, control-character-containing, oversized, asynchronous, throwing, or
+malformed results omit only that registration and are logged without affecting core or later rows.
+
+Disabling a plugin removes its live rows immediately. During hot reload there can be a brief interval after the old
+version deactivates and before its replacement activates where that plugin contributes no row.
+
+OpenCode tracks, validates, and copies projection results while the TUI is live. Shutdown freezes those retained values
+before ordinary plugin cleanup and prints them afterward, so no plugin code runs to compose the epilogue during shutdown.
+
 ## Formatting
 
 Format filesystem paths for display, including home-directory abbreviation.

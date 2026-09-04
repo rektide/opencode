@@ -34,6 +34,13 @@ import { createSourceWatcher } from "./watch"
 import { discoverPluginTargets, freshSpecifier, localSource } from "./discovery"
 import { isMissingPath } from "../util/config-directories"
 import { createMarkdownRenderer } from "./markdown"
+import {
+  trackEpilogueRows,
+  useEpilogue,
+  type EpilogueProjection,
+  type EpilogueProjectionIssue,
+} from "../context/epilogue.tsx"
+import { useLog } from "../context/log.tsx"
 
 export interface PackageSource {
   readonly prepare: (spec: string, install?: boolean) => Promise<Host.Target>
@@ -76,6 +83,7 @@ type Registration = {
   routes: Record<string, Page>
   slots: Record<string, RegisteredSlot>
   markdown: Record<string, MarkdownCodeBlockRenderer>
+  epilogue: Record<string, EpilogueProjection>
   cleanups: Dispose[]
 }
 
@@ -89,6 +97,8 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
   const host = usePluginHost()
   const config = useConfig()
   const lifecycle = useTuiLifecycle()
+  const epilogue = useEpilogue()
+  const log = useLog({ component: "plugin.epilogue" })
   const client = useClient()
   const data = useData()
   const [serverPlugins, setServerPlugins] = createSignal<readonly PluginInfo[]>([])
@@ -121,10 +131,39 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
   const markdown = createMarkdownRenderer(() =>
     Object.values(store.registrations).flatMap((registration) => (registration.active ? [registration.markdown] : [])),
   )
+  const reported = new Set<string>()
+  const reportEpilogue = (issue: EpilogueProjectionIssue) => {
+    const message = errorMessage(issue.error)
+    const key = `${issue.plugin}/${issue.key}/${issue.type}/${message}`
+    if (reported.has(key)) return
+    reported.add(key)
+    log[issue.type === "validation" ? "debug" : "warn"]("Plugin epilogue row omitted", {
+      plugin: issue.plugin,
+      registration: issue.key,
+      error: message,
+    })
+  }
+  trackEpilogueRows({
+    sessionID: () => (host.route.data.type === "session" ? host.route.data.sessionID : undefined),
+    groups: () =>
+      Object.entries(store.registrations).flatMap(([plugin, registration]) =>
+        registration.active
+          ? [
+              {
+                plugin,
+                projections: Object.entries(registration.epilogue).map(([key, project]) => ({ key, project })),
+              },
+            ]
+          : [],
+      ),
+    publish: (retained) => epilogue.setRows(retained),
+    report: reportEpilogue,
+  })
   const clearContributions = (id: string) => {
     setStore("registrations", id, "routes", reconcileStore({}))
     setStore("registrations", id, "slots", reconcileStore({}))
     setStore("registrations", id, "markdown", reconcileStore({}))
+    setStore("registrations", id, "epilogue", reconcileStore({}))
   }
 
   const activate = async (id: string) => {
@@ -144,9 +183,9 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
       registry: {
         has: (kind, name) => Boolean(store.registrations[id]?.[kind][name]),
         set: (
-          kind: "routes" | "slots" | "markdown",
+          kind: "routes" | "slots" | "markdown" | "epilogue",
           name: string,
-          value: Page | RegisteredSlot | MarkdownCodeBlockRenderer,
+          value: Page | RegisteredSlot | MarkdownCodeBlockRenderer | EpilogueProjection,
         ) => setStore("registrations", id, kind, name, () => value),
         remove: (kind, name) =>
           setStore(
@@ -648,6 +687,7 @@ function toRegistration(item: Desired): Registration {
     routes: {},
     slots: {},
     markdown: {},
+    epilogue: {},
     cleanups: [],
   }
 }
