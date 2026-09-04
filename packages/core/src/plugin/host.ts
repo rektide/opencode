@@ -57,12 +57,6 @@ const SessionCursorFields = {
   anchor: Session.ListAnchor,
 }
 const SessionCursor = Schema.Union([
-  Schema.Struct({
-    ...SessionCursorFields,
-    directory: AbsolutePath,
-    project: Project.ID,
-    subpath: RelativePath.pipe(Schema.optional),
-  }),
   Schema.Struct({ ...SessionCursorFields, directory: AbsolutePath }),
   Schema.Struct({ ...SessionCursorFields, project: Project.ID, subpath: RelativePath.pipe(Schema.optional) }),
   Schema.Struct(SessionCursorFields),
