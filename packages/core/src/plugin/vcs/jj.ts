@@ -23,7 +23,7 @@ export const Plugin = define({
         id: "jj",
         name: "Jujutsu",
         info: () => adapter.info(),
-        branches: () => Effect.succeed([]),
+        branches: (input) => adapter.branches({ search: input.search, limit: input.limit }),
         status: () => adapter.status(),
         diff: (input) => adapter.diff(input.mode, { context: input.context, base: input.base }),
       })
