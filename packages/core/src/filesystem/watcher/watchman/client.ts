@@ -90,6 +90,12 @@ export function capabilities(generation: Generation, options: RequestOptions) {
     CapabilityResponse,
     "connect",
     options,
+  ).pipe(
+    Effect.mapError((error) =>
+      error instanceof GenerationClosed
+        ? new WatchmanError("connect", "Watchman connection closed during capability check", error)
+        : error,
+    ),
   )
 }
 
