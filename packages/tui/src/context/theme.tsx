@@ -100,6 +100,12 @@ type State = {
   ready: boolean
 }
 
+type ThemeCandidate = {
+  readonly name: string
+  readonly kind: "override" | "configured" | "fallback"
+  readonly source: ThemeDocumentSource
+}
+
 type Themes = {
   current: ComponentTheme
   currentTokens: Accessor<ResolvedTheme>
@@ -304,16 +310,20 @@ const themeContext = createSimpleContext({
 
     const [overrides, setOverrides] = createSignal<readonly { source: Accessor<string | undefined> }[]>([])
     const candidates = createMemo(() => {
-      const result: { name: string; override: boolean }[] = []
-      const claims = overrides()
-      for (let index = claims.length - 1; index >= 0; index--) {
-        const name = claims[index].source()
-        if (!name || !inventory()[name] || result.some((candidate) => candidate.name === name)) continue
-        result.push({ name, override: true })
-      }
+      const result = overrides()
+        .toReversed()
+        .reduce<ThemeCandidate[]>((items, claim) => {
+          const name = claim.source()
+          const source = name ? inventory()[name] : undefined
+          if (!name || !source || items.some((candidate) => candidate.name === name)) return items
+          items.push({ name, kind: "override", source })
+          return items
+        }, [])
       const configured = inventory()[store.active] ? store.active : "opencode"
-      if (!result.some((candidate) => candidate.name === configured)) result.push({ name: configured, override: false })
-      if (configured !== "opencode") result.push({ name: "opencode", override: false })
+      if (!result.some((candidate) => candidate.name === configured)) {
+        result.push({ name: configured, kind: "configured", source: inventory()[configured] })
+      }
+      result.push({ name: "opencode", kind: "fallback", source: DEFAULT_THEMES.opencode })
       return result
     })
 
@@ -321,11 +331,11 @@ const themeContext = createSimpleContext({
     const selected = createMemo(() => {
       for (const candidate of candidates()) {
         try {
-          return { name: candidate.name, ...loadTheme(inventory()[candidate.name], candidate.name, store.mode) }
+          return { name: candidate.name, ...loadTheme(candidate.source, candidate.name, store.mode) }
         } catch (error) {
-          if (candidate.name === "opencode") throw error
+          if (candidate.kind === "fallback") throw error
           themeErrors.emit(candidate.name, error)
-          if (!candidate.override && store.active === candidate.name) setStore("active", "opencode")
+          if (candidate.kind === "configured" && store.active === candidate.name) setStore("active", "opencode")
         }
       }
       throw new Error("No usable theme")

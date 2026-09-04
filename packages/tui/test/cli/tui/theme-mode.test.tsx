@@ -245,8 +245,7 @@ test("malformed override named like the fallback reveals the configured theme", 
         <ThemeProvider
           mode="dark"
           source={{
-            discover: () =>
-              Promise.resolve({ configured, opencode: { version: 2, dark: { categorical: [] } } }),
+            discover: () => Promise.resolve({ configured, opencode: { version: 2, dark: { categorical: [] } } }),
           }}
         >
           <Probe />
