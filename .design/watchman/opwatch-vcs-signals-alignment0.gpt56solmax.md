@@ -724,3 +724,27 @@ selection never replaces ordered evaluation. Basename, suffix, and extension
 matching are first-class. A non-blocking P4 decision,
 `opwatch-vcs-signals-content-rules`, records the uncertain possibility of
 bounded file-content predicates; it is not an epic child or a v1 dependency.
+
+## Staged-filter review closure
+
+A focused semantic review completed after the graph was accepted. Its five
+findings are incorporated into the Watchwoman design and live ticket acceptance:
+
+1. Supplied kind or metadata mismatches eliminate a candidate before it can
+   request a more expensive fact.
+2. A metadata observation supplies an authoritative non-following kind and
+   replaces any earlier directory-entry hint. `NotFound` means vanished;
+   other I/O errors preserve prior published state and surface an error.
+3. Compfuzor migration covers the machine JSON, the `IGNORE_DIRS` producer,
+   `init-watchmanconfig.sh`, and inventoried existing `.watchmanconfig` files
+   before service replacement and root recreation.
+4. The root-file schema is explicit: absent or `{}` means no rules; the only
+   accepted top-level key is optional `filter`, whose only key is optional
+   `rules`; every other field fails root registration.
+5. Regex uses whole-path Rust `regex` semantics and fails closed at fixed
+   limits: 4 KiB per pattern, 64 KiB aggregate source, nesting 64, 4 MiB
+   compiled size, and 2 MiB lazy-DFA cache.
+
+These corrections preserve the two-lane architecture and dependency graph;
+they make the daemon-view-filter, config-snapshots, and Compfuzor deployment
+contracts executable rather than changing their ownership.
