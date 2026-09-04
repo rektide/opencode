@@ -1,8 +1,8 @@
 ---
 type: Design
-title: Session-scoped automatic compaction control for OpenQuarter
+title: "Context sovereignty: session-scoped automatic compaction control"
 description: A minimal OpenCode V2 plugin seam for deferring or disabling built-in automatic compaction without changing Agent identity or shared model metadata.
-resource: /.design/openquarter/openquarter.gpt56s.md
+resource: /.design/openquarter/context-sovereignty.gpt56s.md
 tags: [opencode, v2, plugin, effect, session, compaction, policy]
 status: draft
 generated: { by: llm:gpt56s, at: 2026-09-04T07:12:51Z }
@@ -40,7 +40,7 @@ sources:
     last_modified: 2026-09-04
 ---
 
-# Session-scoped automatic compaction control for OpenQuarter
+# Context sovereignty: session-scoped automatic compaction control
 
 ## What Is Up
 
