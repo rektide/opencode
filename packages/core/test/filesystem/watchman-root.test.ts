@@ -1,6 +1,7 @@
 import { expect } from "bun:test"
-import { Deferred, Effect, Fiber } from "effect"
+import { Deferred, Effect, Exit, Fiber } from "effect"
 import type { Watcher } from "@opencode-ai/core/filesystem/watcher"
+import { make as makeBackend } from "@opencode-ai/core/filesystem/watcher/watchman/backend"
 import { command, makeGeneration, type RawClient } from "@opencode-ai/core/filesystem/watcher/watchman/client"
 import { makeRegistry } from "@opencode-ai/core/filesystem/watcher/watchman/root"
 import { WatchResponse } from "@opencode-ai/core/filesystem/watcher/watchman/schema"
@@ -135,6 +136,106 @@ it.live("retries initial acquisition until Watchman is available", () =>
 
     expect(attempts).toBe(3)
     yield* Effect.promise(() => subscription.unsubscribe())
+  }),
+)
+
+it.live("shares initial acquisition retries across interests on one root", () =>
+  Effect.gen(function* () {
+    let attempts = 0
+    const clients: TestClient[] = []
+    const registry = yield* makeRegistry(
+      () => {
+        attempts++
+        if (attempts < 3) throw new Error("daemon unavailable")
+        const raw = client()
+        clients.push(raw)
+        return raw
+      },
+      { retryBaseMs: 1, retryCapMs: 2 },
+    )
+    const intent = { type: "project" as const, project: "/repo" }
+
+    const [first, second] = yield* Effect.all(
+      [registry.subscribe(intent, input("/repo/first")), registry.subscribe(intent, input("/repo/second"))],
+      { concurrency: "unbounded" },
+    ).pipe(Effect.timeout("1 second"))
+
+    expect(attempts).toBe(3)
+    expect(clients).toHaveLength(1)
+    expect(clients[0].commands.filter((args) => args[0] === "subscribe")).toHaveLength(2)
+    yield* Effect.promise(() => first.unsubscribe())
+    yield* Effect.promise(() => second.unsubscribe())
+  }),
+)
+
+it.live("never falls back a selected Watchman directory", () =>
+  Effect.gen(function* () {
+    let attempts = 0
+    let fallbackSubscriptions = 0
+    const fallback = {
+      subscribe: () =>
+        Effect.sync(() => {
+          fallbackSubscriptions++
+          return { backend: "parcel", unsubscribe: () => Promise.resolve() }
+        }),
+    } satisfies Watcher.NativeInterface
+    const backend = yield* makeBackend(fallback, { retryBaseMs: 1, retryCapMs: 2, metricsIntervalMs: 0 }, () => {
+      attempts++
+      if (attempts < 3) throw new Error("daemon unavailable")
+      return client()
+    })
+
+    const subscription = yield* backend.subscribe(input("/repo/src")).pipe(Effect.timeout("1 second"))
+
+    expect(subscription?.backend).toBe("watchman")
+    expect(fallbackSubscriptions).toBe(0)
+    yield* Effect.promise(() => subscription?.unsubscribe() ?? Promise.resolve())
+  }),
+)
+
+it.effect("keeps selected Watchman files on Node", () =>
+  Effect.gen(function* () {
+    let fallbackSubscriptions = 0
+    const fallback = {
+      subscribe: () =>
+        Effect.sync(() => {
+          fallbackSubscriptions++
+          return { backend: "node", unsubscribe: () => Promise.resolve() }
+        }),
+    } satisfies Watcher.NativeInterface
+    const backend = yield* makeBackend(fallback, { metricsIntervalMs: 0 }, () => {
+      throw new Error("Watchman must not acquire exact files")
+    })
+    const file = { ...input("/repo/file"), type: "file" as const, placement: { type: "exact" as const } }
+
+    const subscription = yield* backend.subscribe(file)
+
+    expect(subscription?.backend).toBe("node")
+    expect(fallbackSubscriptions).toBe(1)
+    yield* Effect.promise(() => subscription?.unsubscribe() ?? Promise.resolve())
+  }),
+)
+
+it.effect("surfaces terminal Watchman acquisition failure without Parcel", () =>
+  Effect.gen(function* () {
+    let fallbackSubscriptions = 0
+    const fallback = {
+      subscribe: () =>
+        Effect.sync(() => {
+          fallbackSubscriptions++
+          return { backend: "parcel", unsubscribe: () => Promise.resolve() }
+        }),
+    } satisfies Watcher.NativeInterface
+    const invalid = {
+      ...client(),
+      capabilityCheck: (_capabilities, callback) => callback(null, {}),
+    } satisfies RawClient
+    const backend = yield* makeBackend(fallback, { metricsIntervalMs: 0 }, () => invalid)
+
+    const result = yield* backend.subscribe(input("/repo/src")).pipe(Effect.exit)
+
+    expect(Exit.isFailure(result)).toBe(true)
+    expect(fallbackSubscriptions).toBe(0)
   }),
 )
 

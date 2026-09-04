@@ -1,5 +1,5 @@
 import { expect } from "bun:test"
-import { Effect } from "effect"
+import { Deferred, Effect } from "effect"
 import type { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import type { RawClient } from "@opencode-ai/core/filesystem/watcher/watchman/client"
 import { makeRegistry } from "@opencode-ai/core/filesystem/watcher/watchman/root"
@@ -114,14 +114,18 @@ it.live("reports per-window deltas", () =>
   Effect.gen(function* () {
     const raw = client()
     const registry = yield* makeRegistry(() => raw, { metricsIntervalMs: 0 })
-    const subscription = yield* registry.subscribe({ type: "project", project: "/repo" }, input("/repo/src"))
+    const published = yield* Deferred.make<void>()
+    const subscription = yield* registry.subscribe(
+      { type: "project", project: "/repo" },
+      { ...input("/repo/src"), publish: () => Deferred.doneUnsafe(published, Effect.void) },
+    )
     registry.metrics.event("interval", 1000)
     const idle = registry.metrics.event("interval", 1000)
     expect(idle.totals_delta.commands_out).toBe(0)
     expect(idle.totals_delta.pdus_in).toBe(0)
 
     raw.emit("subscription", pdu({ files: [file("a.ts")] }))
-    yield* Effect.sleep("10 millis")
+    yield* Deferred.await(published).pipe(Effect.timeout("1 second"))
     const active = registry.metrics.event("interval", 1000)
     expect(active.totals_delta.pdus_in).toBe(1)
     expect(active.totals_delta.files_in).toBe(1)
@@ -167,7 +171,7 @@ it.live("counts reconnects, generations, and resubscribes after a socket restart
 it.live("counts acquisition failures and fatal channels", () =>
   Effect.gen(function* () {
     const raw = client((args, callback) => {
-      if (args[0] === "watch") return callback(new Error("daemon refused"))
+      if (args[0] === "watch") return callback(null, {})
       standard(args, callback)
     })
     const registry = yield* makeRegistry(() => raw, { metricsIntervalMs: 0 })
