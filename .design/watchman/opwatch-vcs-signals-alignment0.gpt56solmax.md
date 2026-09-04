@@ -676,3 +676,41 @@ and root shape.
   is the actual production authority for daemon revision, config environment,
   socket/service units, safety floor, generated JSON, and operator runbook.
   Updating Watchwoman's built-in unit renderer alone does not change it.
+
+# Addendum: Accepted ticket graph
+
+On 2026-09-03 the user accepted the resteer. The earlier issue IDs remain in the
+body above as a record of the proposal that was reviewed; the live Beads graph
+now uses these retained IDs and responsibilities:
+
+| Issue | Accepted responsibility |
+| --- | --- |
+| `opwatch-vcs-signals` | Integration epic for exact observation, broad filtering, production deployment, and retained activation evidence |
+| `opwatch-vcs-signals-config-snapshots` | Strict resolved configuration, last-good reload, publication fencing, and immutable root generations |
+| `opwatch-vcs-signals-daemon-view-filter` | Generic ordered and fact-aware filtering, with smart VCS behavior as one built-in profile |
+| `opwatch-vcs-signals-core-observation` | Provider topology, forced exact interests, invalidation, and authoritative metadata rereads |
+| `opwatch-vcs-signals-core-consumers` | Footer, conflict, and already-open move-list convergence |
+| `opwatch-vcs-signals-production-lifecycle` | Graceful signals, socket activation, readiness, and generated Linux units |
+| `opwatch-vcs-signals-compfuzor-deployment` | Reviewed revision, unified-rule config migration, generated service, and root recreation |
+| `opwatch-vcs-signals-activation` | Isolated and deployed end-to-end evidence; terminal child for epic closure |
+
+The accepted blocking graph is:
+
+```mermaid
+flowchart LR
+  ConfigSnapshots[config-snapshots] --> DaemonFilter[daemon-view-filter]
+  DaemonFilter --> Compfuzor[compfuzor-deployment]
+  ProductionLifecycle[production-lifecycle] --> Compfuzor
+  CoreObservation[core-observation] --> CoreConsumers[core-consumers]
+  Compfuzor --> Activation[activation]
+  CoreConsumers --> Activation
+```
+
+There is deliberately no `core-observation -> daemon-view-filter` edge. Beads
+reported no dependency cycles after the rewrite.
+
+The user also chose path, file type, and metadata as the v1 classifier inputs.
+Legacy `ignore_dirs` becomes ordinary ordered rules rather than a separate
+floor. A non-blocking P4 decision,
+`opwatch-vcs-signals-content-rules`, records the uncertain possibility of
+bounded file-content predicates; it is not an epic child or a v1 dependency.
