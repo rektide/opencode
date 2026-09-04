@@ -7,7 +7,7 @@ import { Global } from "@opencode-ai/util/global"
 import { ClipboardProvider, useClipboard } from "./context/clipboard"
 import { LogProvider, useLog, type LogSink } from "./context/log"
 import { ExitProvider, useExit } from "./context/exit"
-import { EpilogueProvider } from "./context/epilogue"
+import { createEpilogue, EpilogueProvider } from "./context/epilogue"
 import { Selection } from "./util/selection"
 import {
   CliRenderEvents,
@@ -228,8 +228,9 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
         restart: managed.restart,
       }
     : undefined
-  const exit = { epilogue: undefined as string | undefined, reason: undefined as unknown }
-  const result = yield* Effect.scoped(
+  const epilogue = createEpilogue()
+  const exit = { reason: undefined as unknown }
+  yield* Effect.scoped(
     Effect.gen(function* () {
       const options = {
         externalOutputMode: "passthrough",
@@ -281,12 +282,17 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
         }),
       )
       const shutdown = yield* Latch.make()
-      const onSighup = () => destroyRenderer(renderer)
+      const signals = ["SIGHUP", "SIGINT", "SIGTERM"] as const
+      const shutdownRenderer = () => destroyRenderer(renderer)
       yield* Effect.acquireRelease(
-        Effect.sync(() => process.on("SIGHUP", onSighup)),
-        () => Effect.sync(() => process.off("SIGHUP", onSighup)),
+        Effect.sync(() => signals.forEach((signal) => process.on(signal, shutdownRenderer))),
+        () => Effect.sync(() => signals.forEach((signal) => process.off(signal, shutdownRenderer))),
       )
-      renderer.once("destroy", () => shutdown.openUnsafe())
+      renderer.once("destroy", () => {
+        renderer.setTerminalTitle("")
+        epilogue.freeze(Date.now())
+        shutdown.openUnsafe()
+      })
       yield* Effect.tryPromise(async () => {
         // Prewarm palette before ThemeProvider mounts so `system` theme avoids a first-paint fallback flash.
         void renderer.getPalette({ size: 16 }).catch(() => undefined)
@@ -303,7 +309,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                   destroyRenderer(renderer)
                 }}
               >
-                <EpilogueProvider set={(value) => (exit.epilogue = value)}>
+                <EpilogueProvider value={epilogue}>
                   <TuiAppProvider value={input.app}>
                     <ErrorBoundary
                       fallback={(error, reset) => (
@@ -453,15 +459,26 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
         }
       })
       yield* shutdown.await
-      return { epilogue: exit.epilogue, reason: exit.reason }
     }),
+  ).pipe(
+    Effect.ensuring(
+      Effect.gen(function* () {
+        if (exit.reason !== undefined)
+          yield* write(process.stderr, (cliErrorMessage(exit.reason) ?? errorFormat(exit.reason)) + "\n").pipe(
+            Effect.ignoreCause,
+          )
+        const output = epilogue.take()
+        if (output) yield* write(process.stdout, output + "\n").pipe(Effect.ignoreCause)
+      }),
+    ),
   )
-  yield* Effect.sync(() => {
-    if (result.reason !== undefined)
-      process.stderr.write((cliErrorMessage(result.reason) ?? errorFormat(result.reason)) + "\n")
-    if (result.epilogue) process.stdout.write(result.epilogue + "\n")
-  })
 })
+
+function write(stream: NodeJS.WriteStream, output: string) {
+  return Effect.callback<void, Error>((resume) => {
+    stream.write(output, (error) => resume(error ? Effect.fail(error) : Effect.void))
+  })
+}
 
 function App(props: { pair?: DialogPairCredentials; updater?: TuiInput["updater"] }) {
   const log = useLog({ component: "app" })
