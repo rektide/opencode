@@ -19,3 +19,7 @@
 ## Refresh onto `43d09b9d` — 2026-09-01
 
 - [Refresh onto `43d09b9d`](/.design/term-v2/refresh-20260901.glm53.md): zero-conflict mechanical rebase of the full 24-commit line (epilogue reimplementation + epilogue-rows direction), focused verification results, and the upstream-pre-existing Ctrl-O flake confirmation on the bare base.
+
+## Refresh onto `7ba5f3e5b220` — 2026-09-03
+
+- [Refresh onto `7ba5f3e5b220`](/.design/term-v2/refresh-20260903.glm53f.md): operator-directed recreate-afresh as a 4-commit ladder after the rebase path cascaded 24 conflicts; semantic-collision scan (upstream #47163 is PTY-only), the two one-hunk merges, the `PackageSource.prepare` fixture adaptation, and full verification.
