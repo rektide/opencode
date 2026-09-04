@@ -5,16 +5,9 @@ import { RGBA } from "@opentui/core"
 import { DEFAULT_THEME, selectTheme } from "@opencode-ai/theme/tui"
 import { createSignal } from "solid-js"
 import { createTuiResolvedConfig } from "../../fixture/tui-runtime"
-import { DEFAULT_THEMES } from "../../../src/theme"
+import { DEFAULT_THEMES, setCustomThemes } from "../../../src/theme"
 import { ConfigProvider, type Info, type Interface } from "../../../src/config"
-import {
-  ThemeContextProvider,
-  ThemeProvider,
-  type ThemeError,
-  upsertTheme,
-  useTheme,
-  useThemes,
-} from "../../../src/context/theme"
+import { ThemeContextProvider, ThemeProvider, type ThemeError, useTheme, useThemes } from "../../../src/context/theme"
 
 async function wait(fn: () => boolean) {
   const started = Date.now()
@@ -103,6 +96,11 @@ test("runtime theme overrides compose and dispose to the latest configured theme
   const [first, setFirst] = createSignal<string | undefined>("first")
   const [second, setSecond] = createSignal<string | undefined>("second")
   const restored = `restored-${crypto.randomUUID()}`
+  const discovered = {
+    first: structuredClone(DEFAULT_THEMES.opencode),
+    second: structuredClone(DEFAULT_THEMES.opencode),
+    configured: structuredClone(DEFAULT_THEMES.opencode),
+  }
 
   function Probe() {
     themes = useThemes()
@@ -120,12 +118,7 @@ test("runtime theme overrides compose and dispose to the latest configured theme
         <ThemeProvider
           mode="dark"
           source={{
-            discover: () =>
-              Promise.resolve({
-                first: structuredClone(DEFAULT_THEMES.opencode),
-                second: structuredClone(DEFAULT_THEMES.opencode),
-                configured: structuredClone(DEFAULT_THEMES.opencode),
-              }),
+            discover: () => Promise.resolve(discovered),
           }}
         >
           <Probe />
@@ -154,11 +147,17 @@ test("runtime theme overrides compose and dispose to the latest configured theme
     expect(current().selected).toBe("first")
     expect(updates).toBe(0)
 
-    expect(upsertTheme(restored, structuredClone(DEFAULT_THEMES.opencode))).toBeTrue()
+    const restoredThemes = { ...discovered, [restored]: structuredClone(DEFAULT_THEMES.opencode) }
+    setCustomThemes(restoredThemes)
     expect(current().selected).toBe(restored)
     expect(current().configured).toBe("opencode")
     expect(current().locked()).toBeTrue()
     expect(updates).toBe(0)
+
+    setCustomThemes(discovered)
+    expect(current().selected).toBe("first")
+    setCustomThemes(restoredThemes)
+    expect(current().selected).toBe(restored)
 
     expect(current().set("configured")).toBeTrue()
     await wait(() => updates === 1)
@@ -179,6 +178,7 @@ test("runtime theme overrides compose and dispose to the latest configured theme
     expect(updates).toBe(1)
   } finally {
     app.renderer.destroy()
+    setCustomThemes({})
   }
 })
 

@@ -24,8 +24,8 @@ import {
 import { generateSystem, terminalMode } from "../theme/system"
 import { discoverThemes } from "../theme/discovery"
 import { createComponentTheme, type ComponentTheme } from "../theme/component"
-import { createEffect, createMemo, onCleanup, onMount, type Accessor, type ParentProps } from "solid-js"
-import { createStore, produce } from "solid-js/store"
+import { createEffect, createMemo, createSignal, onCleanup, onMount, type Accessor, type ParentProps } from "solid-js"
+import { createStore, produce, reconcile } from "solid-js/store"
 import { createSimpleContext } from "./helper"
 import { useConfig } from "../config"
 import { DevTools } from "../devtools"
@@ -105,6 +105,7 @@ type Themes = {
   current: ComponentTheme
   currentTokens: Accessor<ResolvedTheme>
   readonly selected: string
+  readonly configured: string
   all: typeof allThemes
   has: typeof hasTheme
   currentSyntax: Accessor<SyntaxStyle>
@@ -116,6 +117,7 @@ type Themes = {
   unlock(): void
   setMode(mode?: "dark" | "light", persist?: boolean): boolean
   set(theme: string): boolean
+  override(source: Accessor<string | undefined>): () => void
   onError(handler: ThemeErrorHandler): () => void
   readonly ready: boolean
 }
@@ -134,7 +136,7 @@ const [store, setStore] = createStore<State>({
   ready: false,
 })
 
-subscribeThemes((themes) => setStore("themes", themes))
+subscribeThemes((themes) => setStore("themes", reconcile(themes)))
 
 const themeContext = createSimpleContext({
   name: "Theme",
@@ -301,17 +303,33 @@ const themeContext = createSimpleContext({
       themeRefreshTimeouts.length = 0
     })
 
+    const [overrides, setOverrides] = createSignal<readonly { source: Accessor<string | undefined> }[]>([])
+    const candidates = createMemo(() => {
+      const result: { name: string; override: boolean }[] = []
+      const claims = overrides()
+      for (let index = claims.length - 1; index >= 0; index--) {
+        const name = claims[index].source()
+        if (!name || !store.themes[name] || result.some((candidate) => candidate.name === name)) continue
+        result.push({ name, override: true })
+      }
+      const configured = store.themes[store.active] ? store.active : "opencode"
+      if (!result.some((candidate) => candidate.name === configured)) result.push({ name: configured, override: false })
+      if (configured !== "opencode") result.push({ name: "opencode", override: false })
+      return result
+    })
+
     const initStarted = performance.now()
     const selected = createMemo(() => {
-      const name = store.themes[store.active] ? store.active : "opencode"
-      try {
-        return loadTheme(store.themes[name], name, store.mode)
-      } catch (error) {
-        if (name === "opencode") throw error
-        themeErrors.emit(name, error)
-        setStore("active", "opencode")
-        return loadTheme(store.themes.opencode, "opencode", store.mode)
+      for (const candidate of candidates()) {
+        try {
+          return { name: candidate.name, ...loadTheme(store.themes[candidate.name], candidate.name, store.mode) }
+        } catch (error) {
+          if (candidate.name === "opencode") throw error
+          themeErrors.emit(candidate.name, error)
+          if (!candidate.override && store.active === candidate.name) setStore("active", "opencode")
+        }
       }
+      throw new Error("No usable theme")
     })
     const modes = () => selected().modes
     const mode = () => selected().mode
@@ -328,6 +346,9 @@ const themeContext = createSimpleContext({
       currentTokens: valuesV2,
       currentSyntax,
       get selected() {
+        return selected().name
+      },
+      get configured() {
         return store.active
       },
       all: allThemes,
@@ -352,6 +373,16 @@ const themeContext = createSimpleContext({
           })
           .catch(() => {})
         return true
+      },
+      override(source) {
+        const claim = { source }
+        let active = true
+        setOverrides((current) => [...current, claim])
+        return () => {
+          if (!active) return
+          active = false
+          setOverrides((current) => current.filter((item) => item !== claim))
+        }
       },
       onError: themeErrors.onError,
       get ready() {

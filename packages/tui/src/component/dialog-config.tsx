@@ -339,7 +339,7 @@ export function DialogConfig(props: { current?: string }) {
       if (!result || typeof result !== "object") return undefined
       return (result as Record<string, unknown>)[key]
     }, config.data)
-    if (setting.path.join(".") === "theme.name") return current ?? themes.selected
+    if (setting.path.join(".") === "theme.name") return current ?? themes.configured
     return current ?? setting.default
   }
   const values = (setting: Setting) =>

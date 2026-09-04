@@ -14,7 +14,7 @@ export function DialogThemeList() {
   const dialog = useDialog()
   let confirmed = false
   let ref: DialogSelectRef<string>
-  const initial = themes.selected
+  const initial = themes.configured
 
   onCleanup(() => {
     if (!confirmed) themes.set(initial)
