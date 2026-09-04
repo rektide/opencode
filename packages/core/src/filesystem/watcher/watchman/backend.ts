@@ -20,7 +20,7 @@ export const make = (fallback: Watcher.NativeInterface, options?: Options, injec
           input.placement.type === "project"
             ? { type: "project" as const, project: input.placement.root }
             : { type: "exact" as const, target: input.target }
-        return registry.subscribe(intent, input).pipe(Effect.orDie)
+        return registry.subscribe(intent, input)
       },
     })
   })

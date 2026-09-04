@@ -51,7 +51,7 @@ export interface NativeInterface {
     readonly placement: WatcherInternal.Placement
     readonly publish: (update: Update) => void
     readonly fail: (error: Error) => void
-  }) => Effect.Effect<Subscription | undefined, never, Scope.Scope>
+  }) => Effect.Effect<Subscription | undefined, Error, Scope.Scope>
 }
 
 /**
