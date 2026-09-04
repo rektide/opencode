@@ -172,6 +172,21 @@ describe("Watcher lifecycle", () => {
       }),
     )
   })
+
+  it.effect("surfaces native acquisition failures through the stream", () =>
+    Effect.gen(function* () {
+      const watcher = yield* Watcher.Service
+      const result = yield* watcher
+        .subscribe({ path: "/failed", type: "directory" })
+        .pipe(Effect.flatMap(Stream.runDrain), Effect.exit)
+
+      expect(Exit.isFailure(result)).toBe(true)
+    }).pipe(
+      withNative({
+        subscribe: () => Effect.fail(new Error("acquisition failed")),
+      }),
+    ),
+  )
 })
 
 function provide(
