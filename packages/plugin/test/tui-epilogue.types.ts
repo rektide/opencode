@@ -1,4 +1,4 @@
-import type { UI } from "@opencode-ai/plugin/tui/context"
+import type { UI } from "@opencode/plugin/tui/context"
 import type { JSX } from "@opentui/solid"
 
 declare const ui: UI

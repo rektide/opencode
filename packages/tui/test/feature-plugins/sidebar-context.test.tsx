@@ -2,8 +2,8 @@
 import { expect, test } from "bun:test"
 import { RGBA } from "@opentui/core"
 import { testRender } from "@opentui/solid"
-import type { Context } from "@opencode/plugin/tui/context"
-import { SidebarContext } from "../../src/feature-plugins/sidebar/context"
+import type { Context, EpilogueRow } from "@opencode/plugin/tui/context"
+import SidebarPlugin, { SidebarContext } from "../../src/feature-plugins/sidebar/context"
 
 function context(options?: { cost?: number; tokens?: number }) {
   const color = RGBA.fromInts(200, 200, 200)
@@ -67,4 +67,26 @@ test("sidebar shows available context usage", async () => {
   } finally {
     app.renderer.destroy()
   }
+})
+
+test("sidebar plugin contributes cached Session cost to the epilogue", async () => {
+  let project: ((scope: { readonly sessionID: string }) => EpilogueRow | undefined) | undefined
+  await SidebarPlugin.setup({
+    data: { session: { cost: (sessionID: string) => (sessionID === "paid" ? 1.25 : 0) } },
+    ui: {
+      epilogue: {
+        register(value: typeof project) {
+          project = value
+          return () => {}
+        },
+      },
+      slot: () => () => {},
+    },
+  } as unknown as Context)
+
+  expect(project?.({ sessionID: "free" })).toBeUndefined()
+  expect(project?.({ sessionID: "paid" })).toEqual({
+    label: "Cost",
+    value: { type: "text", text: "$1.25" },
+  })
 })
