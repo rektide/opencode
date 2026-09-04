@@ -117,6 +117,27 @@ it.live("does not let a pending route block another root intent", () =>
   }),
 )
 
+it.live("retries initial acquisition until Watchman is available", () =>
+  Effect.gen(function* () {
+    let attempts = 0
+    const registry = yield* makeRegistry(
+      () => {
+        attempts++
+        if (attempts < 3) throw new Error("daemon unavailable")
+        return client()
+      },
+      { retryBaseMs: 1, retryCapMs: 2 },
+    )
+
+    const subscription = yield* registry
+      .subscribe({ type: "project", project: "/repo" }, input("/repo/src"))
+      .pipe(Effect.timeout("1 second"))
+
+    expect(attempts).toBe(3)
+    yield* Effect.promise(() => subscription.unsubscribe())
+  }),
+)
+
 it.live("a submitted timeout closes only its root generation", () =>
   Effect.gen(function* () {
     const clients: TestClient[] = []
