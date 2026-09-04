@@ -84,10 +84,12 @@ test("runtime theme overrides compose and dispose to the latest configured theme
   let tuiConfig: ReturnType<typeof useConfig> | undefined
   let config: Info = { theme: { name: "opencode", mode: "dark" } }
   let updates = 0
+  let rejectUpdates = false
   const service: Interface = {
     get: async () => config,
     update: async (update) => {
       updates++
+      if (rejectUpdates) throw new Error("config write failed")
       const draft = structuredClone(config)
       update(draft)
       config = draft
@@ -177,7 +179,8 @@ test("runtime theme overrides compose and dispose to the latest configured theme
     expect(current().selected).toBe(restored)
 
     expect(current().set("configured")).toBeTrue()
-    await wait(() => updates === 1)
+    await wait(() => current().configured === "configured")
+    expect(updates).toBe(1)
     expect(current().configured).toBe("configured")
     expect(current().selected).toBe(restored)
     expect(current().locked()).toBeTrue()
@@ -200,6 +203,12 @@ test("runtime theme overrides compose and dispose to the latest configured theme
     disposeFirst()
     expect(current().selected).toBe("opencode")
     expect(updates).toBe(2)
+
+    rejectUpdates = true
+    expect(current().set("second")).toBeTrue()
+    await wait(() => updates === 3)
+    expect(current().configured).toBe("opencode")
+    expect(config.theme?.name).toBeUndefined()
   } finally {
     app.renderer.destroy()
     setCustomThemes({})

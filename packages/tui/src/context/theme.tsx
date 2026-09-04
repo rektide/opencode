@@ -25,7 +25,7 @@ import { generateSystem, terminalMode } from "../theme/system"
 import { discoverThemes } from "../theme/discovery"
 import { createComponentTheme, type ComponentTheme } from "../theme/component"
 import { createEffect, createMemo, createSignal, onCleanup, onMount, type Accessor, type ParentProps } from "solid-js"
-import { createStore, produce, reconcile } from "solid-js/store"
+import { createStore, produce } from "solid-js/store"
 import { createSimpleContext } from "./helper"
 import { useConfig } from "../config"
 import { DevTools } from "../devtools"
@@ -94,7 +94,6 @@ export {
 const THEME_REFRESH_DELAYS = [250, 1000] as const
 
 type State = {
-  themes: Record<string, ThemeDocumentSource>
   mode: "dark" | "light"
   lock: "dark" | "light" | undefined
   active: string
@@ -129,14 +128,14 @@ type ThemeContextValue = {
 }
 
 const [store, setStore] = createStore<State>({
-  themes: allThemes(),
   mode: "dark",
   lock: undefined,
   active: "opencode",
   ready: false,
 })
 
-subscribeThemes((themes) => setStore("themes", reconcile(themes)))
+const [inventory, setInventory] = createSignal(allThemes())
+subscribeThemes((themes) => setInventory(themes))
 
 const themeContext = createSimpleContext({
   name: "Theme",
@@ -164,7 +163,7 @@ const themeContext = createSimpleContext({
 
     createEffect(() => {
       const theme = config.theme?.name
-      if (theme) setStore("active", theme)
+      setStore("active", theme || "opencode")
     })
 
     createEffect(() => {
@@ -209,7 +208,7 @@ const themeContext = createSimpleContext({
           if (store.mode !== next) setStore("mode", next)
           const signature = JSON.stringify(colors)
           hasResolvedSystemTheme = true
-          if (store.themes.system && systemThemeSignature === signature && systemThemeMode === next) return
+          if (inventory().system && systemThemeSignature === signature && systemThemeMode === next) return
           systemThemeSignature = signature
           systemThemeMode = next
           setSystemTheme(generateSystem(colors, next))
@@ -309,10 +308,10 @@ const themeContext = createSimpleContext({
       const claims = overrides()
       for (let index = claims.length - 1; index >= 0; index--) {
         const name = claims[index].source()
-        if (!name || !store.themes[name] || result.some((candidate) => candidate.name === name)) continue
+        if (!name || !inventory()[name] || result.some((candidate) => candidate.name === name)) continue
         result.push({ name, override: true })
       }
-      const configured = store.themes[store.active] ? store.active : "opencode"
+      const configured = inventory()[store.active] ? store.active : "opencode"
       if (!result.some((candidate) => candidate.name === configured)) result.push({ name: configured, override: false })
       if (configured !== "opencode") result.push({ name: "opencode", override: false })
       return result
@@ -322,7 +321,7 @@ const themeContext = createSimpleContext({
     const selected = createMemo(() => {
       for (const candidate of candidates()) {
         try {
-          return { name: candidate.name, ...loadTheme(store.themes[candidate.name], candidate.name, store.mode) }
+          return { name: candidate.name, ...loadTheme(inventory()[candidate.name], candidate.name, store.mode) }
         } catch (error) {
           if (candidate.name === "opencode") throw error
           themeErrors.emit(candidate.name, error)
@@ -349,7 +348,7 @@ const themeContext = createSimpleContext({
         return selected().name
       },
       get configured() {
-        return store.active
+        return config.theme?.name || "opencode"
       },
       all: allThemes,
       has: hasTheme,
