@@ -1,5 +1,5 @@
 import { expect } from "bun:test"
-import { Deferred, Effect } from "effect"
+import { Effect, Schedule } from "effect"
 import type { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import type { RawClient } from "@opencode-ai/core/filesystem/watcher/watchman/client"
 import { makeRegistry } from "@opencode-ai/core/filesystem/watcher/watchman/root"
@@ -114,18 +114,18 @@ it.live("reports per-window deltas", () =>
   Effect.gen(function* () {
     const raw = client()
     const registry = yield* makeRegistry(() => raw, { metricsIntervalMs: 0 })
-    const published = yield* Deferred.make<void>()
-    const subscription = yield* registry.subscribe(
-      { type: "project", project: "/repo" },
-      { ...input("/repo/src"), publish: () => Deferred.doneUnsafe(published, Effect.void) },
-    )
+    const subscription = yield* registry.subscribe({ type: "project", project: "/repo" }, input("/repo/src"))
     registry.metrics.event("interval", 1000)
     const idle = registry.metrics.event("interval", 1000)
     expect(idle.totals_delta.commands_out).toBe(0)
     expect(idle.totals_delta.pdus_in).toBe(0)
 
     raw.emit("subscription", pdu({ files: [file("a.ts")] }))
-    yield* Deferred.await(published).pipe(Effect.timeout("1 second"))
+    yield* Effect.sync(() => registry.metrics.channels.get("project:/repo")?.pdus_in).pipe(
+      Effect.filterOrFail((count) => count === 1),
+      Effect.retry(Schedule.spaced("1 millis")),
+      Effect.timeout("1 second"),
+    )
     const active = registry.metrics.event("interval", 1000)
     expect(active.totals_delta.pdus_in).toBe(1)
     expect(active.totals_delta.files_in).toBe(1)
