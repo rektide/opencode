@@ -58,6 +58,7 @@ export interface NativeInterface {
   readonly subscribe: (
     input: Target & {
       readonly publish: (update: Update) => void
+      readonly invalidate: (reason: WatcherInternal.ContinuityReason) => void
       readonly fail: (error: Error) => void
     },
   ) => Effect.Effect<Subscription | undefined, never, Scope.Scope>
@@ -129,11 +130,16 @@ export const layer = (options?: Options) =>
         lookup: (key: Target) =>
           Effect.gen(function* () {
             const pubsub = yield* Effect.acquireRelease(PubSub.unbounded<Update>(), (pubsub) => PubSub.shutdown(pubsub))
+            const invalidations = yield* Effect.acquireRelease(
+              PubSub.unbounded<WatcherInternal.ContinuityReason>(),
+              (pubsub) => PubSub.shutdown(pubsub),
+            )
             const failure = Deferred.makeUnsafe<void, Error>()
             const subscription = yield* Effect.acquireRelease(
               native.subscribe({
                 ...key,
                 publish: (update) => PubSub.publishUnsafe(pubsub, update),
+                invalidate: (reason) => PubSub.publishUnsafe(invalidations, reason),
                 fail: (error) => Deferred.doneUnsafe(failure, Effect.fail(error)),
               }),
               (subscription) =>
@@ -150,7 +156,7 @@ export const layer = (options?: Options) =>
             if (!subscription) {
               // Unsupported backend: end subscriber streams instead of hanging them.
               yield* PubSub.shutdown(pubsub)
-              return { pubsub, failure, active: false }
+              return { pubsub, invalidations, failure, active: false }
             }
             yield* Effect.logInfo("watcher started", {
               path: key.target,
@@ -158,7 +164,7 @@ export const layer = (options?: Options) =>
               backend: subscription.backend,
               ignores: key.ignore.length,
             })
-            return { pubsub, failure, active: true }
+            return { pubsub, invalidations, failure, active: true }
           }),
       })
 
@@ -171,6 +177,7 @@ export const layer = (options?: Options) =>
         const placement =
           input.type === "directory" ? (metadata?.placement ?? { type: "exact" as const }) : { type: "exact" as const }
         const ready = metadata?.ready
+        const invalidated = metadata?.invalidated
         let acknowledged = false
         yield* Effect.logInfo("watcher subscribe", {
           path: target,
@@ -185,6 +192,13 @@ export const layer = (options?: Options) =>
           Effect.gen(function* () {
             const entry = yield* RcMap.get(watchers, key)
             const subscription = yield* PubSub.subscribe(entry.pubsub)
+            if (invalidated) {
+              const controls = yield* PubSub.subscribe(entry.invalidations)
+              yield* Stream.fromSubscription(controls).pipe(
+                Stream.runForEach((reason) => Effect.sync(() => invalidated(reason))),
+                Effect.forkScoped({ startImmediately: true }),
+              )
+            }
             if (yield* PubSub.isShutdown(entry.pubsub)) return Stream.empty
             if (entry.active && !acknowledged) {
               acknowledged = true

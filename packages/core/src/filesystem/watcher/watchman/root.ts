@@ -212,7 +212,7 @@ const makeConnection = (
               "subscribe",
               requestOptions(root.generation),
             )).clock
-        if (previous && !compatible) item.input.publish({ path: item.input.target, type: "update" })
+        if (previous && !compatible) item.input.invalidate("incompatible-clock")
         const name = `opencode-${root.generation.id}-${item.id}`
         root.generation.subscriptions.set(name, (value) => Queue.offerUnsafe(item.queue, value))
         const subscribe = (clock: string) =>
@@ -243,7 +243,7 @@ const makeConnection = (
               "subscribe",
               requestOptions(root.generation),
             ).pipe(
-              Effect.tap(() => Effect.sync(() => item.input.publish({ path: item.input.target, type: "update" }))),
+              Effect.tap(() => Effect.sync(() => item.input.invalidate("retry"))),
               Effect.flatMap((clock) => subscribe(clock.clock)),
             )
           }),
@@ -375,8 +375,8 @@ const makeConnection = (
         if (pdu.warning)
           yield* Effect.logWarning("watchman subscription warning", { name: established.name, warning: pdu.warning })
         if ("canceled" in pdu) {
-          item.input.publish({ path: item.input.target, type: "update" })
-          item.sub.pdu({ canceled: true, fresh: false, files: 0, published: 1 })
+          item.input.invalidate("canceled")
+          item.sub.pdu({ canceled: true, fresh: false, files: 0, published: 0 })
           yield* detach(item, established, false)
           const root = yield* current()
           const next = yield* establish(item, root, established).pipe(
@@ -387,8 +387,8 @@ const makeConnection = (
         item.clock = pdu.clock
         item.sub.atClock(pdu.clock)
         if (pdu.is_fresh_instance) {
-          item.input.publish({ path: item.input.target, type: "update" })
-          item.sub.pdu({ canceled: false, fresh: true, files: pdu.files.length, published: 1 })
+          item.input.invalidate("fresh-instance")
+          item.sub.pdu({ canceled: false, fresh: true, files: pdu.files.length, published: 0 })
           return yield* loop(item, established)
         }
         const published = publishFiles(item.input, established.route, pdu.files)
@@ -471,22 +471,21 @@ function publishFiles(
 ) {
   const globs = input.ignore.filter((value) => isGlob(value))
   const paths = input.ignore.filter((value) => !isGlob(value)).map((value) => path.resolve(route.eventRoot, value))
-  const updates = files
-    .flatMap((file) => {
-      const target = path.resolve(route.eventRoot, file.name)
-      const relative = path.relative(route.eventRoot, target).split(path.sep).join("/")
-      if (paths.some((ignored) => target === ignored || target.startsWith(ignored + path.sep))) return []
-      if (micromatch.isMatch(relative, globs, { dot: true })) return []
-      const type: Watcher.Update["type"] | undefined =
-        file.new && file.exists
-          ? "create"
-          : file.exists && file.type !== "d"
-            ? "update"
-            : !file.new && !file.exists
-              ? "delete"
-              : undefined
-      return type ? [{ path: target, type }] : []
-    })
+  const updates = files.flatMap((file) => {
+    const target = path.resolve(route.eventRoot, file.name)
+    const relative = path.relative(route.eventRoot, target).split(path.sep).join("/")
+    if (paths.some((ignored) => target === ignored || target.startsWith(ignored + path.sep))) return []
+    if (micromatch.isMatch(relative, globs, { dot: true })) return []
+    const type: Watcher.Update["type"] | undefined =
+      file.new && file.exists
+        ? "create"
+        : file.exists && file.type !== "d"
+          ? "update"
+          : !file.new && !file.exists
+            ? "delete"
+            : undefined
+    return type ? [{ path: target, type }] : []
+  })
   updates.forEach(input.publish)
   return updates.length
 }

@@ -124,6 +124,7 @@ describe("Watcher lifecycle", () => {
               ignore: [],
               placement: { type: "exact" },
               publish: (update) => events.push(update),
+              invalidate: () => {},
               fail: () => {},
             }),
             (subscription) => Effect.promise(() => subscription?.unsubscribe() ?? Promise.resolve()),

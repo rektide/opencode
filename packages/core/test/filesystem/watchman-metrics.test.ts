@@ -55,6 +55,7 @@ function input(target: string, updates: Watcher.Update[] = [], ignore: readonly 
     ignore,
     placement: { type: "project" as const, root: "/repo" },
     publish: (update: Watcher.Update) => updates.push(update),
+    invalidate: () => {},
     fail: (_error: Error) => {},
   }
 }
@@ -171,9 +172,9 @@ it.live("counts acquisition failures and fatal channels", () =>
       standard(args, callback)
     })
     const registry = yield* makeRegistry(() => raw, { metricsIntervalMs: 0 })
-    const failed = yield* registry.subscribe({ type: "project", project: "/repo" }, input("/repo/src")).pipe(
-      Effect.exit,
-    )
+    const failed = yield* registry
+      .subscribe({ type: "project", project: "/repo" }, input("/repo/src"))
+      .pipe(Effect.exit)
     expect(failed._tag).toBe("Failure")
 
     const event = registry.metrics.event("interval", 1000)
@@ -195,10 +196,13 @@ it.live("renders wide and line-per-channel modes", () =>
       return raw
     })
     const first = yield* registry.subscribe({ type: "project", project: "/first" }, input("/first/src"))
-    const second = yield* registry.subscribe({ type: "exact", target: "/outside" }, {
-      ...input("/outside"),
-      placement: { type: "exact" },
-    })
+    const second = yield* registry.subscribe(
+      { type: "exact", target: "/outside" },
+      {
+        ...input("/outside"),
+        placement: { type: "exact" },
+      },
+    )
 
     const wide = registry.metrics.render("final", 900_000, "wide")
     expect(wide).toHaveLength(1)

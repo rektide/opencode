@@ -1,6 +1,7 @@
 import { expect } from "bun:test"
 import { Deferred, Effect, Fiber } from "effect"
 import type { Watcher } from "@opencode-ai/core/filesystem/watcher"
+import type { WatcherInternal } from "@opencode-ai/core/filesystem/watcher/internal"
 import { command, makeGeneration, type RawClient } from "@opencode-ai/core/filesystem/watcher/watchman/client"
 import { makeRegistry } from "@opencode-ai/core/filesystem/watcher/watchman/root"
 import { WatchResponse } from "@opencode-ai/core/filesystem/watcher/watchman/schema"
@@ -49,13 +50,14 @@ function standard(args: readonly unknown[], callback: (error: Error | null, resp
   callback(null, { unsubscribe: args[2], deleted: true })
 }
 
-function input(target: string, updates: Watcher.Update[] = []) {
+function input(target: string, updates: Watcher.Update[] = [], invalidations: WatcherInternal.ContinuityReason[] = []) {
   return {
     type: "directory" as const,
     target,
     ignore: [] as const,
     placement: { type: "project" as const, root: "/repo" },
     publish: (update: Watcher.Update) => updates.push(update),
+    invalidate: (reason: WatcherInternal.ContinuityReason) => invalidations.push(reason),
     fail: (_error: Error) => {},
   }
 }
@@ -181,6 +183,78 @@ it.live("resumes each subscription from its cursor after a socket restart", () =
   }),
 )
 
+it.live("reports a rejected cursor before retrying from a new clock", () =>
+  Effect.gen(function* () {
+    const retried = yield* Deferred.make<void>()
+    const invalidations: WatcherInternal.ContinuityReason[] = []
+    const clients: TestClient[] = []
+    const registry = yield* makeRegistry(
+      () => {
+        const index = clients.length
+        let subscribes = 0
+        const raw = client((args, callback) => {
+          if (index === 1 && args[0] === "subscribe" && subscribes++ === 0) {
+            callback(new Error("cursor rejected"))
+            return
+          }
+          standard(args, callback)
+          if (index === 1 && args[0] === "subscribe") Deferred.doneUnsafe(retried, Effect.void)
+        })
+        clients.push(raw)
+        return raw
+      },
+      { retryBaseMs: 1, retryCapMs: 2 },
+    )
+    const subscription = yield* registry.subscribe(
+      { type: "project", project: "/repo" },
+      input("/repo/src", [], invalidations),
+    )
+    clients[0].emit("subscription", {
+      subscription: "opencode-1-1",
+      root: "/repo",
+      clock: "c:2",
+      is_fresh_instance: false,
+      files: [],
+    })
+    yield* Effect.sleep("5 millis")
+    clients[0].emit("end")
+
+    yield* Deferred.await(retried).pipe(Effect.timeout("1 second"))
+    expect(invalidations).toEqual(["retry"])
+    yield* Effect.promise(() => subscription.unsubscribe())
+  }),
+)
+
+it.live("reports an incompatible replacement route before resubscribing", () =>
+  Effect.gen(function* () {
+    const resumed = yield* Deferred.make<void>()
+    const invalidations: WatcherInternal.ContinuityReason[] = []
+    const clients: TestClient[] = []
+    const registry = yield* makeRegistry(
+      () => {
+        const index = clients.length
+        const raw = client((args, callback) => {
+          if (index === 1 && args[0] === "watch") callback(null, { watch: "/replacement" })
+          else standard(args, callback)
+          if (index === 1 && args[0] === "subscribe") Deferred.doneUnsafe(resumed, Effect.void)
+        })
+        clients.push(raw)
+        return raw
+      },
+      { retryBaseMs: 1, retryCapMs: 2 },
+    )
+    const subscription = yield* registry.subscribe(
+      { type: "project", project: "/repo" },
+      input("/repo/src", [], invalidations),
+    )
+    clients[0].emit("end")
+
+    yield* Deferred.await(resumed).pipe(Effect.timeout("1 second"))
+    expect(invalidations).toEqual(["incompatible-clock"])
+    yield* Effect.promise(() => subscription.unsubscribe())
+  }),
+)
+
 it.live("does not resurrect a subscription removed during an outage", () =>
   Effect.gen(function* () {
     const clients: TestClient[] = []
@@ -273,6 +347,7 @@ it.live("recovers a canceled subscription without disturbing its sibling", () =>
   Effect.gen(function* () {
     const resubscribed = yield* Deferred.make<void>()
     const updates: Watcher.Update[][] = [[], []]
+    const invalidations: WatcherInternal.ContinuityReason[][] = [[], []]
     const raw = client((args, callback, current) => {
       standard(args, callback)
       if (args[0] === "subscribe" && current.commands.filter((command) => command[0] === "subscribe").length === 3)
@@ -280,8 +355,8 @@ it.live("recovers a canceled subscription without disturbing its sibling", () =>
     })
     const registry = yield* makeRegistry(() => raw)
     const intent = { type: "project" as const, project: "/repo" }
-    const first = yield* registry.subscribe(intent, input("/repo/first", updates[0]))
-    const second = yield* registry.subscribe(intent, input("/repo/second", updates[1]))
+    const first = yield* registry.subscribe(intent, input("/repo/first", updates[0], invalidations[0]))
+    const second = yield* registry.subscribe(intent, input("/repo/second", updates[1], invalidations[1]))
     raw.emit("subscription", {
       subscription: "opencode-1-1",
       root: "/repo",
@@ -300,11 +375,10 @@ it.live("recovers a canceled subscription without disturbing its sibling", () =>
     })
     yield* Effect.sleep("5 millis")
 
-    expect(updates[0]).toEqual([
-      { path: "/repo/first", type: "update" },
-      { path: "/repo/first", type: "update" },
-    ])
+    expect(updates[0]).toEqual([])
+    expect(invalidations[0]).toEqual(["fresh-instance", "canceled"])
     expect(updates[1]).toEqual([{ path: "/repo/second/skill.md", type: "update" }])
+    expect(invalidations[1]).toEqual([])
     expect(raw.commands.filter((args) => args[0] === "watch")).toHaveLength(1)
     yield* Effect.promise(() => first.unsubscribe())
     yield* Effect.promise(() => second.unsubscribe())

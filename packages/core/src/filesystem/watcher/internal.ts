@@ -5,8 +5,11 @@ import type { Watcher } from "../watcher.js"
 
 const metadata = Symbol("WatcherInternal.metadata")
 
+export type ContinuityReason = "incompatible-clock" | "retry" | "canceled" | "fresh-instance"
+
 export type Metadata = {
   readonly ready?: () => void
+  readonly invalidated?: (reason: ContinuityReason) => void
   readonly placement?: Placement
 }
 

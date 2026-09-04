@@ -26,6 +26,7 @@ suite("Watchman live", () => {
           ignore: [],
           placement: { type: "project", root: tmp.path },
           publish: (event) => Deferred.doneUnsafe(update, Effect.succeed(event.path)),
+          invalidate: () => {},
           fail: (error) => Deferred.doneUnsafe(update, Effect.fail(error)),
         },
       )
