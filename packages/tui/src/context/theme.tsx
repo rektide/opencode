@@ -370,7 +370,9 @@ const themeContext = createSimpleContext({
           .update((draft) => {
             draft.theme = { ...draft.theme, name: theme }
           })
-          .catch(() => {})
+          .catch(() => {
+            if (store.active === theme) setStore("active", config.theme?.name || "opencode")
+          })
         return true
       },
       override(source) {

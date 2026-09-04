@@ -28,6 +28,16 @@ test("uses an available mode while retaining the pinned preference", async () =>
   darkOnly.theme.background = "#111111"
   darkOnly.theme.text = "#eeeeee"
   const native = { version: 2, dark: { text: { default: "#abcdef" } } } as const
+  let config: Info = { theme: { name: "light-only", mode: "dark" } }
+  const service: Interface = {
+    get: async () => config,
+    update: async (update) => {
+      const draft = structuredClone(config)
+      update(draft)
+      config = draft
+      return config
+    },
+  }
   let themes: ReturnType<typeof useThemes> | undefined
 
   function Probe() {
@@ -43,7 +53,7 @@ test("uses an available mode while retaining the pinned preference", async () =>
 
   const app = await testRender(
     () => (
-      <ConfigProvider config={createTuiResolvedConfig({ theme: { name: "light-only", mode: "dark" } })}>
+      <ConfigProvider config={createTuiResolvedConfig(config)} service={service}>
         <ThemeProvider
           mode="dark"
           source={{ discover: () => Promise.resolve({ "light-only": lightOnly, "dark-only": darkOnly, dual, native }) }}
