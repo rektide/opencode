@@ -28,6 +28,16 @@ test("uses an available mode while retaining the pinned preference", async () =>
   darkOnly.theme.background = "#111111"
   darkOnly.theme.text = "#eeeeee"
   const native = { version: 2, dark: { text: { default: "#abcdef" } } } as const
+  let config: Info = { theme: { name: "light-only", mode: "dark" } }
+  const service: Interface = {
+    get: async () => config,
+    update: async (update) => {
+      const draft = structuredClone(config)
+      update(draft)
+      config = draft
+      return config
+    },
+  }
   let themes: ReturnType<typeof useThemes> | undefined
 
   function Probe() {
@@ -43,7 +53,7 @@ test("uses an available mode while retaining the pinned preference", async () =>
 
   const app = await testRender(
     () => (
-      <ConfigProvider config={createTuiResolvedConfig({ theme: { name: "light-only", mode: "dark" } })}>
+      <ConfigProvider config={createTuiResolvedConfig(config)} service={service}>
         <ThemeProvider
           mode="dark"
           source={{ discover: () => Promise.resolve({ "light-only": lightOnly, "dark-only": darkOnly, dual, native }) }}
@@ -223,9 +233,7 @@ test("runtime claim failures are isolated, attributed, and recoverable", async (
   let themes: ReturnType<typeof useThemes> | undefined
   const failures: ThemeError[] = []
   let unsubscribe: (() => void) | undefined
-  const [state, setState] = createSignal<"throw" | "invalid" | "broken" | "first" | "second" | undefined>(
-    "throw",
-  )
+  const [state, setState] = createSignal<"throw" | "invalid" | "broken" | "first" | "second" | undefined>("throw")
   const discovered = {
     first: structuredClone(DEFAULT_THEMES.opencode),
     second: structuredClone(DEFAULT_THEMES.opencode),
@@ -261,7 +269,7 @@ test("runtime claim failures are isolated, attributed, and recoverable", async (
     const upper = current().override(() => {
       const value = state()
       if (value === "throw") throw new Error("claim failed")
-      if (value === "invalid") return 42 as never
+      if (value === "invalid") return 42
       return value
     }, "upper-plugin")
 
