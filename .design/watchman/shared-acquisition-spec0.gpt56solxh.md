@@ -176,11 +176,20 @@ evidence. Unknown and ambiguous errors are not promoted by message matching.
 
 ## Configuration
 
-Add `watchman.maxConcurrentAcquisitions`, a positive integer with default `4`.
-Four permits cap cold-start and recovery work while allowing unrelated roots to
-make progress when one route is slow. The setting is justified because one
-fixed value cannot fit small local sessions and many-project servers, and the
-bound itself is an operational contract rather than test-only machinery.
+Add `fs.watchman.maxConcurrentAcquisitions`, a positive integer with default
+`4`. CLI-launched servers read it from
+`OPENCODE_WATCHMAN_MAX_CONCURRENT_ACQUISITIONS` through the existing positive
+integer environment decoder
+([`server-process.ts:122-143`](/packages/cli/src/server-process.ts#L122-L143)).
+`ServerOptions` validates and preserves the value
+([`options.ts:40-55`](/packages/server/src/options.ts#L40-L55)); server route
+composition already forwards the complete `options.fs?.watchman` object to
+`Watcher.configured`, so no per-field route mapping is required
+([`routes.ts:112-119`](/packages/server/src/routes.ts#L112-L119)). Four permits
+cap cold-start and recovery work while allowing unrelated roots to make
+progress when one route is slow. The setting is justified because one fixed
+value cannot fit small local sessions and many-project servers, and the bound
+itself is an operational contract rather than test-only machinery.
 
 Do not add circuit-specific timing knobs. The shared circuit reuses existing
 `retryBaseMs` and `retryCapMs` (defaults 100 ms and 2 s). Shared delays are
