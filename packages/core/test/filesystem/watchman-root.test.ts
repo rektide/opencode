@@ -614,6 +614,7 @@ it.live("a submitted timeout closes only its root generation", () =>
 it.live("resumes each subscription from its cursor after a socket restart", () =>
   Effect.gen(function* () {
     const resumed = yield* Deferred.make<readonly unknown[]>()
+    const processed = yield* Deferred.make<void>()
     const clients: TestClient[] = []
     const registry = yield* makeRegistry(
       () => {
@@ -627,15 +628,18 @@ it.live("resumes each subscription from its cursor after a socket restart", () =
       },
       { retryBaseMs: 1, retryCapMs: 2 },
     )
-    const subscription = yield* registry.subscribe({ type: "project", project: "/repo" }, input("/repo/src"))
+    const subscription = yield* registry.subscribe(
+      { type: "project", project: "/repo" },
+      { ...input("/repo/src"), publish: () => Deferred.doneUnsafe(processed, Effect.void) },
+    )
     clients[0].emit("subscription", {
       subscription: "opencode-1-1",
       root: "/repo",
       clock: "c:2",
       is_fresh_instance: false,
-      files: [],
+      files: [{ name: "changed.ts", exists: true, new: false, type: "f" }],
     })
-    yield* Effect.sleep("5 millis")
+    yield* Deferred.await(processed)
     clients[0].emit("end")
 
     expect((yield* Deferred.await(resumed).pipe(Effect.timeout("1 second")))[3]).toMatchObject({
