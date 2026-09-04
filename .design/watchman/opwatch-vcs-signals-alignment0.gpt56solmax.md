@@ -64,8 +64,9 @@ The current direction is broader in the daemon and narrower in the OpenCode
 delivery path:
 
 - Watchwoman is designing one ordered, traversal-aware `ViewFilter`, with
-  `smart`, `strict`, and `off` VCS profiles, machine rules, a non-overridable
-  `ignore_dirs` floor, and one immutable filter snapshot per registered root.
+  `smart`, `strict`, and `off` VCS profiles, machine and root rules, staged
+  path/type/metadata facts, and one immutable filter snapshot per registered
+  root.
 - OpenCode's metadata directories are intended to use forced **exact**
   placement. Exact `refs/heads` and `op_heads/heads` roots do not traverse an
   enclosing `.git` or `.jj` component, so their delivery does not require the
@@ -83,15 +84,17 @@ delivery path:
   configuration actually selected.
 
 This pass was requested to turn those facts into one tracer path across the
-epic, all four children, the daemon work, Core, and Compfuzor. It recommends
-ticket changes but deliberately makes none.
+epic, all four original children, the daemon work, Core, and Compfuzor. The body
+records the recommendation as written; the accepted graph and subsequent rule
+direction are recorded in the addendum.
 
 ### Deployment snapshot inspected
 
 At this pass, `/usr/local/bin/watchwoman` resolved to the archive checkout's
 release binary and reported `watchwoman 0.7.0`. The generated machine config
-contains `root_policy`, warning/cap values, and `ignore_dirs`, but no `filter`
-object ([deployed `watchwoman.json`](file:///opt/watchwoman-git/etc/watchwoman.json)).
+currently contains `root_policy`, warning/cap values, and legacy `ignore_dirs`,
+but no `filter` object; deployment must migrate those names to ordered rules
+([deployed `watchwoman.json`](file:///opt/watchwoman-git/etc/watchwoman.json)).
 The generated service has no VCS startup pin and receives
 `WATCHWOMAN_CONFIG_FILE` through its environment file
 ([deployed `watchwoman.service`](file:///opt/watchwoman-git/etc/watchwoman.service#L22-L32)).
@@ -135,8 +138,8 @@ false. Keep a final live-gate edge instead.
 | Exact metadata root | A directory target registered as its own daemon root, such as `refs/heads` or `op_heads/heads`. | OpenCode Watcher intent/placement layer |
 | Broad project root | The ordinary source-tree root through which `.git/...` or `.jj/...` is a root-relative descendant. | Watchwoman root registration plus `ViewFilter` |
 | Smart profile | Built-in ordered rules that expose selected summaries through broad-root VCS denies. It is not a user-authored glob allowlist. | Watchwoman code, selected by resolved daemon configuration |
-| Effective filter program | Ignore floor, machine rules, cookie contribution, selected VCS profile, then implicit allow. | Watchwoman resolved configuration and `ViewFilter` |
-| Root snapshot | The immutable `ViewFilter` and merged local/global floor captured when one root registration is published. | Watchwoman root lifecycle |
+| Effective filter program | Machine rules, root rules, cookie contribution, selected VCS profile, then implicit allow. | Watchwoman resolved configuration and `ViewFilter` |
+| Root snapshot | The immutable compiled rule program captured when one root registration is published. | Watchwoman root lifecycle |
 | Reload | Atomic replacement of the resolved configuration used for future registrations, plus immediate retirement of roots newly denied by root policy. | Watchwoman SIGHUP/configuration lifecycle |
 | Refresh or re-registration | `watch-del` followed by `watch`, GC retirement followed by a later watch, or daemon restart followed by a watch. Repeating `watch` against an existing root is not refresh. | Client/operator plus Watchwoman root lifecycle |
 | VCS invalidation | A semantic instruction to reread current provider metadata. It is broader than `BranchUpdated`. | Core VCS service and public event contract |
@@ -155,17 +158,17 @@ This vocabulary prevents four authorities from collapsing into one:
 
 | Existing claim | Conflict | Replacement |
 | --- | --- | --- |
-| The daemon child should add path-relative exception globs. | The accepted daemon direction is a generic ordered engine with explicit matcher semantics and traversal feasibility, not a second VCS-only schema ([daemon design, decisions and profiles](file:///home/rektide/src/watchwoman-systemd/.design/opencode/vcs-config2-draft0.gpt56solmax.md#L92-L118), [L307-L358](file:///home/rektide/src/watchwoman-systemd/.design/opencode/vcs-config2-draft0.gpt56solmax.md#L307-L358)). | Rename the child around the ordered view filter and describe `smart` as one built-in contribution. |
+| The daemon child should add path-relative exception globs. | The accepted daemon direction is a generic ordered, staged engine with explicit matcher semantics and traversal feasibility, not a second VCS-only schema ([daemon design](file:///home/rektide/src/watchwoman-systemd/.design/opencode/vcs-config2-draft0.gpt56solmax.md)). | Rename the child around the ordered view filter and describe `smart` as one built-in contribution. |
 | Unset config must be byte-identical to "today." | There are three different baselines: the fresh carrier is shallow and does not special-case `.jj`; the deployed old line is strict; the target default is smart ([reality audit](file:///home/rektide/src/watchwoman-systemd/.design/opencode/vcs-config2-reality0.gpt56solmax.md#L66-L88)). | Name every baseline. Omitted `filter` selects smart in the new contract; preserving deployed strict behavior requires an explicit `strict` pin. |
-| SIGHUP makes held roots converge lazily. | The new filter is immutable for a root's lifetime. Repeated `watch` and `debug-recrawl` retain it; only root recreation adopts a new filter ([snapshot contract](file:///home/rektide/src/watchwoman-systemd/.design/opencode/vcs-config2-draft0.gpt56solmax.md#L566-L627)). | Rename the child to resolved-config reload and immutable root snapshots. Do not promise mutation or convergence of a held root. |
+| SIGHUP makes held roots converge lazily. | The new filter is immutable for a root's lifetime. Repeated `watch` and `debug-recrawl` retain it; only root recreation adopts a new filter ([snapshot contract](file:///home/rektide/src/watchwoman-systemd/.design/opencode/vcs-config2-draft0.gpt56solmax.md)). | Rename the child to resolved-config reload and immutable root snapshots. Do not promise mutation or convergence of a held root. |
 | Stale reaping, restart, and "re-watch" are equivalent convergence events. | GC and restart remove the old root; a later registration is new. A repeated watch returns the old root. | Spell out `watch-del` plus `watch`, GC retirement plus later `watch`, and restart plus later `watch`. |
 | Core depends on daemon broad-root allowlisting. | File targets stay on Node, and forced-exact directory targets register their own roots. The VCS component filter is outside both paths. | Remove the dependency. Retain a deployed exact-root gate because root policy, caps, target existence, and watcher health still apply. |
-| Exact placement bypasses all daemon policy. | It bypasses only ancestor-sensitive VCS component rules. Root admission, global/root ignore floors, scan caps, target existence, and native watcher health still govern the exact root. | State and test the narrower claim. Use operation-head/ref names that do not collide with the effective floor, and record the floor in the gate artifact. |
+| Exact placement bypasses all daemon policy. | It bypasses only ancestor-sensitive VCS component rules. Root admission, ordered machine/root rules, scan caps, target existence, and native watcher health still govern the exact root. | State and test the narrower claim and record effective user rules in the gate artifact. |
 | C5 can reuse `BranchUpdated` for every metadata event. | Current Core only publishes when `branch.current` changes ([`vcs.ts:119-142`](/packages/core/src/vcs.ts#L119-L142)); the client reducer patches only the branch ([`data.ts:1211-1220`](/packages/client/src/solid/data.ts#L1211-L1220)). This cannot refresh jj labels, conflicts, workspace membership, or unchanged-branch metadata. | Add a full-metadata result or invalidate-and-refetch event. Keep `BranchUpdated` only as branch-specific compatibility. |
 | `<vcs.store>/HEAD` is the Git target. | Current project state retains Git's common directory, while linked worktrees have a separate worktree-local administrative directory. | Observe worktree-specific `gitDirectory/HEAD`; observe refs and packed refs in `commonDirectory`. Re-resolve topology when pointer sentinels change. |
 | The jj path can be evaluated under each workspace root. | A secondary workspace's `.jj/repo` is a pointer to the main repository ([probe-backed target note](/.design/watchman/watches.glm53.md#L64-L82)); this workspace demonstrates that shape in [`.jj/repo`](file:///home/rektide/src/watchwoman-systemd/.jj/repo). | Resolve the pointer in Core and register the resolved main-repository target. Broad-root smart tests separately register the main containing root. |
 | Allow `.jj/repo/op_heads/**`. | That is broader than the selected summary and includes an unneeded ancestor domain. | Canonicalize the built-in to `RootSubtree .jj/repo/op_heads/heads`; ancestors are traverse-only and all sibling `op_heads` content remains denied. |
-| "All other VCS paths stay invisible" is an engine-wide guarantee. | `strict`, `off`, higher-priority custom rules, ignore floors, separately registered nested roots, and metadata-interior roots deliberately produce different results. | Qualify the claim as neutral `smart` behavior through a broad project root. Test exact roots separately. |
+| "All other VCS paths stay invisible" is an engine-wide guarantee. | `strict`, `off`, earlier machine/root rules, separately registered nested roots, and metadata-interior roots deliberately produce different results. | Qualify the claim as neutral `smart` behavior through a broad project root. Test exact roots separately. |
 | Managed config contains the allowlist and code does not. | The selected profile's semantics are versioned built-in code; config chooses a mode and can add higher-priority rules. Core's exact target plan is also code-owned. | Say that managed config owns production selection and overrides, while code owns profile and provider semantics. |
 
 ## Two delivery lanes
@@ -233,9 +236,9 @@ deny  Component   .svn
 deny  Component   .jj
 ```
 
-The engine must preserve its complete order: merged machine/root
-`ignore_dirs`, machine rules, cookie profile, VCS profile, then implicit allow
-([daemon rule priority](file:///home/rektide/src/watchwoman-systemd/.design/opencode/vcs-config2-draft0.gpt56solmax.md#L266-L305)).
+The engine must preserve its complete order: machine rules, root rules, cookie
+profile, VCS profile, then implicit allow
+([daemon rule priority](file:///home/rektide/src/watchwoman-systemd/.design/opencode/vcs-config2-draft0.gpt56solmax.md)).
 Pass-through ancestors such as `.git`, `.git/refs`, and `.jj/repo/op_heads` are
 enumerated only when needed and never enter the tracked tree. Crawl, event
 ingest, move-in reconciliation, subtree tombstoning, recrawl, and query
@@ -315,18 +318,18 @@ authority must not be exposed in mutually inconsistent revisions.
 
 ## Ticket resteering
 
-The current graph has only two blocking edges: `daemon-allowlist` blocks Core
-and Compfuzor, while `sighup-lazy-reload` is not connected to either. That graph
+At review time the graph had only two blocking edges: `daemon-allowlist` blocked
+Core and Compfuzor, while `sighup-lazy-reload` was not connected to either. That graph
 both overstates the daemon dependency for exact interests and understates the
 configuration/lifecycle dependency for a production smart-filter rollout.
 
 | Current issue | Disposition | Proposed responsibility |
 | --- | --- | --- |
 | `opwatch-vcs-signals` | Retain ID; rename and amend | Integration epic for reactive VCS observation through exact and broad-root routes, production selection, and one recorded activation gate. Suggested title: `Reactive VCS observation across Core and Watchwoman`. |
-| `opwatch-vcs-signals-daemon-allowlist` | Rename to `opwatch-vcs-signals-daemon-view-filter` and amend; do not implement the old schema | Ordered `ViewFilter`, smart/strict/off profiles, traversal and event reconciliation, ingest authority, and profile conformance. Suggested title: `Daemon: ship ordered smart VCS view filtering`. |
+| `opwatch-vcs-signals-daemon-allowlist` | Rename to `opwatch-vcs-signals-daemon-view-filter` and amend; do not implement the old schema | Ordered staged `ViewFilter`, unified machine/root rules, path/type/metadata predicates, smart/strict/off profiles, traversal and event reconciliation, ingest authority, and profile conformance. Suggested title: `Daemon: ship ordered smart VCS view filtering`. |
 | `opwatch-vcs-signals-sighup-lazy-reload` | Rename to `opwatch-vcs-signals-config-snapshots` rather than duplicate; supersede only if preserving the old ID is required | Resolved config, last-good SIGHUP, publication fencing, immutable root snapshots, and explicit refresh semantics. Suggested title: `Daemon: reload config for immutable root generations`. |
 | `opwatch-vcs-signals-core-subscriptions` | Rename to `opwatch-vcs-signals-core-observation`, remove daemon block edge, amend, and split product consumption | Provider/VCS-owned topology plus exact metadata interests, semantic invalidation, and authoritative reread. Add `opwatch-vcs-signals-core-consumers` for footer/conflict/open-copy-list behavior so transport and product acceptance are independently visible. |
-| `opwatch-vcs-signals-compfuzor-policy` | Rename to `opwatch-vcs-signals-compfuzor-deployment`, amend, and split activation | Deploy a revision containing filter plus Linux lifecycle, select production mode, preserve floors/root safety, regenerate service/config, and restart correctly. Move behavioral proof into a new dependent activation child. |
+| `opwatch-vcs-signals-compfuzor-policy` | Rename to `opwatch-vcs-signals-compfuzor-deployment`, amend, and split activation | Deploy a revision containing filter plus Linux lifecycle, migrate legacy ignores to ordered rules, select production mode, preserve root safety, regenerate service/config, and restart correctly. Move behavioral proof into a new dependent activation child. |
 | No current issue | Add `opwatch-vcs-signals-production-lifecycle` or link an existing external issue | Reconstruct graceful SIGTERM/SIGINT, SIGHUP distinction, systemd listener adoption, `sd_notify`, and supervised unit behavior on the fresh Watchwoman line. Do not hide this inside Compfuzor or `ViewFilter`. |
 | No current issue | Add `opwatch-vcs-signals-activation` | Own the isolated and deployed behavioral artifact and become the only final blocker for epic closure. |
 
@@ -386,10 +389,12 @@ Replace the current absolute allowlist acceptance with these outcomes:
 Replace exception-glob acceptance with the daemon design's real boundary:
 
 - One `ViewFilter::classify` operation returns `track`, `descend`, and
-  provenance for non-lossy root-relative paths.
-- Strict schema validation, source precedence, fixed effective rule priority,
-  smart/strict/off profiles, cookie composition, and the non-overridable merged
-  `ignore_dirs` floor are covered by pure tests.
+  provenance for non-lossy structural paths after requesting only the kind or
+  metadata facts needed by surviving path candidates.
+- Strict machine/root schema validation, source precedence, fixed effective
+  rule priority, basename/suffix/extension/regex matchers, smart/strict/off
+  profiles, and cookie composition are covered by pure tests. Legacy
+  `ignore_dirs` is rejected rather than interpreted separately.
 - Initial crawl, live create/remove/rename/type transitions, populated
   directory move-in, subtree tombstoning, and `debug-recrawl` use the same
   snapshotted filter. Query code adds no second VCS or cookie authority.
@@ -420,7 +425,7 @@ acceptance:
   reapplies the process's immutable startup overrides.
 - New root registrations use the new generation. An existing admitted root,
   repeated `watch`, and `debug-recrawl` retain the root's original filter and
-  merged ignore floor.
+  compiled user-rule program.
 - `watch-del` plus `watch`, stale-GC retirement plus a later `watch`, and daemon
   restart plus a later `watch` create a new root and adopt the then-current
   generation.
@@ -434,7 +439,7 @@ Drop "the journal names roots still running a stale snapshot" from mandatory
 acceptance unless the operations owner explicitly chooses generation
 observability. The
 design says public generation reporting is useful but not required
-([daemon design lines 624-626](file:///home/rektide/src/watchwoman-systemd/.design/opencode/vcs-config2-draft0.gpt56solmax.md#L624-L626)).
+([daemon snapshot design](file:///home/rektide/src/watchwoman-systemd/.design/opencode/vcs-config2-draft0.gpt56solmax.md)).
 If retained, split it as observation rather than making correctness depend on a
 log scan.
 
@@ -492,9 +497,9 @@ Acceptance should require:
 - Managed `watchwoman.json` explicitly selects the intended production VCS
   mode. Recommended final state is `filter.mode.vcs: smart` with no redundant
   custom allow rules.
-- `IGNORE_DIRS` remains the non-overridable safety floor and does not gain
-  `.git`, `.hg`, or `.jj`; `init-watchmanconfig.sh` seeds exactly that same
-  floor. A floor entry for a VCS component would suppress the smart profile.
+- Legacy `IGNORE_DIRS`, machine `ignore_dirs`, and root `ignore_dirs` are
+  migrated to explicit ordered `Component` or `RootSubtree` denies according to
+  intended scope. No compatibility floor remains in code or generated config.
 - Root denies, 100k warning, 2M scan cap, config environment delivery, socket
   ownership, `Type=notify`, and bounded service-only restart semantics remain
   unchanged ([policy source](file:///home/rektide/src/compfuzor/watchwoman.src.pb#L192-L240),
@@ -521,7 +526,7 @@ Its gate has four layers.
 
 **Daemon broad-root conformance**
 
-- With neutral custom rules and no matching floor, smart exposes exactly the
+- With neutral machine and root rules, smart exposes exactly the
   canonical matrix through a broad root; pass-through ancestors are absent.
 - Git branch switch, loose branch create/move/delete, packed-ref rewrite, Hg
   branch change when Hg is available, and jj operation-head create/remove are
@@ -536,7 +541,7 @@ Its gate has four layers.
   `op_heads/heads` receive both creates and deletes. This proves the placement
   correction rather than accidentally passing through smart broad-root rules.
 - The effective root policy admits those exact descendants, the target exists
-  or its sentinel converges, the effective ignore floor does not suppress the
+  or its sentinel converges, no earlier machine/root rule suppresses the
   exercised names, and no file-count or native-watcher failure is hidden.
 - File interests are observed through Node and are not counted as daemon proof.
 
@@ -674,8 +679,9 @@ and root shape.
   operations and why a service-only restart must leave the socket active.
 - [`compfuzor/watchwoman.src.pb`](file:///home/rektide/src/compfuzor/watchwoman.src.pb)
   is the actual production authority for daemon revision, config environment,
-  socket/service units, safety floor, generated JSON, and operator runbook.
-  Updating Watchwoman's built-in unit renderer alone does not change it.
+  socket/service units, current legacy ignore inputs, generated JSON, and
+  operator runbook. Deployment must migrate those inputs to ordered rules;
+  updating Watchwoman's built-in unit renderer alone does not change it.
 
 # Addendum: Accepted ticket graph
 
