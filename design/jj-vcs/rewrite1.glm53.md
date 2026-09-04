@@ -265,3 +265,39 @@ only implicitly.
 Bookmarks: floating `jj-vcs-rektide` promoted to this line;
 `jj-vcs-20260902-evening` preserves the pre-rewrite line at `abf295af`;
 `jj-vcs-rewrite` was the per-batch construction checkpoint.
+
+# Corrections — 2026-09-04
+
+The 2026-09-03 refresh (onto v2 `7ba5f3e5`, bookmark renamed to
+`jj-vcs-rektide`, snapshot `jj-vcs-rektide-20260903`) rewrote every
+SHA in the outcome table above; those record the 2026-09-02 landing
+and are preserved by `jj-vcs-rektide-20260903-prefreshen`. The line
+today:
+
+| Commit | SHA |
+| --- | --- |
+| feat(core): recognize Jujutsu repositories | `7cb5e498` |
+| feat(core): reclassify VCS on project open | `09fec29e` |
+| feat(core): add Jujutsu VCS provider | `0d96e98b` |
+| feat(core): record worktree metadata | `f43d47bd` |
+| feat(core): manage Jujutsu workspaces | `36b33cc9` |
+| fix(core): pass --ignore-working-copy when listing workspaces (optional hardening) | `ab33f473` |
+| feat(core): describe Jujutsu working copies | `d1af904c` |
+| feat(tui): show working-copy labels | `02815374` |
+| docs commits (carry/rename/refresh) | `38b374c`..`5f3998cc` |
+
+Record corrections from the same review round:
+
+1. **The flag fix is now designated optional** — subject suffix
+   `(optional hardening)`, body states it is droppable without losing
+   function (the listing is correct either way; only phantom snapshot
+   operations on refresh scans are at stake).
+2. **The `noGit` follow-up is dissolved.** The incoherent
+   `vcs !== "git"` shape was the *composed reference*'s; our line
+   inherited newer upstream's coherent `!project()?.vcs` form, and
+   the branch-mode gate naturally excludes jj (empty `branch.current`).
+   Nothing to chase.
+3. **C4 (review Jujutsu working-copy changes) was dropped at the
+   2026-09-03 refresh** — upstream `7ba5f3e5` absorbed the any-VCS
+   review-mode gates itself (`model.ts` `if (project?.vcs)`), making
+   the commit redundant. Behavior retained via upstream's side.
