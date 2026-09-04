@@ -279,6 +279,46 @@ it.effect("uses one shared half-open probe sequence during a connect outage", ()
   }),
 )
 
+it.effect("shares the circuit when connections close during capability checks", () =>
+  Effect.gen(function* () {
+    const starts = yield* Effect.all(Array.from({ length: 8 }, () => Deferred.make<void>()), {
+      concurrency: "unbounded",
+    })
+    let attempts = 0
+    const registry = yield* makeRegistry(
+      () => {
+        const index = attempts++
+        const raw = client()
+        return {
+          ...raw,
+          capabilityCheck: () => {
+            Deferred.doneUnsafe(starts[index], Effect.void)
+            raw.emit("end")
+          },
+        }
+      },
+      { maxConcurrentAcquisitions: 1, retryBaseMs: 100, retryCapMs: 400 },
+    )
+    const fibers = yield* Effect.all(
+      Array.from({ length: 6 }, (_, index) =>
+        registry
+          .subscribe({ type: "project", project: `/root-${index}` }, input(`/root-${index}`))
+          .pipe(Effect.scoped, Effect.forkScoped({ startImmediately: true })),
+      ),
+      { concurrency: "unbounded" },
+    )
+
+    yield* Deferred.await(starts[0])
+    yield* Effect.yieldNow
+    expect(attempts).toBe(1)
+    yield* TestClock.adjust("100 millis")
+    yield* Deferred.await(starts[1])
+    expect(attempts).toBe(2)
+
+    yield* Effect.forEach(fibers, Fiber.interrupt, { discard: true })
+  }),
+)
+
 it.effect("drains circuit waiters only through bounded admission after probe success", () =>
   Effect.gen(function* () {
     const starts = yield* Effect.all(Array.from({ length: 6 }, () => Deferred.make<void>()), {
