@@ -77,7 +77,6 @@ import { PermissionPrompt } from "./permission"
 import { FormPrompt } from "./form"
 import { DialogExportOptions } from "../../ui/dialog-export-options"
 import { DialogExportResult } from "../../ui/dialog-export-result"
-import { sessionEpilogue } from "../../util/presentation"
 import { useConfig } from "../../config"
 import { useClipboard } from "../../context/clipboard"
 import { nextThinkingMode, reasoningSummary, type ThinkingMode } from "../../context/thinking"
@@ -139,7 +138,7 @@ export function Session(props: {
   onTerminalPicker?: (show: (() => void) | undefined) => void
   width?: number
 }) {
-  const setEpilogue = useEpilogue()
+  const epilogue = useEpilogue()
   const clipboard = useClipboard()
   const writeExport = async (file: string, content: string) => {
     await mkdir(path.dirname(file), { recursive: true })
@@ -178,10 +177,19 @@ export function Session(props: {
   createEffect(() => currentLocation.set(location()))
 
   createEffect(() => {
-    const title = Locale.truncate(session()?.title ?? "", 50)
-    setEpilogue(sessionEpilogue({ title, sessionID: session()?.id }))
+    const current = session()
+    if (!current) return epilogue.set()
+    epilogue.set({
+      title: Locale.truncate(current.title ?? "", 50),
+      sessionID: current.id,
+      activity: {
+        status: data.session.status(current.id),
+        updated: current.time.updated,
+        idle: current.time.idle,
+      },
+    })
   })
-  onCleanup(() => setEpilogue())
+  onCleanup(() => epilogue.clear(sessionID))
   const descendantSessionIDs = createMemo(() => {
     if (session()?.parentID) return []
     return data.session.family(route.sessionID).filter((id) => id !== route.sessionID)
