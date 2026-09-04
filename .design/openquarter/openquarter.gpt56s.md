@@ -74,26 +74,22 @@ points:
 ctx.session.hook("compaction.policy", (event) =>
   Effect.sync(() => {
     if (shouldBypass(event.sessionID, event.trigger)) {
-      event.decision = { compact: false }
+      event.disarm()
     }
   }),
 )
 ```
 
 The hook receives the Session, Agent, selected model, automatic trigger, and a
-mutable default decision:
+monotonic veto operation:
 
 ```ts
-export type SessionCompactionDecision =
-  | { readonly compact: true }
-  | { readonly compact: false }
-
 export interface SessionCompactionPolicy {
   readonly sessionID: Session.ID
   readonly agent: Agent.ID
   readonly model: Model.Ref
   readonly trigger: "preflight" | "overflow"
-  decision: SessionCompactionDecision
+  readonly disarm: () => void
 }
 
 export interface SessionHooks {
@@ -103,23 +99,20 @@ export interface SessionHooks {
 ```
 
 This is a veto seam, not a replacement compaction engine. Core asks only when
-it already has an eligible automatic compaction proposal, with
-`decision: { compact: true }`. Hooks run in plugin order and the final decision
-wins, matching the existing mutable [`session.retry`
-hook](/packages/plugin/src/effect/session.ts#L56-L74).
+it already has an eligible automatic compaction proposal. `disarm()` is
+idempotent and monotonic for that proposal: hooks still run in plugin order,
+but no later hook can accidentally re-arm a lossy operation that an earlier
+hook vetoed.
 
 This proposal deliberately does not run a policy hook on every ordinary Step
 and does not let a plugin force compaction when Core did not propose it. That
 keeps plugin work off the normal model-call path and avoids publishing the
 unstable threshold calculation. A plugin that wants earlier compaction should
-request manual compaction through the existing Session operation. If a second
-real use case later needs custom thresholds, the richer assessment interface
-described below can extend this seam.
-
-A monotonic `disarm()` callback is a viable alternative decision shape. The
-mutable decision is preferred here because it follows current hook composition:
-later hooks see and may intentionally override earlier policy. Changing to a
-monotonic veto would not change the seam placement or trigger contract.
+use the existing manual Session operation through a user or external client.
+The server plugin Context does not expose that operation yet; the first
+secondary idea below is the small companion seam needed for OpenQuarter to
+invoke it directly. If a second real use case later needs custom thresholds,
+the richer assessment interface described below can extend this seam.
 
 Core asks separately for each eligible proposal. A preflight veto is not
 reused as the overflow decision for that Physical Attempt; this separation is
@@ -134,12 +127,14 @@ paths before OpenQuarter is consulted.
 | Mode | Preflight proposal | Eligible provider overflow | Result |
 | --- | --- | --- | --- |
 | `normal` | Allow | Allow | Current OpenCode behavior |
-| `defer` | Veto | Allow | Keep full context until the provider proves it does not fit, then use built-in recovery |
+| `defer` | Veto | Allow | Keep full context until an eligible provider overflow, then attempt built-in recovery |
 | `off` | Veto | Veto | Never compact automatically; a real overflow becomes the original terminal provider error |
 
-`defer` should be OpenQuarter's primary mode. It extends useful Session life
-without throwing away the existing overflow safety net. `off` is an explicit
-expert choice, not a promise that an oversized request can succeed.
+Absent plugin state means `normal`, preserving opt-in behavior. Invoking
+OpenQuarter without an explicit mode should set `defer`; it is the recommended
+active mode because it extends useful Session life without throwing away the
+existing overflow safety net. `off` is an explicit expert choice, not a promise
+that an oversized request can succeed.
 
 ## Current Control Map
 
@@ -248,16 +243,24 @@ const allowsAutomaticCompaction = Effect.fnUntraced(function* (
   loaded: SessionContext.Loaded,
   trigger: "preflight" | "overflow",
 ) {
-  const event = yield* hooks.trigger("session", "compaction.policy", {
+  let armed = true
+  yield* hooks.trigger("session", "compaction.policy", {
     sessionID: loaded.session.id,
     agent: loaded.agent.id,
     model: loaded.model.ref,
     trigger,
-    decision: { compact: true },
+    disarm: () => {
+      armed = false
+    },
   })
-  return event.decision.compact
+  return armed
 })
 ```
+
+Like existing runtime hooks, the callback has no typed failure channel. A
+defect or interruption propagates and the candidate does not start compaction.
+This keeps failures visible, preserves a veto already made by an earlier hook,
+and avoids turning cancellation into lossy work.
 
 Preflight becomes conceptually:
 
@@ -299,15 +302,16 @@ success.
 The public contract should state all of these explicitly:
 
 1. The hook is called only for automatic proposals that Core would otherwise execute.
-2. `preflight + compact:false` proceeds to the unchanged provider request.
-3. `overflow + compact:false` preserves the original provider failure; it does not retry unchanged context.
+2. Disarming `preflight` proceeds to the unchanged provider request.
+3. Disarming `overflow` preserves the original provider failure; it does not retry unchanged context.
 4. Manual compaction never calls this hook.
 5. The hook runs before `session.compaction.started` and before any compaction summary request.
 6. A hook may run repeatedly across Steps or retries; callbacks must be idempotent.
-7. Hooks run sequentially in plugin order, and the last mutation wins.
+7. Hooks run sequentially in plugin order, and a veto is monotonic for that candidate.
 8. Provider-scoped registration is supported because the event includes `model`.
 9. Disabling or unloading the plugin restores Core's default decision without rewriting Session state.
 10. Core configuration remains an outer gate: this veto cannot override `compaction.auto:false` to force compaction.
+11. A hook defect or interruption fails the execution and does not start the proposed compaction.
 
 The runner already waits for Location plugin readiness before loading the first
 Step ([`runner/llm.ts:47-61`](/packages/core/src/session/runner/llm.ts#L47-L61)),
@@ -328,7 +332,7 @@ yield* ctx.session.hook("compaction.policy", (event) =>
       Effect.sync(() => {
         const mode: Mode = decodeMode(value)
         if (mode === "off" || (mode === "defer" && event.trigger === "preflight")) {
-          event.decision = { compact: false }
+          event.disarm()
         }
       }),
     ),
@@ -336,12 +340,18 @@ yield* ctx.session.hook("compaction.policy", (event) =>
 )
 ```
 
-The sketch intentionally reads durable plugin storage at the rare proposal
-boundary instead of trusting a Location-local cache. Server plugin storage is
-namespaced by plugin ID but shared across Location instances; a Session ID in
-the key preserves behavior if that Session moves to another Location where
-OpenQuarter is active. Commands can set `defer`, set `off`, inspect the mode,
-or remove the key to restore `normal`.
+The sketch reads durable plugin storage at each proposal boundary instead of
+trusting a Location-local cache. This is not necessarily rare: once the latest
+usage exceeds the preflight threshold, a deferred Session can propose
+compaction again on subsequent Steps and retries. Start with the authoritative
+read, measure it, and add a cache only with explicit command-time updates and
+cross-Location invalidation semantics.
+
+Server plugin storage is namespaced by plugin ID but shared across Location
+instances; a Session ID in the key preserves behavior if that Session moves to
+another Location where OpenQuarter is active. Missing or invalid state decodes
+to `normal`. Commands can set `defer`, set `off`, inspect the mode, or remove
+the key to restore `normal`.
 
 This is a deep module split:
 
@@ -349,14 +359,15 @@ This is a deep module split:
   retry limits, event ordering, and fallback semantics.
 - The plugin owns only user policy: which Session may bypass which automatic
   proposal.
-- The interface carries five facts and one mutable decision. Deleting the hook
-  would force every plugin back into unsafe shared-state or transport hacks.
+- The interface carries four identity/trigger facts and one monotonic
+  operation. Deleting the hook would force every plugin back into unsafe
+  shared-state or transport hacks.
 
 ### Core Change Surface
 
 | File | Change |
 | --- | --- |
-| [`packages/plugin/src/effect/session.ts`](/packages/plugin/src/effect/session.ts) | Add `SessionCompactionPolicy`, decision type, and the hook key |
+| [`packages/plugin/src/effect/session.ts`](/packages/plugin/src/effect/session.ts) | Add `SessionCompactionPolicy` and the hook key |
 | [`packages/plugin/src/promise/session.ts`](/packages/plugin/src/promise/session.ts) | Mirror the public type exactly |
 | [`packages/core/src/session/runner/llm.ts`](/packages/core/src/session/runner/llm.ts) | Acquire `PluginHooks.Service`; ask the hook at both automatic action points |
 | [`packages/core/src/session/runner/llm.ts`](/packages/core/src/session/runner/llm.ts#L294-L310) | Add `PluginHooks.node` to runner dependencies |
@@ -373,7 +384,7 @@ Promise adapter already forward new `SessionHooks` keys.
 Do not add a durable event for a veto in the first patch. The plugin's durable
 mode is the source of policy, while existing Session events remain facts about
 compactions that actually started. Annotate the runner span with the trigger
-and final decision if Core-level diagnostics are needed.
+and armed/disarmed result if Core-level diagnostics are needed.
 
 ### Acceptance Tests
 
@@ -384,10 +395,11 @@ and final decision if Core-level diagnostics are needed.
 5. An overflow veto makes exactly one provider attempt, creates no compaction record, and surfaces the original overflow.
 6. A second overflow remains terminal without another policy proposal after the one recovery allowance is consumed.
 7. Manual compaction succeeds while the Session's automatic policy is vetoed and never invokes the hook.
-8. Two registered policy hooks observe prior mutations and the final decision wins.
+8. Two registered policy hooks cannot re-arm a candidate after either calls `disarm()`.
 9. Provider-scoped hooks run only for the selected provider in both Effect and Promise plugin flavors.
 10. Existing automatic-compaction, overflow-recovery, retry, and manual-inbox tests remain unchanged and green.
 11. `compaction.auto:false` invokes no automatic-policy hook because Core has no eligible proposal.
+12. A policy-hook defect or interruption propagates and starts no compaction.
 
 The strongest existing fixtures are the automatic and overflow scenarios near
 [`session-runner.test.ts:2310-2600`](/packages/core/test/session-runner.test.ts#L2310-L2600)
@@ -528,11 +540,12 @@ preflight branch. Preserve the provider's real error when recovery is vetoed.
 OpenQuarter can bypass a conservative OpenCode trigger. It cannot exceed the
 provider's actual context capacity with the same model-visible request.
 
-After preflight is vetoed, one of three things happens:
+After preflight is vetoed, one of four things happens:
 
 1. The provider accepts the request, proving the catalog/headroom heuristic was conservative for this call.
-2. `defer` mode receives an eligible overflow, permits built-in compaction, and retries once.
-3. `off` mode, an ineligible overflow, or a second overflow surfaces a terminal error.
+2. `defer` mode receives an eligible overflow, completes built-in compaction, and retries once.
+3. Overflow recovery is eligible but its compaction is unavailable or fails; Core records the failed compaction when possible and preserves the original overflow as terminal.
+4. `off` mode, an ineligible overflow, or a second overflow surfaces a terminal error without another recovery.
 
 "Eligible" matters. Recovery requires an error that OpenCode classifies as
 `context-overflow` before text, reasoning, or tool input starts. Payload-size
@@ -568,11 +581,11 @@ source and tests should be treated as current ground truth for this design:
    classified overflow recovery can both run with context `0`; only preflight
    requires a positive limit.
 
-The hook proposal does not depend on either heuristic. It wraps Core's eventual
-yes/no proposal. The implementation patch should still reconcile the guide and
-Core so plugin authors understand what they are deferring. If final-request
-estimation is the intended contract, fix Core and its tests rather than
-rewriting that part of the guide to describe the older heuristic.
+The hook proposal does not depend on those disputed details. It wraps Core's
+eventual yes/no proposal. The implementation patch should still reconcile the
+guide and Core so plugin authors understand what they are deferring. If
+final-request estimation is the intended contract, fix Core and its tests
+rather than rewriting that part of the guide to describe the older heuristic.
 
 ## Acceptance Decision
 
@@ -580,11 +593,11 @@ The Core change is ready to implement when these points are accepted:
 
 - Hook key: `session.hook("compaction.policy", ...)`.
 - Scope: automatic proposals only; manual compaction bypasses it.
-- Default: `{ compact: true }`, preserving all existing behavior.
+- Default: armed, preserving all existing behavior; `disarm()` is monotonic per candidate.
 - Trigger distinction: `preflight | overflow`.
 - Veto fallback: dispatch unchanged at preflight, preserve the original error at overflow.
 - State ownership: plugins own Session policy in `ctx.storage`; Core adds no persistence for the first version.
-- OpenQuarter default: `defer`, with explicit `normal` and `off` modes.
+- OpenQuarter state default: `normal`; the default enable action selects `defer`, with explicit `off` available.
 
 ## Cross-References
 
@@ -593,7 +606,7 @@ The Core change is ready to implement when these points are accepted:
   observed events are not policy levers.
 - [`packages/www/src/docs/content/compaction.mdx`](/packages/www/src/docs/content/compaction.mdx)
   describes checkpoint contents, manual admission, and user-facing settings;
-  its two contradictory trigger claims are called out above.
+  its three contradictory claims are called out above.
 - [`specs/v2/session.md`](/specs/v2/session.md#L98-L105) defines compaction as a
   rebuild of active history and says disabled automatic compaction makes an
   overflow terminal.
