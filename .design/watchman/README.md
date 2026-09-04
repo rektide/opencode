@@ -216,6 +216,11 @@ map it navigates) · [`maintenance.glm53.md`](/.design/watchman/maintenance.glm5
 
 ## Cross-references
 
+- [`OpenCode OTEL planning corpus`](file:///home/rektide/src/opencode-otel/.design/otel/README.md)
+  — the current downstream migration plan for host-managed signals. Watchman's
+  channel dumps and injectable sink are consumer evidence, not the generic API
+  definition; migration is explicitly deferred until the host trace/metrics
+  gates it depends on are real.
 - [`maintenance.glm53.md`](/.design/watchman/maintenance.glm53.md) — the
   implemented stack's commit table, runtime shape, configuration, metrics,
   verification records, and freshen history. This README replaced it as the
