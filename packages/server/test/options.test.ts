@@ -37,14 +37,27 @@ test("accepts watcher deadline tuning and rejects non-positive values", () => {
     decode({
       fs: {
         subscribeTimeoutMs: 30_000,
-        watchman: { commandTimeoutMs: 120_000, retryBaseMs: 500, retryCapMs: 10_000 },
+        watchman: {
+          commandTimeoutMs: 120_000,
+          maxConcurrentAcquisitions: 4,
+          retryBaseMs: 500,
+          retryCapMs: 10_000,
+        },
       },
     }),
   ).fs
   expect(fs?.subscribeTimeoutMs).toBe(30_000)
-  expect(fs?.watchman).toEqual({ commandTimeoutMs: 120_000, retryBaseMs: 500, retryCapMs: 10_000 })
+  expect(fs?.watchman).toEqual({
+    commandTimeoutMs: 120_000,
+    maxConcurrentAcquisitions: 4,
+    retryBaseMs: 500,
+    retryCapMs: 10_000,
+  })
   expect(Option.isNone(decode({ fs: { subscribeTimeoutMs: 0 } }))).toBe(true)
   expect(Option.isNone(decode({ fs: { watchman: { commandTimeoutMs: -5 } } }))).toBe(true)
+  expect(Option.isNone(decode({ fs: { watchman: { maxConcurrentAcquisitions: 0 } } }))).toBe(true)
+  expect(Option.isNone(decode({ fs: { watchman: { maxConcurrentAcquisitions: 1.5 } } }))).toBe(true)
+  expect(Option.isNone(decode({ fs: { watchman: { maxConcurrentAcquisitions: "4" } } }))).toBe(true)
   expect(Option.isNone(decode({ fs: { watchman: { retryBaseMs: "500" } } }))).toBe(true)
 })
 
