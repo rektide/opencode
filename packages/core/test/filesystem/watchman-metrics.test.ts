@@ -1,5 +1,6 @@
 import { expect } from "bun:test"
-import { Effect, Schedule } from "effect"
+import { Deferred, Effect, Fiber, Schedule } from "effect"
+import { TestClock } from "effect/testing"
 import type { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import type { RawClient } from "@opencode-ai/core/filesystem/watcher/watchman/client"
 import { makeRegistry } from "@opencode-ai/core/filesystem/watcher/watchman/root"
@@ -101,12 +102,129 @@ it.live("records commands, pdus, and filtered updates per channel", () =>
     expect(channel.subs[0].clock).toBe("c:2")
     expect(channel.subs[0].files_in).toBe(2)
     expect(channel.subs[0].updates_out).toBe(1)
+    const acquisition = registry.metrics.event("interval", 1000).acquisition
+    expect(acquisition).toMatchObject({
+      limit: 4,
+      in_flight: 0,
+      admission_waiting: 0,
+      circuit_waiting: 0,
+      circuit_state: "closed",
+    })
 
     yield* Effect.promise(() => subscription.unsubscribe())
     const after = registry.metrics.event("interval", 1000).channels[0]
     expect(after.cumulative.unsubscribes).toBe(1)
     expect(after.subscriptions).toBe(0)
     expect(after.subs).toHaveLength(0)
+  }),
+)
+
+it.effect("reports shared admission pressure", () =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<void>()
+    let capability: ((error: Error | null, response?: unknown) => void) | undefined
+    const registry = yield* makeRegistry(
+      () => ({
+        ...client(),
+        capabilityCheck: (_capabilities, callback) => {
+          capability = callback
+          Deferred.doneUnsafe(started, Effect.void)
+        },
+      }),
+      { metricsIntervalMs: 0, maxConcurrentAcquisitions: 1 },
+    )
+    const admitted = yield* registry
+      .subscribe({ type: "project", project: "/admitted" }, input("/admitted"))
+      .pipe(Effect.forkScoped({ startImmediately: true }))
+    yield* Deferred.await(started)
+    const queued = yield* registry
+      .subscribe({ type: "project", project: "/queued" }, input("/queued"))
+      .pipe(Effect.scoped, Effect.forkScoped({ startImmediately: true }))
+    yield* Effect.yieldNow
+
+    expect(registry.metrics.event("interval", 1000).acquisition).toMatchObject({
+      limit: 1,
+      in_flight: 1,
+      admission_waiting: 1,
+      circuit_waiting: 0,
+      circuit_state: "closed",
+    })
+
+    yield* Fiber.interrupt(queued)
+    if (!capability) throw new Error("Capability callback was not installed")
+    capability(null, { capabilities: { relative_root: true } })
+    const subscription = yield* Fiber.join(admitted)
+    expect(registry.metrics.event("interval", 1000).acquisition.admission_waiting).toBe(0)
+    yield* Effect.promise(() => subscription.unsubscribe())
+  }),
+)
+
+it.effect("reports open, half-open, and recovered circuit transitions", () =>
+  Effect.gen(function* () {
+    const failed = yield* Deferred.make<void>()
+    const probe = yield* Deferred.make<void>()
+    let capability: ((error: Error | null, response?: unknown) => void) | undefined
+    let attempts = 0
+    const registry = yield* makeRegistry(
+      () => {
+        attempts++
+        if (attempts === 1) {
+          Deferred.doneUnsafe(failed, Effect.void)
+          throw new Error("daemon unavailable")
+        }
+        return {
+          ...client(),
+          capabilityCheck: (_capabilities, callback) => {
+            capability = callback
+            Deferred.doneUnsafe(probe, Effect.void)
+          },
+        }
+      },
+      { metricsIntervalMs: 0, maxConcurrentAcquisitions: 1, retryBaseMs: 100, retryCapMs: 400 },
+    )
+    const pending = yield* registry
+      .subscribe({ type: "project", project: "/repo" }, input("/repo"))
+      .pipe(Effect.forkScoped({ startImmediately: true }))
+    yield* Deferred.await(failed)
+    yield* Effect.yieldNow
+
+    expect(registry.metrics.event("interval", 1000).acquisition).toMatchObject({
+      in_flight: 0,
+      circuit_waiting: 1,
+      circuit_state: "open",
+      connect_failures: 1,
+      circuit_opens: 1,
+      half_open_probes: 0,
+      circuit_recoveries: 0,
+    })
+
+    yield* TestClock.adjust("100 millis")
+    yield* Deferred.await(probe)
+    expect(registry.metrics.event("interval", 1000).acquisition).toMatchObject({
+      in_flight: 1,
+      circuit_waiting: 0,
+      circuit_state: "half_open",
+      connect_failures: 1,
+      circuit_opens: 1,
+      half_open_probes: 1,
+      circuit_recoveries: 0,
+    })
+
+    if (!capability) throw new Error("Probe capability callback was not installed")
+    capability(null, { capabilities: { relative_root: true } })
+    const subscription = yield* Fiber.join(pending)
+    const recovered = registry.metrics.event("interval", 1000)
+    expect(recovered.acquisition).toMatchObject({
+      in_flight: 0,
+      circuit_waiting: 0,
+      circuit_state: "closed",
+      connect_failures: 1,
+      circuit_opens: 1,
+      half_open_probes: 1,
+      circuit_recoveries: 1,
+    })
+    expect("fallbacks" in recovered.totals).toBe(false)
+    yield* Effect.promise(() => subscription.unsubscribe())
   }),
 )
 
