@@ -3,6 +3,11 @@ import micromatch from "micromatch"
 import path from "node:path"
 import { Deferred, Effect, Fiber, Queue, RcMap, Schema, Scope, Semaphore } from "effect"
 import type { Watcher } from "../../watcher.js"
+import {
+  DEFAULT_MAX_CONCURRENT_ACQUISITIONS,
+  makeAcquisitionCoordinator,
+  type AcquisitionCoordinator,
+} from "./acquisition.js"
 import { capabilities, command, makeGeneration, type Generation, type RawClientFactory } from "./client.js"
 import { WatchmanMetrics, type MetricsMode, type SubMetrics } from "./metrics.js"
 import { resolve, subscription, type RootIntent, type Route, type SubscriptionRoute } from "./route.js"
@@ -40,6 +45,7 @@ type SubscriptionState = {
 
 export type Options = {
   readonly commandTimeoutMs?: number
+  readonly maxConcurrentAcquisitions?: number
   readonly retryBaseMs?: number
   readonly retryCapMs?: number
   readonly binary?: string
@@ -65,8 +71,16 @@ const RETRY_CAP_MS = 2000
 export const makeRegistry = (factory: RawClientFactory, options?: Options) =>
   Effect.gen(function* () {
     const metrics = new WatchmanMetrics(options?.metricsLog)
+    const limit = options?.maxConcurrentAcquisitions ?? DEFAULT_MAX_CONCURRENT_ACQUISITIONS
+    if (!Number.isSafeInteger(limit) || limit < 1)
+      throw new RangeError("maxConcurrentAcquisitions must be a positive integer")
+    const acquisition = yield* makeAcquisitionCoordinator({
+      limit,
+      retryBaseMs: options?.retryBaseMs ?? RETRY_BASE_MS,
+      retryCapMs: options?.retryCapMs ?? RETRY_CAP_MS,
+    })
     const roots = yield* RcMap.make({
-      lookup: (intent: RootIntent) => makeConnection(intent, factory, options, metrics),
+      lookup: (intent: RootIntent) => makeConnection(intent, factory, options, metrics, acquisition),
     })
     const intervalMs = options?.metricsIntervalMs ?? 0
     if (intervalMs > 0) {
@@ -97,6 +111,7 @@ const makeConnection = (
   factory: RawClientFactory,
   options: Options | undefined,
   metrics: WatchmanMetrics,
+  acquisition: AcquisitionCoordinator,
 ) =>
   Effect.gen(function* () {
     const channel = metrics.channel(intent)
@@ -112,6 +127,7 @@ const makeConnection = (
     } = {}
     let nextGeneration = 0
     let nextSubscription = 0
+    let acquisitionAttempts = 0
     let hasConnected = false
 
     const close = (generation: Generation, cause?: unknown) =>
@@ -140,6 +156,8 @@ const makeConnection = (
     })
 
     const create = Effect.gen(function* () {
+      if (hasConnected || acquisitionAttempts > 0) channel.attempt()
+      acquisitionAttempts++
       const client = yield* Effect.try({
         try: factory,
         catch: (cause) => new WatchmanError("connect", "Failed to create Watchman client", cause),
@@ -278,12 +296,11 @@ const makeConnection = (
       (error.stage === "subscribe" && Deferred.isDoneUnsafe(root.generation.closed))
 
     const acquireRoot = (attempt = 0): Effect.Effect<RootGeneration, WatchmanError> => {
-      if (hasConnected || attempt > 0) channel.attempt()
       const interval = Math.min(
         options?.retryCapMs ?? RETRY_CAP_MS,
         (options?.retryBaseMs ?? RETRY_BASE_MS) * 2 ** attempt,
       )
-      return create.pipe(
+      return acquisition.acquire(create).pipe(
         Effect.catch((error) => {
           if (error.stage === "decode") {
             state.fatal = error

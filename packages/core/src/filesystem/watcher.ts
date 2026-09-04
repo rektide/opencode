@@ -73,6 +73,7 @@ export const Options = Schema.Struct({
   watchman: Schema.optional(
     Schema.Struct({
       commandTimeoutMs: Schema.optional(Schema.Number),
+      maxConcurrentAcquisitions: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
       retryBaseMs: Schema.optional(Schema.Number),
       retryCapMs: Schema.optional(Schema.Number),
       binary: Schema.optional(Schema.String),
