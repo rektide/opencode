@@ -163,7 +163,7 @@ map it navigates) · [`maintenance.glm53.md`](/.design/watchman/maintenance.glm5
 | Doc | Says | Status | Dependencies |
 | --- | --- | --- | --- |
 | [`watches`](/.design/watchman/watches.glm53.md) | Probe-backed VCS signal matrix: git `HEAD`/`refs/heads`/`packed-refs`, jj `op_heads/heads` (resolves via the `.jj/repo` pointer; repo-global from any workspace), hg `.hg/branch`. Watching is an invalidation signal, not data. | open proposal | feeds:[`alignment0`](/.design/watchman/opwatch-vcs-signals-alignment0.gpt56solmax.md) · rides-on:[`draft2`](/.design/watchman/draft2.gpt56t.md) |
-| [`alignment0`](/.design/watchman/opwatch-vcs-signals-alignment0.gpt56solmax.md) | Restructures the `opwatch-vcs-signals` epic into two independently shippable lanes (OpenCode exact-interest; Watchwoman broad-root filter) joined at one behavioral activation ticket. Deletes the false `core-subscriptions → daemon-allowlist` dependency. | open proposal | restructures:[`watches`](/.design/watchman/watches.glm53.md) · absorbs:[`carrier1-review0 sol`](/.design/watchman/carrier1-review0.gpt56sol.md) |
+| [`alignment0`](/.design/watchman/opwatch-vcs-signals-alignment0.gpt56solmax.md) | Accepted restructure of `opwatch-vcs-signals`: independently shippable OpenCode exact-interest and Watchwoman broad-root lanes join at one activation ticket. The accepted addendum records the renamed graph, unified path/type/metadata rule direction, and non-blocking P4 content-rule decision. | accepted direction | restructures:[`watches`](/.design/watchman/watches.glm53.md) · absorbs:[`carrier1-review0 sol`](/.design/watchman/carrier1-review0.gpt56sol.md) |
 | [`tools0`](/.design/watchman/tools0.gpt56s.md) | Provenance-tagged inventory of the carrier's executed checks; **corrects the upstream-collision record** (ten intersections, not two). Proposes seven durable tools, scripted protocol harness first. | evidence | documents:[`carrier0`](/.design/watchman/carrier0.gpt56s.md) · automates:[`review-failure-paths0`](/.design/watchman/review-failure-paths0.gpt56s.md) |
 
 ---
@@ -200,7 +200,8 @@ map it navigates) · [`maintenance.glm53.md`](/.design/watchman/maintenance.glm5
   corpus entry point; the log remains the source of record for what runs.
 - Beads epic `opwatch-vcs-signals` (`.beads/issues.jsonl`) — the ticket graph
   that [`alignment0`](/.design/watchman/opwatch-vcs-signals-alignment0.gpt56solmax.md)
-  restructures; its dependency edges await the prescribed renames.
+  restructures; its retained IDs and dependency edges now match the accepted
+  addendum.
 - External, load-bearing: `~/a/doc/opencode/patches.md` (patch/freshen/bookmark
   policy), watchwoman-systemd source + since-query probes, `@superbfowle/fb-watchman-esm`
   transport fork.
