@@ -19,11 +19,14 @@ sources:
 
 # Root-scoped Watchman maintenance log
 
-> **Remake architecture:**
-> [`carrier1.gpt56s.md`](/.design/watchman/carrier1.gpt56s.md) describes the
-> proposed clean rebuild around typed continuity, strict selection, and one
-> root supervisor. This log continues to describe the implemented historical
-> fallback/cursor/metrics line until that replacement lands.
+> **Remake design status:**
+> [`assurances0.gpt56sol.md`](/.design/watchman/assurances0.gpt56sol.md) is the
+> current source-grounded map of observation promises, the mandatory root-epoch
+> floor, and optional freshness/path/coverage assurances under the retained B2
+> decision. [`carrier1.gpt56s.md`](/.design/watchman/carrier1.gpt56s.md) remains
+> the original clean-rebuild proposal, but its B3-dependent interface requires
+> revision before construction. This log continues to describe the implemented
+> historical fallback/cursor/metrics line until a replacement lands.
 
 This workspace carries the implementation of
 [`draft2.gpt56t.md`](/.design/watchman/draft2.gpt56t.md) as an independent stack over
@@ -343,6 +346,11 @@ known defect.
 
 ## Cross-references
 
+- [`assurances0.gpt56sol.md`](/.design/watchman/assurances0.gpt56sol.md)
+  separates the future remake's mandatory detected-loss correctness floor from
+  optional owner freshness leases, active path probes, and structural daemon
+  coverage. It also records the retained B2 decision and current daemon/client
+  promise gaps.
 - [`draft2.gpt56t.md`](/.design/watchman/draft2.gpt56t.md) is the implemented architecture and
   its watchwoman routing amendment governs conflicts with the earlier body.
 - [`upstream-delta0.glm53h.md`](/.design/watchman/upstream-delta0.glm53h.md)
