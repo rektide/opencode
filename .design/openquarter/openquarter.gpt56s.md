@@ -127,6 +127,10 @@ what lets `defer` bypass the heuristic while retaining reactive recovery.
 
 OpenQuarter should expose three plugin-owned modes:
 
+The table assumes the Location's Core `compaction.auto` setting is enabled.
+That configuration remains an outer gate; `auto:false` disables both automatic
+paths before OpenQuarter is consulted.
+
 | Mode | Preflight proposal | Eligible provider overflow | Result |
 | --- | --- | --- | --- |
 | `normal` | Allow | Allow | Current OpenCode behavior |
@@ -335,8 +339,9 @@ yield* ctx.session.hook("compaction.policy", (event) =>
 The sketch intentionally reads durable plugin storage at the rare proposal
 boundary instead of trusting a Location-local cache. Server plugin storage is
 namespaced by plugin ID but shared across Location instances; a Session ID in
-the key preserves behavior if that Session moves. Commands can set `defer`,
-set `off`, inspect the mode, or remove the key to restore `normal`.
+the key preserves behavior if that Session moves to another Location where
+OpenQuarter is active. Commands can set `defer`, set `off`, inspect the mode,
+or remove the key to restore `normal`.
 
 This is a deep module split:
 
@@ -359,6 +364,7 @@ This is a deep module split:
 | [`packages/core/test/plugin-session.types.ts`](/packages/core/test/plugin-session.types.ts) | Compile-check Effect and Promise registration and provider scoping |
 | [`packages/plugin/src/README.md`](/packages/plugin/src/README.md#L80-L108) | Add the compact hook example to the package-level runtime-hook contract |
 | [`packages/www/src/docs/content/build/plugins/index.mdx`](/packages/www/src/docs/content/build/plugins/index.mdx#L1002-L1062) | Document timing, repeated invocation, and veto outcomes |
+| [`packages/www/src/docs/content/build/plugins/effect.mdx`](/packages/www/src/docs/content/build/plugins/effect.mdx#L1080-L1169) | Mirror the hook and overflow distinction in the Effect-specific guide |
 
 No Schema, Protocol, Server `HttpApi`, database, durable event, or generated
 client change is needed. The generic hook registry, PluginHost adapter, and
