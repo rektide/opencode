@@ -6,7 +6,7 @@ import { DEFAULT_THEME, selectTheme } from "@opencode-ai/theme/tui"
 import { createSignal } from "solid-js"
 import { createTuiResolvedConfig } from "../../fixture/tui-runtime"
 import { DEFAULT_THEMES, setCustomThemes } from "../../../src/theme"
-import { ConfigProvider, type Info, type Interface } from "../../../src/config"
+import { ConfigProvider, type Info, type Interface, useConfig } from "../../../src/config"
 import { ThemeContextProvider, ThemeProvider, type ThemeError, useTheme, useThemes } from "../../../src/context/theme"
 
 async function wait(fn: () => boolean) {
@@ -81,6 +81,7 @@ test("uses an available mode while retaining the pinned preference", async () =>
 
 test("runtime theme overrides compose and dispose to the latest configured theme", async () => {
   let themes: ReturnType<typeof useThemes> | undefined
+  let tuiConfig: ReturnType<typeof useConfig> | undefined
   let config: Info = { theme: { name: "opencode", mode: "dark" } }
   let updates = 0
   const service: Interface = {
@@ -101,15 +102,25 @@ test("runtime theme overrides compose and dispose to the latest configured theme
     second: structuredClone(DEFAULT_THEMES.opencode),
     configured: structuredClone(DEFAULT_THEMES.opencode),
   }
+  const restoredTheme = structuredClone(DEFAULT_THEMES.opencode)
+  restoredTheme.theme.background = "#123456"
+  const replacedTheme = structuredClone(DEFAULT_THEMES.opencode)
+  replacedTheme.theme.background = "#654321"
 
   function Probe() {
     themes = useThemes()
+    tuiConfig = useConfig()
     return <text>{themes.selected}</text>
   }
 
   function current() {
     if (!themes) throw new Error("Theme provider is not mounted")
     return themes
+  }
+
+  function currentConfig() {
+    if (!tuiConfig) throw new Error("Config provider is not mounted")
+    return tuiConfig
   }
 
   const app = await testRender(
@@ -147,16 +158,22 @@ test("runtime theme overrides compose and dispose to the latest configured theme
     expect(current().selected).toBe("first")
     expect(updates).toBe(0)
 
-    const restoredThemes = { ...discovered, [restored]: structuredClone(DEFAULT_THEMES.opencode) }
+    const restoredThemes = { ...discovered, [restored]: restoredTheme }
     setCustomThemes(restoredThemes)
     expect(current().selected).toBe(restored)
+    expect(current().current.background.default.equals(RGBA.fromHex("#123456"))).toBeTrue()
     expect(current().configured).toBe("opencode")
     expect(current().locked()).toBeTrue()
     expect(updates).toBe(0)
 
+    const replacedThemes = { ...discovered, [restored]: replacedTheme }
+    setCustomThemes(replacedThemes)
+    expect(current().selected).toBe(restored)
+    expect(current().current.background.default.equals(RGBA.fromHex("#654321"))).toBeTrue()
+
     setCustomThemes(discovered)
     expect(current().selected).toBe("first")
-    setCustomThemes(restoredThemes)
+    setCustomThemes(replacedThemes)
     expect(current().selected).toBe(restored)
 
     expect(current().set("configured")).toBeTrue()
@@ -165,17 +182,24 @@ test("runtime theme overrides compose and dispose to the latest configured theme
     expect(current().selected).toBe(restored)
     expect(current().locked()).toBeTrue()
 
+    await currentConfig().update((draft) => {
+      delete draft.theme.name
+    })
+    await wait(() => current().configured === "opencode")
+    expect(current().selected).toBe(restored)
+    expect(current().locked()).toBeTrue()
+
     disposeSecond()
     expect(current().selected).toBe("first")
     setFirst(undefined)
-    expect(current().selected).toBe("configured")
+    expect(current().selected).toBe("opencode")
     setFirst("first")
     expect(current().selected).toBe("first")
     disposeFirst()
-    expect(current().selected).toBe("configured")
+    expect(current().selected).toBe("opencode")
     disposeFirst()
-    expect(current().selected).toBe("configured")
-    expect(updates).toBe(1)
+    expect(current().selected).toBe("opencode")
+    expect(updates).toBe(2)
   } finally {
     app.renderer.destroy()
     setCustomThemes({})
