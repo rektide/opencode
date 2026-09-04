@@ -21,6 +21,9 @@ sources:
   - id: simplification-review
     resource: /.design/watchman/review-simplification0.gpt56s.md
     title: Root state-machine and failure-disposition review
+  - id: current-watchwoman
+    resource: file:///home/rektide/src/watchwoman-systemd
+    title: Watchwoman daemon source at 780cb9190490 (tree parent 46319f6ff529)
 ---
 
 # Shared Watchman acquisition admission and circuit
@@ -208,6 +211,103 @@ The first four values and state are gauges; the rest are cumulative counters.
 Emit structured logs only on circuit transitions (`open`, `half_open`,
 `closed`) with retry index/delay where applicable. Do not restore any fallback
 metric or log: there is still no fallback behavior.
+
+## Recovery flow / un-back-off
+
+### Client release and reset
+
+After the full half-open acquisition succeeds (factory, capability check, and
+watch/root resolution), closing the circuit completes the shared change gate.
+Every retained root waiter re-evaluates `Closed`, but must still pass the
+registry semaphore and its post-permit stale-state check
+([`acquisition.ts:86-129`](/packages/core/src/filesystem/watcher/watchman/acquisition.ts#L86-L129),
+[`acquisition.ts:131-196`](/packages/core/src/filesystem/watcher/watchman/acquisition.ts#L131-L196)).
+The release is therefore at most four concurrent acquisitions by default (or
+the configured positive limit), with immediate replacement as each permit
+returns. There is no starts-per-second spacing or gradual ramp.
+
+Shared backoff resets immediately when a probe, or an already-admitted sibling,
+proves backend availability. A non-connect result also closes the availability
+circuit rather than poisoning it. `Closed` retains no retry index, so the next
+typed connect failure starts again at the base delay; there is no decay window
+or retained failure score. Per-root non-connect backoff is separate: its retry
+index survives circuit waits, but a successful root acquisition returns from
+that recursive sequence; the next generation loss starts that root again at
+attempt zero
+([`root.ts:296-352`](/packages/core/src/filesystem/watcher/watchman/root.ts#L296-L352)).
+
+### Daemon source facts
+
+Inspected and built the local `watchwoman-systemd` working-copy revision
+`780cb9190490`; it is an empty working commit over `46319f6ff529`, so both name
+the same source tree used for the probe.
+
+- The accept loop permits 256 active Unix connections and drops newly accepted
+  streams above that limit. It spawns one task per admitted connection
+  ([`server.rs:24-29`](file:///home/rektide/src/watchwoman-systemd/crates/watchwoman/src/daemon/server.rs#L24-L29),
+  [`server.rs:70-101`](file:///home/rektide/src/watchwoman-systemd/crates/watchwoman/src/daemon/server.rs#L70-L101)).
+- Commands are serial within one session because the reader awaits each
+  dispatch before reading the next PDU. Across sessions, one global semaphore
+  allows 32 blocking dispatches; waiting sessions are accepted but parked on
+  that semaphore
+  ([`server.rs:127-198`](file:///home/rektide/src/watchwoman-systemd/crates/watchwoman/src/daemon/server.rs#L127-L198)).
+- `watch` registration performs metadata validation and a synchronous recursive
+  initial scan inside the blocking dispatch, seeds the tree, inserts the root,
+  then starts the native watcher
+  ([`state.rs:199-262`](file:///home/rektide/src/watchwoman-systemd/crates/watchwoman/src/daemon/state.rs#L199-L262)).
+  The crawl is depth-first filesystem work with an optional configured
+  per-root entry cap; allow-all policy has no cap by default
+  ([`watcher.rs:160-260`](file:///home/rektide/src/watchwoman-systemd/crates/watchwoman/src/daemon/watcher.rs#L160-L260),
+  [`policy.rs:115-166`](file:///home/rektide/src/watchwoman-systemd/crates/watchwoman/src/daemon/policy.rs#L115-L166)).
+- Native watcher construction uses another `spawn_blocking` task and blocks the
+  registration response on a rendezvous until `notify::watch` returns. The
+  runtime does not configure a Watchwoman-specific blocking-thread limit
+  ([`watcher.rs:21-77`](file:///home/rektide/src/watchwoman-systemd/crates/watchwoman/src/daemon/watcher.rs#L21-L77),
+  [`daemon.rs:33-40`](file:///home/rektide/src/watchwoman-systemd/crates/watchwoman/src/daemon.rs#L33-L40)).
+- Root lookup uses `DashMap`, but registration's lookup-scan-insert sequence has
+  no same-path single-flight gate. Concurrent first watches for one path can
+  duplicate crawl and watcher setup before one insertion replaces the other;
+  distinct cold roots can consume all 32 dispatch slots. This is an inference
+  from [`state.rs:201-210`](file:///home/rektide/src/watchwoman-systemd/crates/watchwoman/src/daemon/state.rs#L201-L210)
+  and
+  [`state.rs:236-260`](file:///home/rektide/src/watchwoman-systemd/crates/watchwoman/src/daemon/state.rs#L236-L260).
+- Outbound session buffering is bounded at 256 queued PDUs and 64 MiB by
+  default (plus one exempt head PDU); overflow poisons and closes the session
+  ([`session.rs:50-75`](file:///home/rektide/src/watchwoman-systemd/crates/watchwoman/src/daemon/session.rs#L50-L75),
+  [`session.rs:238-310`](file:///home/rektide/src/watchwoman-systemd/crates/watchwoman/src/daemon/session.rs#L238-L310)).
+  Root notify events and watcher commands still use unbounded channels
+  ([`watcher.rs:29-30`](file:///home/rektide/src/watchwoman-systemd/crates/watchwoman/src/daemon/watcher.rs#L29-L30),
+  [`state.rs:222-225`](file:///home/rektide/src/watchwoman-systemd/crates/watchwoman/src/daemon/state.rs#L222-L225));
+  root tick fan-out uses a 256-entry broadcast ring whose lag path repairs by a
+  full since-scan
+  ([`root.rs:139-150`](file:///home/rektide/src/watchwoman-systemd/crates/watchwoman/src/daemon/root.rs#L139-L150),
+  [`subscribe.rs:134-193`](file:///home/rektide/src/watchwoman-systemd/crates/watchwoman/src/commands/subscribe.rs#L134-L193)).
+
+### Bounded live observation and inference
+
+`.test-agent/watchman-recovery/probe.ts` built the source binary, created 16
+isolated 200-file roots, attempted one client during 258 ms of delayed daemon
+availability, then performed one complete probe before releasing the other
+roots through four workers. The unavailable probe observed 19 refused connects;
+its complete acquisition took 36.25 ms. The first four retained roots started
+0.20-0.51 ms after probe success, each later root started immediately after a
+worker completed, high-water concurrency was exactly four, and all 16 roots
+appeared in `watch-list` after 312.06 ms. This was one bounded functional probe,
+not a saturation benchmark; the retained output is
+`.test-agent/watchman-recovery/result.json`.
+
+For one normal OpenCode registry, four is below the daemon's 32-dispatch limit,
+so this evidence does not justify an additional client rate limiter. It also
+does not prove unlimited safety: there is no smoothing, cold crawls can be much
+larger than the probe, and fast cheap completions can produce a high starts/sec
+rate. More importantly, each OpenCode process owns an independent circuit and
+four permits. `P` recovering processes can therefore offer up to `4P`
+acquisitions and `P` half-open probes concurrently, while persistent root
+clients also count toward the daemon's 256 active-connection ceiling. A
+per-process ramp limiter would still multiply across processes. If measurements
+show daemon saturation, the stronger next control is daemon-side cold-root
+admission plus same-root single-flight (and then a measured global rate policy),
+not another unmeasured client knob.
 
 ## Deterministic test matrix
 
