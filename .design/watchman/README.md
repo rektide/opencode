@@ -25,7 +25,10 @@ sources:
 > floor, and optional freshness/path/coverage assurances under the retained B2
 > decision. [`carrier1.gpt56s.md`](/.design/watchman/carrier1.gpt56s.md) remains
 > the original clean-rebuild proposal, but its B3-dependent interface requires
-> revision before construction. This log continues to describe the implemented
+> revision before construction.
+> [`nav0.glm53.md`](/.design/watchman/nav0.glm53.md) charts the route across
+> that map — ordered beacons, named rocks, fork rules, and where each open
+> ledger decision gets decided. This log continues to describe the implemented
 > historical fallback/cursor/metrics line until a replacement lands.
 
 This workspace carries the implementation of
