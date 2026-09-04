@@ -45,6 +45,7 @@ export const ServerOptions = Schema.Struct({
       watchman: Schema.optional(
         Schema.Struct({
           commandTimeoutMs: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
+          maxConcurrentAcquisitions: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
           retryBaseMs: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
           retryCapMs: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
           binary: Schema.optional(Schema.String),

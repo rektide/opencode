@@ -127,6 +127,10 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
             subscribeTimeoutMs: yield* positiveIntEnv("OPENCODE_WATCHER_SUBSCRIBE_TIMEOUT_MS"),
             watchman: {
               commandTimeoutMs: yield* positiveIntEnv("OPENCODE_WATCHMAN_COMMAND_TIMEOUT_MS"),
+              maxConcurrentAcquisitions: yield* positiveIntEnv(
+                "OPENCODE_WATCHMAN_MAX_CONCURRENT_ACQUISITIONS",
+                "acquisition limit",
+              ),
               retryBaseMs: yield* positiveIntEnv("OPENCODE_WATCHMAN_RETRY_BASE_MS"),
               retryCapMs: yield* positiveIntEnv("OPENCODE_WATCHMAN_RETRY_CAP_MS"),
               binary: process.env.OPENCODE_WATCHMAN_BINARY,
@@ -205,13 +209,13 @@ function serviceURL(hostname: string, port: number) {
   return `http://${hostname.includes(":") ? `[${hostname}]` : hostname}:${port}`
 }
 
-function positiveIntEnv(name: string) {
+function positiveIntEnv(name: string, valueKind = "number of milliseconds") {
   const value = process.env[name]
   if (value === undefined) return Effect.succeed(undefined)
   const text = value.trim()
   const parsed = /^\d+$/.test(text) ? Number.parseInt(text, 10) : undefined
   if (parsed === undefined || parsed < 1)
-    return Effect.fail(new Error(`${name} must be a positive integer number of milliseconds`))
+    return Effect.fail(new Error(`${name} must be a positive integer ${valueKind}`))
   return Effect.succeed(parsed)
 }
 
