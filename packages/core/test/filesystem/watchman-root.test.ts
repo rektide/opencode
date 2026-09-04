@@ -331,8 +331,10 @@ it.effect("drains circuit waiters only through bounded admission after probe suc
     expect(highWater).toBe(2)
 
     capabilityResponse(controlAt(controls, 2))
+    yield* Effect.yieldNow
     yield* Deferred.await(starts[4])
     capabilityResponse(controlAt(controls, 3))
+    yield* Effect.yieldNow
     yield* Deferred.await(starts[5])
     capabilityResponse(controlAt(controls, 4))
     capabilityResponse(controlAt(controls, 5))
