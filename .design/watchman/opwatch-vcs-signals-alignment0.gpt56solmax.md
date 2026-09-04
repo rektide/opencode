@@ -679,7 +679,7 @@ and root shape.
 
 # Addendum: Accepted ticket graph
 
-On 2026-09-03 the user accepted the resteer. The earlier issue IDs remain in the
+On 2026-09-04 the user accepted the resteer. The earlier issue IDs remain in the
 body above as a record of the proposal that was reviewed; the live Beads graph
 now uses these retained IDs and responsibilities:
 
@@ -711,6 +711,10 @@ reported no dependency cycles after the rewrite.
 
 The user also chose path, file type, and metadata as the v1 classifier inputs.
 Legacy `ignore_dirs` becomes ordinary ordered rules rather than a separate
-floor. A non-blocking P4 decision,
+floor. Each rule has a cheap path predicate plus optional kind and non-following
+metadata constraints. Compatible structural and bounded-regex predicates may
+share a compiled candidate pass before later facts are requested; candidate
+selection never replaces ordered evaluation. Basename, suffix, and extension
+matching are first-class. A non-blocking P4 decision,
 `opwatch-vcs-signals-content-rules`, records the uncertain possibility of
 bounded file-content predicates; it is not an epic child or a v1 dependency.
