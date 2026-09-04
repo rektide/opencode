@@ -2,6 +2,7 @@ import path from "path"
 import { describe, expect, test } from "bun:test"
 import type { ConfigDiscovery } from "@opencode-ai/core/config/discovery"
 import { ConfigWatch } from "@opencode-ai/core/config/watch"
+import { Ignore } from "@opencode-ai/core/filesystem/ignore"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 
 const project = path.resolve("watch-plan-project")
@@ -21,7 +22,7 @@ describe("ConfigWatch.plan", () => {
     ])
     const present = ConfigWatch.plan({ ...sources, project: [{ path: root, present: true }] })
     expect(Array.from(present.values())).toEqual([
-      { path: root, type: "directory", ignore: ["node_modules", ".git", "**/{node_modules,.git}/**"] },
+      { path: root, type: "directory", ignore: Ignore.PATTERNS },
       ...missing.values(),
     ])
   })

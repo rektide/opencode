@@ -6,11 +6,12 @@ import type ParcelWatcher from "@parcel/watcher"
 import { FileSystem } from "@opencode-ai/schema/filesystem"
 import { makeGlobalNode } from "@opencode-ai/util/effect/app-node"
 import { FSUtil } from "@opencode-ai/util/fs-util"
-import { Cause, Context, Effect, Layer, PubSub, RcMap, Schema, Stream } from "effect"
+import { Cause, Context, Deferred, Effect, Layer, PubSub, RcMap, Schema, Scope, Stream } from "effect"
 import { lazy } from "../util/lazy.js"
 import { watch } from "node:fs"
 import path from "path"
 import loadBinding from "./watcher-binding.js"
+import { WatcherInternal } from "./watcher/internal.js"
 
 const SUBSCRIBE_TIMEOUT_MS = 10_000
 export const Event = { Updated: FileSystem.Event.Changed }
@@ -46,27 +47,49 @@ export type Subscription = {
 type Target = {
   readonly target: string
   readonly ignore: readonly string[]
+  readonly placement: WatcherInternal.Placement
 } & (
   | { readonly type: "entries"; readonly names: readonly string[] }
   | { readonly type: "file" | "directory"; readonly names?: readonly string[] }
 )
 
 export interface NativeInterface {
+  /** Starts one OS-level watch, reporting events through `publish` until unsubscribed. */
   readonly subscribe: (
-    input: Target & { readonly publish: (update: Update) => void },
-  ) => Effect.Effect<Subscription | undefined>
+    input: Target & {
+      readonly publish: (update: Update) => void
+      readonly fail: (error: Error) => void
+    },
+  ) => Effect.Effect<Subscription | undefined, never, Scope.Scope>
 }
 
-/** Uses fs.watch for immediate entries and Parcel for recursive directories. */
+/**
+ * The OS-level watch implementation behind the Watcher service. The default
+ * layer uses `node:fs.watch` for files and `@parcel/watcher` for directories;
+ * tests provide implementations they can control.
+ */
 export class Native extends Context.Service<Native, NativeInterface>()("@opencode/Watcher/Native") {}
 
 export interface Interface {
   /** onReady runs after native acquisition and listener registration, when the stream is consumed. */
-  readonly subscribe: (input: WatchInput, onReady?: Effect.Effect<void>) => Effect.Effect<Stream.Stream<Update>>
+  readonly subscribe: (input: WatchInput, onReady?: Effect.Effect<void>) => Effect.Effect<Stream.Stream<Update, Error>>
 }
 
 export const Options = Schema.Struct({
   enabled: Schema.optional(Schema.Boolean),
+  backend: Schema.optional(Schema.Literals(["watchman", "parcel"])),
+  // Parcel acquisition deadline in millis.
+  subscribeTimeoutMs: Schema.optional(Schema.Number),
+  watchman: Schema.optional(
+    Schema.Struct({
+      commandTimeoutMs: Schema.optional(Schema.Number),
+      retryBaseMs: Schema.optional(Schema.Number),
+      retryCapMs: Schema.optional(Schema.Number),
+      binary: Schema.optional(Schema.String),
+      metricsIntervalMs: Schema.optional(Schema.Number),
+      metricsMode: Schema.optional(Schema.Literals(["wide", "lines"])),
+    }),
+  ),
 })
 export type Options = typeof Options.Type
 
@@ -88,17 +111,30 @@ export const layer = (options?: Options) =>
       if (options?.enabled === false) {
         return Service.of({ subscribe: () => Effect.succeed(Stream.empty) })
       }
-      const native = yield* Native
+      const fallback = yield* Native
+      const native =
+        options?.backend === "watchman"
+          ? yield* Effect.promise(() => import("./watcher/watchman/backend.js")).pipe(
+              Effect.flatMap(({ make }) => make(fallback, options?.watchman)),
+              Effect.catch((error) =>
+                Effect.logWarning("watchman backend unavailable; using parcel watcher", { error }).pipe(
+                  Effect.as(fallback),
+                ),
+              ),
+            )
+          : fallback
 
       // Keys compare structurally (effect Equal), so equivalent watches share one entry.
       const watchers = yield* RcMap.make({
         lookup: (key: Target) =>
           Effect.gen(function* () {
             const pubsub = yield* Effect.acquireRelease(PubSub.unbounded<Update>(), (pubsub) => PubSub.shutdown(pubsub))
+            const failure = Deferred.makeUnsafe<void, Error>()
             const subscription = yield* Effect.acquireRelease(
               native.subscribe({
                 ...key,
                 publish: (update) => PubSub.publishUnsafe(pubsub, update),
+                fail: (error) => Deferred.doneUnsafe(failure, Effect.fail(error)),
               }),
               (subscription) =>
                 subscription
@@ -114,7 +150,7 @@ export const layer = (options?: Options) =>
             if (!subscription) {
               // Unsupported backend: end subscriber streams instead of hanging them.
               yield* PubSub.shutdown(pubsub)
-              return pubsub
+              return { pubsub, failure, active: false }
             }
             yield* Effect.logInfo("watcher started", {
               path: key.target,
@@ -122,26 +158,40 @@ export const layer = (options?: Options) =>
               backend: subscription.backend,
               ignores: key.ignore.length,
             })
-            return pubsub
+            return { pubsub, failure, active: true }
           }),
       })
 
       const subscribe = Effect.fnUntraced(function* (input: WatchInput, onReady: Effect.Effect<void> = Effect.void) {
-        const target = path.resolve(input.path)
-        const ignore = [...new Set(input.type === "directory" ? (input.ignore ?? []) : [])].toSorted()
-        const names = [...new Set(input.type === "entries" ? input.names : [])].toSorted()
+        const normalized = WatcherInternal.normalize(input)
+        const target = normalized.path
+        const ignore = normalized.type === "directory" ? (normalized.ignore ?? []) : []
+        const names = normalized.type === "entries" ? normalized.names : []
+        const metadata = WatcherInternal.read(input)
+        const placement =
+          input.type === "directory" ? (metadata?.placement ?? { type: "exact" as const }) : { type: "exact" as const }
+        const ready = metadata?.ready
+        let acknowledged = false
         yield* Effect.logInfo("watcher subscribe", {
           path: target,
           type: input.type,
           ignores: ignore.length,
         })
+        const key: Target =
+          normalized.type === "entries"
+            ? { type: normalized.type, target, ignore, names, placement }
+            : { type: normalized.type, target, ignore, placement }
         return Stream.unwrap(
           Effect.gen(function* () {
-            const pubsub = yield* RcMap.get(watchers, { type: input.type, target, ignore, names })
-            const subscription = yield* PubSub.subscribe(pubsub)
-            if (yield* PubSub.isShutdown(pubsub)) return Stream.empty
-            yield* onReady
-            return Stream.fromSubscription(subscription)
+            const entry = yield* RcMap.get(watchers, key)
+            const subscription = yield* PubSub.subscribe(entry.pubsub)
+            if (yield* PubSub.isShutdown(entry.pubsub)) return Stream.empty
+            if (entry.active && !acknowledged) {
+              acknowledged = true
+              ready?.()
+              yield* onReady
+            }
+            return Stream.fromSubscription(subscription).pipe(Stream.interruptWhen(Deferred.await(entry.failure)))
           }),
         )
       })
@@ -167,9 +217,6 @@ export const testLayer = Layer.effectContext(
                   ? { path: input.target, type: "directory", ignore: input.ignore }
                   : { path: input.target, type: "directory" },
           )
-          // Ignore entries resolve against the target like the parcel wrapper's
-          // literal paths. Glob entries resolve to paths nothing lives under, so
-          // they are inert here rather than compiled the way parcel compiles them.
           const ignored = input.ignore.map((entry) => path.resolve(input.target, entry))
           active.set(input.publish, (target) => {
             if (input.type === "file") return target === input.target
@@ -201,35 +248,55 @@ export const testLayer = Layer.effectContext(
   }),
 )
 
-export const nativeLayer = Layer.succeed(
-  Native,
-  Native.of({
-    subscribe: (input) => {
-      if (input.type === "file" || input.type === "entries") {
-        return Effect.sync(() => {
-          const directory = input.type === "file" ? path.dirname(input.target) : input.target
-          const names = new Set(input.type === "file" ? [path.basename(input.target)] : input.names)
-          const subscription = watch(directory, { recursive: false }, (_event, file) => {
-            if (file && !names.has(file)) return
-            for (const name of file ? [file] : names) {
-              input.publish({ path: path.join(directory, name), type: "update" })
+export const nativeLayer = (subscribeTimeoutMs: number = SUBSCRIBE_TIMEOUT_MS) =>
+  Layer.succeed(
+    Native,
+    Native.of({
+      subscribe: (input) => {
+        if (input.type === "file" || input.type === "entries") {
+          return Effect.sync(() => {
+            const directory = input.type === "file" ? path.dirname(input.target) : input.target
+            const names = new Set(input.type === "file" ? [path.basename(input.target)] : input.names)
+            const subscription = watch(directory, { recursive: false }, (_event, file) => {
+              if (file && !names.has(file)) return
+              for (const name of file ? [file] : names) {
+                input.publish({ path: path.join(directory, name), type: "update" })
+              }
+            })
+            if ("on" in subscription && typeof subscription.on === "function") {
+              subscription.on("error", (error: unknown) =>
+                input.fail(
+                  error instanceof Error ? error : new Error("File watcher callback failed", { cause: error }),
+                ),
+              )
             }
+            return { unsubscribe: () => Promise.resolve(subscription.close()), backend: "node" }
           })
-          subscription.on("error", (error: unknown) =>
-            Effect.runFork(Effect.logError("watcher callback failed", { path: directory, error })),
-          )
-          return { unsubscribe: () => Promise.resolve(subscription.close()), backend: "node" }
-        })
-      }
-      return subscribeDirectory(watcher(), getBackend(), input.target, input.ignore, input.publish)
-    },
-  }),
-)
+        }
+        return subscribeDirectory(
+          watcher(),
+          getBackend(),
+          input.target,
+          input.ignore,
+          input.publish,
+          input.fail,
+          subscribeTimeoutMs,
+        )
+      },
+    }),
+  )
 
-export const nativeNode = makeGlobalNode({ service: Native, layer: nativeLayer, deps: [] })
+const nativeNodeWith = (subscribeTimeoutMs: number) =>
+  makeGlobalNode({ service: Native, layer: nativeLayer(subscribeTimeoutMs), deps: [] })
+
+export const nativeNode = nativeNodeWith(SUBSCRIBE_TIMEOUT_MS)
 
 export function configured(options?: Options) {
-  return makeGlobalNode({ service: Service, layer: layer(options), deps: [nativeNode] })
+  return makeGlobalNode({
+    service: Service,
+    layer: layer(options),
+    deps: [nativeNodeWith(options?.subscribeTimeoutMs ?? SUBSCRIBE_TIMEOUT_MS)],
+  })
 }
 
 export const node = configured()
@@ -240,6 +307,8 @@ function subscribeDirectory(
   directory: string,
   ignore: readonly string[],
   publish: (update: Update) => void,
+  fail: (error: Error) => void,
+  subscribeTimeoutMs: number,
 ): Effect.Effect<Subscription | undefined> {
   if (!native || !backend) {
     return Effect.logError("watcher backend not supported", { directory, platform: process.platform }).pipe(
@@ -247,7 +316,7 @@ function subscribeDirectory(
     )
   }
   const callback: ParcelWatcher.SubscribeCallback = (error, updates) => {
-    if (error) Effect.runFork(Effect.logError("watcher callback failed", { error }))
+    if (error) fail(error)
     for (const update of updates) publish(update)
   }
   // Copy `ignore`: it aliases the RcMap key, whose structural hash is cached,
@@ -262,7 +331,7 @@ function subscribeDirectory(
         pending.then((subscription) => subscription.unsubscribe()).catch(() => {})
       }),
     ),
-    Effect.timeout(SUBSCRIBE_TIMEOUT_MS),
+    Effect.timeout(subscribeTimeoutMs),
     Effect.catchCause((cause) =>
       Effect.logError("failed to subscribe", {
         directory,

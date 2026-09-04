@@ -4,7 +4,7 @@ import { makeLocationNode } from "@opencode-ai/util/effect/app-node"
 import path from "path"
 import { isDeepStrictEqual } from "node:util"
 import { type ParseError, parse } from "jsonc-parser"
-import { Context, Effect, FiberMap, Layer, Option, PubSub, Ref, Schema, Semaphore, Stream } from "effect"
+import { Context, Effect, Layer, Option, PubSub, Ref, Schema, Semaphore, Stream } from "effect"
 import {
   AgentsDirectory,
   ClaudeDirectory,
@@ -17,6 +17,7 @@ import {
 import { Credential } from "./credential.js"
 import { Bus } from "./bus.js"
 import { Watcher } from "./filesystem/watcher.js"
+import { WatchInterests } from "./filesystem/watcher/interests.js"
 import { FSUtil } from "@opencode-ai/util/fs-util"
 import { Global } from "@opencode-ai/util/global"
 import { Location } from "./location.js"
@@ -86,11 +87,11 @@ export const layer = (options?: Options) =>
     Effect.gen(function* () {
       const fs = yield* FSUtil.Service
       const location = yield* Location.Service
-      const watcher = yield* Watcher.Service
       const bus = yield* Bus.Service
       const credentials = yield* Credential.Service
       const wellknown = yield* WellKnown.Service
       const reloadLock = Semaphore.makeUnsafe(1)
+      const interests = yield* WatchInterests.make()
       const decodeOptions = { errors: "all", onExcessProperty: "ignore", propertyOrder: "original" } as const
       const decodeInfo = Schema.decodeUnknownOption(Info, decodeOptions)
       const parseInfo = Effect.fn("Config.parseInfo")(function* (text: string, source: string) {
@@ -233,51 +234,45 @@ export const layer = (options?: Options) =>
         ]
       })
 
-      const initial = yield* ConfigDiscovery.discover(options)
-      let configs = yield* load(initial)
       const updates = yield* PubSub.unbounded<Watcher.Update>()
-      const reloads = yield* PubSub.sliding<void>(1)
-      // Readiness rescans recover writes made before a watch attached.
-      const requestReload = PubSub.publish(reloads, undefined).pipe(Effect.asVoid)
-      const watched = yield* FiberMap.make<string>()
-      const reconcile = Effect.fn("Config.reconcileWatches")(function* (sources: ConfigDiscovery.Sources) {
-        const plan = ConfigWatch.plan(sources)
-        for (const key of Array.from(watched, ([key]) => key)) {
-          if (!plan.has(key)) yield* FiberMap.remove(watched, key)
-        }
-        for (const [key, target] of plan) {
-          yield* watcher
-            .subscribe(target, requestReload)
-            .pipe(
-              Effect.flatMap(
-                Stream.runForEach((update) => PubSub.publish(updates, update).pipe(Effect.andThen(requestReload))),
-              ),
-              FiberMap.run(watched, key, { onlyIfMissing: true, startImmediately: true }),
-            )
-        }
-      })
+      let configs: Entry[] = []
 
       const reload = Effect.fn("Config.reload")(
         function* () {
           const sources = yield* ConfigDiscovery.discover(options)
+          const desired = Array.from(ConfigWatch.plan(sources).values())
+          yield* interests.ensure(desired)
           const next = yield* load(sources)
-          yield* reconcile(sources)
-          if (isDeepStrictEqual(configs, next)) return
+          const changed = !isDeepStrictEqual(configs, next)
           configs = next
-          yield* bus.publish(Event.Updated, {})
+          yield* interests.reconcile(desired)
+          if (changed) yield* bus.publish(Event.Updated, {})
         },
         (effect) => reloadLock.withPermit(effect),
       )
 
-      // Subscribe eagerly so synchronous watch readiness isn't dropped.
-      const pendingReloads = yield* PubSub.subscribe(reloads)
-      yield* Stream.fromSubscription(pendingReloads).pipe(
-        Stream.debounce("100 millis"),
-        Stream.runForEach(() =>
-          reload().pipe(Effect.catchCause((cause) => Effect.logError("failed to reload config", { cause }))),
-        ),
-        Effect.forkScoped({ startImmediately: true }),
-      )
+      const observeChanges = (): Effect.Effect<
+        void,
+        never,
+        Watcher.Service | FSUtil.Service | Global.Service | Location.Service
+      > =>
+        interests.changes.pipe(
+          Stream.tap((update) => PubSub.publish(updates, update)),
+          Stream.debounce("100 millis"),
+          Stream.runForEach((update) =>
+            reload().pipe(
+              Effect.catchCause((cause) => Effect.logError("failed to reload config", { path: update.path, cause })),
+            ),
+          ),
+          Effect.catch((error) =>
+            Effect.logError("config watch interests failed", { error }).pipe(
+              Effect.andThen(Effect.yieldNow),
+              Effect.andThen(reload()),
+              Effect.andThen(Effect.suspend(observeChanges)),
+            ),
+          ),
+        )
+      yield* observeChanges().pipe(Effect.forkScoped({ startImmediately: true }))
       yield* bus.subscribe(Credential.Event.Switched).pipe(
         Stream.filterEffect((event) =>
           wellknown.entries().pipe(
@@ -315,7 +310,15 @@ export const layer = (options?: Options) =>
         Effect.forever,
         Effect.forkScoped({ startImmediately: true }),
       )
-      yield* reloadLock.withPermit(reconcile(initial))
+      yield* reloadLock.withPermit(
+        Effect.gen(function* () {
+          const sources = yield* ConfigDiscovery.discover(options)
+          const desired = Array.from(ConfigWatch.plan(sources).values())
+          yield* interests.ensure(desired)
+          configs = yield* load(sources)
+          yield* interests.reconcile(desired)
+        }),
+      )
 
       return Service.of({
         entries: Effect.fnUntraced(function* () {

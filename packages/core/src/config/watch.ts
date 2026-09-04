@@ -3,6 +3,7 @@ export * as ConfigWatch from "./watch.js"
 import path from "path"
 import { FSUtil } from "@opencode-ai/util/fs-util"
 import type { Watcher } from "../filesystem/watcher.js"
+import { Ignore } from "../filesystem/ignore.js"
 import type { ConfigDiscovery } from "./discovery.js"
 
 export function plan(sources: ConfigDiscovery.Sources) {
@@ -27,7 +28,7 @@ export function plan(sources: ConfigDiscovery.Sources) {
       ...directories.map((path) => ({
         path,
         type: "directory" as const,
-        ignore: ["node_modules", ".git", ".jj", "**/{node_modules,.git,.jj}/**"],
+        ignore: Ignore.PATTERNS,
       })),
       ...Array.from(parents, ([parent, files]) => ({
         path: parent,

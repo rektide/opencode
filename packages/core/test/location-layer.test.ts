@@ -5,6 +5,7 @@ import { Config } from "@opencode-ai/schema/config"
 import { Money } from "@opencode-ai/schema/money"
 import {
   Cause,
+  Context,
   DateTime,
   Deferred,
   Duration,
@@ -25,9 +26,10 @@ import { TestClock } from "effect/testing"
 import { Agent } from "@opencode-ai/core/agent"
 import { Catalog } from "@opencode-ai/core/catalog"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { makeGlobalNode } from "@opencode-ai/util/effect/app-node"
 import { LayerNode } from "@opencode-ai/util/effect/layer-node"
 import { Global } from "@opencode-ai/util/global"
-import { LocationServiceMap, type LocationServices } from "@opencode-ai/core/location-services"
+import { LocationServiceMap, buildLocationServiceMap, type LocationServices } from "@opencode-ai/core/location-services"
 import { LocationActivity } from "@opencode-ai/core/location-activity"
 import { Location } from "@opencode-ai/core/location"
 import { LocationWatcher } from "@opencode-ai/core/filesystem/location-watcher"
@@ -38,6 +40,7 @@ import { Provider } from "@opencode-ai/core/provider"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Session } from "@opencode-ai/core/session"
 import { Workspace } from "@opencode-ai/core/workspace"
+import { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import { SessionEvent } from "@opencode-ai/core/session/event"
 import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
 import { tmpdir, tmpdirScoped } from "./fixture/tmpdir"
@@ -78,7 +81,59 @@ const itWithActivity = testEffect(
   ]),
 )
 
+const watcherBuilds = { count: 0 }
+const countingWatcher = makeGlobalNode({
+  service: Watcher.Service,
+  layer: Layer.effect(
+    Watcher.Service,
+    Effect.sync(() => {
+      watcherBuilds.count++
+      return Watcher.Service.of({ subscribe: () => Effect.succeed(Stream.empty) })
+    }),
+  ),
+  deps: [],
+})
+const itCountingWatcher = testEffect(
+  AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node, LocationServiceMap.node]), [
+    Global.node.replace(tempGlobalLayer),
+    offlineModels,
+    LocationServiceMap.node.replace(
+      makeGlobalNode({
+        service: LocationServiceMap.Service,
+        layer: buildLocationServiceMap([Watcher.node.replace(countingWatcher), offlineModels]),
+        deps: [Database.node, Bus.node],
+      }),
+    ),
+  ]),
+)
+
 describe("LocationServiceMap", () => {
+  itCountingWatcher.effect("shares one Watcher service across distinct location graphs", () =>
+    Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const firstDirectory = path.join(tmp.path, "one")
+          const secondDirectory = path.join(tmp.path, "two")
+          yield* Effect.promise(() => fs.mkdir(firstDirectory, { recursive: true }))
+          yield* Effect.promise(() => fs.mkdir(secondDirectory, { recursive: true }))
+          watcherBuilds.count = 0
+          const locations = yield* LocationServiceMap.Service
+          const first = yield* locations.contextEffect(
+            Location.Ref.make({ directory: AbsolutePath.make(firstDirectory) }),
+          )
+          const second = yield* locations.contextEffect(
+            Location.Ref.make({ directory: AbsolutePath.make(secondDirectory) }),
+          )
+
+          expect(Context.get(first, Location.Service).directory).not.toBe(
+            Context.get(second, Location.Service).directory,
+          )
+          expect(watcherBuilds.count).toBe(1)
+        }),
+      ),
+    ),
+  )
+
   for (const failure of ["file", "permissions", "config reference"] as const) {
     for (const invalidate of [false, true]) {
       // The file-path fixture boots on Windows rather than failing during
