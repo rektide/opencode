@@ -1,18 +1,20 @@
 ---
 type: Index
 title: Watchman design corpus
-description: What the 32 design documents say, their status, and their dependency graph — the entry point for the root-scoped Watchman backend and its unbuilt remake.
+description: What the Watchman design documents say, their status, and their dependency graph — the entry point for the root-scoped backend and its unbuilt remake.
 resource: /.design/watchman/README.md
 tags: [opencode, watchman, watchwoman, filesystem, index]
 status: stable
 generated: { by: model:glm-5.3-flash, at: 2026-09-03T23:59:00Z }
-verified: { by: model:glm-5.3-flash, at: 2026-09-03T23:59:00Z }
+verified: { by: model:openai/gpt-5.6-sol-max, at: 2026-09-04 }
 stale_after: 2026-10-15
 sources:
   - id: maintenance-log
     resource: /.design/watchman/maintenance.glm53.md
   - id: current-route
     resource: /.design/watchman/nav0-syn0.gpt56sol.md
+  - id: architecture-direction
+    resource: /.design/watchman/direction0.gpt56solmax.md
   - id: corpus-read
     resource: /.design/watchman/tools0.gpt56s.md
 ---
@@ -23,8 +25,11 @@ sources:
 > [`maintenance.glm53.md`](/.design/watchman/maintenance.glm53.md)). The
 > **remake** — a clean re-authoring that fixes its known defects — is designed
 > but not started. [`nav0-syn0.gpt56sol.md`](/.design/watchman/nav0-syn0.gpt56sol.md)
-> is the authority-correct route. One decision fork (**G5**) and one contested
-> promotion (**B3**) await explicit human acceptance.
+> is the authority-correct route;
+> [`direction0.gpt56solmax.md`](/.design/watchman/direction0.gpt56solmax.md)
+> translates it into the next module and execution shifts. The **G5** fork,
+> contested **B3** promotion, C0 crossing-contract stations, legacy-v1 policy,
+> and final Profile R claim boundary remain explicit decisions.
 
 ## What the corpus is trying to say
 
@@ -67,7 +72,8 @@ sources:
    (SD1) to still require explicit human acceptance, and carrying 7 correctness
    blockers (CB1–CB7). Upstream then landed in the carrier's planned seams
    ([`upstream-delta0`](/.design/watchman/upstream-delta0.glm53h.md)): the
-   rebuild must *generalize* upstream's `ConfigWatch`/`onReady`, not bypass it.
+   rebuild must preserve `ConfigWatch.plan` and its readiness outcomes while
+   generalizing the inline executor into `WatchSet`, not bypass them.
 7. **The current route is `nav0-syn0`.** Authority before architecture:
    crossing contract → two deterministic harnesses → **Profile R** floor
    (detected-loss convergence) → the open **G5 fork** (bounded Config
@@ -80,8 +86,16 @@ sources:
    into two independently shippable lanes, with
    [`tools0`](/.design/watchman/tools0.gpt56s.md) specifying the harnesses
    that make it provable.
+9. **The next architecture is owned observation.** Owners retain source and
+   topology planning; an owner-scoped `WatchSet` executes complete plans; the
+   process-global registry shares watches and supervises Node/Parcel; a root
+   supervisor solely recovers Watchman; Watchwoman owns truthful root epochs.
+   Profile R and the VCS tracer advance independently and join at the full
+   current-line gate
+   ([`direction0`](/.design/watchman/direction0.gpt56solmax.md)).
 
-**Read only three:** [`nav0-syn0`](/.design/watchman/nav0-syn0.gpt56sol.md)
+**Read only four:** [`direction0`](/.design/watchman/direction0.gpt56solmax.md)
+(the next architecture) · [`nav0-syn0`](/.design/watchman/nav0-syn0.gpt56sol.md)
 (the route) · [`assurances0`](/.design/watchman/assurances0.gpt56sol.md) (the
 map it navigates) · [`maintenance.glm53.md`](/.design/watchman/maintenance.glm53.md)
 (what already runs).
@@ -153,10 +167,11 @@ map it navigates) · [`maintenance.glm53.md`](/.design/watchman/maintenance.glm5
 | [`nav0 glm53`](/.design/watchman/nav0.glm53.md) | The chart: crossing contract first (error-code vocabulary, B2/B3 tag names), then parallel client/daemon crews; 18 named rocks, false-beacons table, "permanent fog," station for every open ledger decision. | superseded → [`nav0-syn0`](/.design/watchman/nav0-syn0.gpt56sol.md) | charts:[`assurances0`](/.design/watchman/assurances0.gpt56sol.md) |
 | [`nav0 fmax`](/.design/watchman/nav0.glm53fmax.md) | The program: position fix, seven beacons with arrival proofs, nine rudder decisions, three routes; the **no-incoherent-middle rule**; names the corpus disagreeing with itself on interim depth. | superseded → [`nav0-syn0`](/.design/watchman/nav0-syn0.gpt56sol.md) | programs:[`carrier1`](/.design/watchman/carrier1.gpt56s.md) |
 | [`nav0-syn0`](/.design/watchman/nav0-syn0.gpt56sol.md) | **The current authority-correct route.** "Authority before architecture": recorded human decisions outrank model proposals; B3 is not a departure gate; Profile R floor → G5 fork (recommends accept; no human record) → full current line incl. required reactive VCS → re-author carrier on pinned upstream. | open proposal — the route | synthesizes:[`nav0 sol`](/.design/watchman/nav0.gpt56sol.md)+2 · authority:[`vision0`](/.design/watchman/vision0.gpt56s.md) · rests-on:[`assurances0`](/.design/watchman/assurances0.gpt56sol.md) |
+| [`direction0`](/.design/watchman/direction0.gpt56solmax.md) | **The decision-oriented next architecture.** Build owned observation through owner-scoped plan reconciliation, process-global Node/Parcel supervision, one Watchman root supervisor, truthful daemon epochs, a closed owner matrix, B2 mediation, and deterministic fault harnesses. Keeps the current OpenCode line, future carrier, and fresh Watchwoman line distinct; Profile R and VCS join only at current-line completion. | draft architecture direction | synthesizes:[`nav0-syn0`](/.design/watchman/nav0-syn0.gpt56sol.md) · corrects:[`contract0`](/.design/watchman/contract0.glm53max.md) · executes:[`alignment0`](/.design/watchman/opwatch-vcs-signals-alignment0.gpt56solmax.md) |
 | [`g5-accept`](/.design/watchman/g5-accept0.glm53max.md) | Pro-lease pitch: permanent fog leaves Config-mediated staleness **unbounded** at Profile R; the owner source audit is the only mapped mechanism that bounds it; mediated G5 is additive and fails safe to R. Requests a decision record. | open proposal | argues-from:[`nav0-syn0`](/.design/watchman/nav0-syn0.gpt56sol.md) · argues-from:[`assurances0`](/.design/watchman/assurances0.gpt56sol.md) |
 | [`g5-reject`](/.design/watchman/g5-reject0.glm53max.md) | Anti-lease pitch: R covers all *reported* failure classes; mediated G5 is a standing cost and a second correctness surface bought before the first (R's 24 gates) has passed; R→RC stays additive — defer with revisit triggers. | open proposal | answers:[`g5-accept`](/.design/watchman/g5-accept0.glm53max.md) · argues-from:[`nav0-syn0`](/.design/watchman/nav0-syn0.gpt56sol.md) |
 | [`position0`](/.design/watchman/position0.glm53max.md) | The light position fix: **chase, do not pin** — citations record what they read, drift goes to a dated log. Snapshots docs/upstream/daemon revisions; stale after 2026-09-18. | decision-record | satisfies:[`nav0-syn0`](/.design/watchman/nav0-syn0.gpt56sol.md) |
-| [`upstream-delta0`](/.design/watchman/upstream-delta0.glm53h.md) | Upstream landed `ConfigWatch.plan` reconcile, an `entries` watch kind, and public `onReady` **in the carrier's planned seams**. The rebuild must generalize `ConfigWatch` into a generic `WatchSet` and replace `onReady` with typed invalidation, preserving its test outcomes. | evidence | assesses:[`carrier1`](/.design/watchman/carrier1.gpt56s.md) · refreshes:[`review-ownership0`](/.design/watchman/review-ownership0.gpt56s.md) |
+| [`upstream-delta0`](/.design/watchman/upstream-delta0.glm53h.md) | Upstream landed `ConfigWatch.plan` reconciliation, an `entries` watch kind, and public `onReady` **in the carrier's planned seams**. Preserve the Config-owned planner and readiness outcomes; extract only its inline executor into generic `WatchSet` reconciliation, with B2 owner-local lifecycle control. | evidence | assesses:[`carrier1`](/.design/watchman/carrier1.gpt56s.md) · refreshes:[`review-ownership0`](/.design/watchman/review-ownership0.gpt56s.md) |
 
 ## Forward direction: VCS signals & tooling
 
@@ -174,10 +189,12 @@ map it navigates) · [`maintenance.glm53.md`](/.design/watchman/maintenance.glm5
 | --- | --- | --- |
 | 1 | **G5 fork** — does Config get a bounded freshness lease after silent observer loss (Profile RC), or stop at detected-loss convergence (Profile R)? | Two pitches exist ([`g5-accept`](/.design/watchman/g5-accept0.glm53max.md), [`g5-reject`](/.design/watchman/g5-reject0.glm53max.md)); `nav0-syn0` recommends accept; **no human decision recorded**. |
 | 2 | **B3 promotion** — watcher-level typed invalidation in the remake's generic foundation, vs B2-at-Config only. | `carrier1` promotes it; `carrier1-review0 sol` SD1 rules it needs explicit human acceptance. `vision0`'s recorded decision was B2. |
-| 3 | **carrier1 corrections** — CB1–CB7 blockers, AA1–AA5 amendments, plus `upstream-delta0`'s eight adaptations (generalize `ConfigWatch`, replace `onReady`). | Required before construction; an addendum for carrier1 is drafted in the review. |
-| 4 | **Resume-delta fix** — publish the subscribe response's `files` on resume. | Small, designed ([`topic-query0`](/.design/watchman/topic-query0.glm53.md)), not implemented; would land on the current line. |
-| 5 | **Fallback policy choice** — Candidate A (centralized phase-and-scope fallback) vs Candidate B (strict selection). | `review-failure-paths0` deliberately refuses to pick; all four reviews lean strict. |
-| 6 | **Watchman as default** — make watchman the default directory backend. | Gated on many-project cold-start measurement ([`maintenance.glm53`](/.design/watchman/maintenance.glm53.md) follow-ups); channel metrics are the instrument. |
+| 3 | **carrier1 corrections** — CB1–CB7 blockers, AA1–AA5 amendments, plus upstream convergence around `ConfigWatch.plan`, `entries`, and readiness. | Required before construction; the final carrier must retain B2 and extract only generic plan execution rather than absorbing Config discovery or silently promoting B3. |
+| 4 | **C0 crossing contract** — resolve O1's B2 contradiction and DS-A unreadable scan, DS-B suppression clearing, and DS-C construction/availability semantics. | `contract0` is an uncommitted, unverified draft; [`direction0`](/.design/watchman/direction0.gpt56solmax.md) recommends a B2-consistent control seam and narrower station outcomes. |
+| 5 | **Profile R claim boundary** — which direct and mediated owners are included. | `direction0` proposes Config, Agent, Command, Plugin Source, Skill, and Instruction; VCS joins at full current-line completion; legacy LocationWatcher must be superseded, migrated, or explicitly excluded. |
+| 6 | **VCS semantic publication** — publish complete `Vcs.Info` or a location-scoped refetch invalidation. | Must settle before `core-consumers`, not before topology planning. The retained graph also lacks required owner/exact-placement and jj-vcs resolver edges. |
+| 7 | **Legacy daemon policy** — what selected Watchman does when `watchwoman-observation-v1` is absent. | Absence is unproven rather than broken. Profile R must require v1; any weaker compatibility mode needs explicit acceptance and must never be a silent downgrade. |
+| 8 | **Watchman as default** — make watchman the default directory backend. | Gated on many-project cold-start measurement ([`maintenance.glm53`](/.design/watchman/maintenance.glm53.md) follow-ups); channel metrics are the instrument. |
 
 ## Gotchas
 
@@ -191,6 +208,11 @@ map it navigates) · [`maintenance.glm53.md`](/.design/watchman/maintenance.glm5
 - **`nav0` drafts are retained, not dead:** the synthesis keeps them as named
   layers — sol = *what must be true*, glm53 = *what can wreck the passage*,
   fmax = *how the two repos and the carrier move*.
+- **Response replay and fallback are no longer open forks:** the later human
+  decision in [`vision0`, lines 907-925](/.design/watchman/vision0.gpt56s.md#L907-L925)
+  selects supervisor-before-strict and fresh-clock recovery with cursor deletion.
+  Keep the dropped-response-row scenario as a replacement regression test; do
+  not implement replay as an interim destination.
 
 ## Cross-references
 
