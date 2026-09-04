@@ -283,8 +283,9 @@ today:
 | feat(core): manage Jujutsu workspaces | `36b33cc9` |
 | fix(core): pass --ignore-working-copy when listing workspaces (optional hardening) | `ab33f473` |
 | feat(core): describe Jujutsu working copies | `d1af904c` |
-| feat(tui): show working-copy labels | `02815374` |
-| docs commits (carry/rename/refresh) | `38b374c`..`5f3998cc` |
+| feat(core): list Jujutsu bookmarks in the VCS provider | `e68b5847` |
+| feat(tui): show working-copy labels | `f2621f87` |
+| docs commits (carry/rename/refresh) | `8eb485ed`..`c8ec181c` |
 
 Record corrections from the same review round:
 
@@ -301,3 +302,8 @@ Record corrections from the same review round:
    2026-09-03 refresh** — upstream `7ba5f3e5` absorbed the any-VCS
    review-mode gates itself (`model.ts` `if (project?.vcs)`), making
    the commit redundant. Behavior retained via upstream's side.
+4. **The provider `branches` stub is resolved** (2026-09-04,
+   `e68b5847`, sequenced between describe and labels) — sorted
+   `jj bookmark list` with metadata discipline, search/limit matching
+   the git provider. Known follow-ups now live in one place:
+   [`followups.glm53.md`](followups.glm53.md).
