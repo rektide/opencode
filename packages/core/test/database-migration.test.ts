@@ -20,6 +20,7 @@ import workspaceMigration from "@opencode-ai/core/database/migration/20260808023
 import executionClaimsMigration from "@opencode-ai/core/database/migration/20260811161259_execution_claim_attempts"
 import sessionInboxMigration from "@opencode-ai/core/database/migration/20260812181746_session_inbox"
 import sessionViewedStateMigration from "@opencode-ai/core/database/migration/20260819222447_session_viewed_state"
+import jjWorktreeMetadataMigration from "@opencode-ai/core/database/migration/20260902185913_jj-workspace-metadata"
 import { Global } from "@opencode-ai/util/global"
 
 const run = <A, E>(
@@ -90,6 +91,41 @@ describe("DatabaseMigration", () => {
           directory: "/repo",
           extra: "{}",
         })
+      }),
+    )
+  })
+
+  test("skips jj worktree metadata when the composed lineage already added it", async () => {
+    await run(
+      Effect.gen(function* () {
+        const db = yield* makeDb
+        yield* db.run(sql`CREATE TABLE worktree (id text PRIMARY KEY, path text NOT NULL, metadata text)`)
+        yield* db.run(sql`CREATE TABLE migration (id TEXT PRIMARY KEY, time_completed INTEGER NOT NULL)`)
+        yield* db.run(
+          sql`INSERT INTO migration (id, time_completed) VALUES ('20260902065751_jj-workspace-metadata', 0)`,
+        )
+
+        yield* DatabaseMigration.applyOnly(db, [jjWorktreeMetadataMigration])
+
+        expect(yield* db.all(sql`SELECT id FROM migration ORDER BY id`)).toEqual([
+          { id: "20260902065751_jj-workspace-metadata" },
+          { id: "20260902185913_jj-workspace-metadata" },
+        ])
+      }),
+    )
+  })
+
+  test("adds jj worktree metadata when the column is missing", async () => {
+    await run(
+      Effect.gen(function* () {
+        const db = yield* makeDb
+        yield* db.run(sql`CREATE TABLE worktree (id text PRIMARY KEY, path text NOT NULL)`)
+
+        yield* DatabaseMigration.applyOnly(db, [jjWorktreeMetadataMigration])
+
+        const columns = yield* db.all<{ name: string }>(sql`SELECT name FROM pragma_table_info('worktree')`)
+        expect(columns.some((column) => column.name === "metadata")).toBe(true)
+        expect(yield* db.all(sql`SELECT id FROM migration`)).toEqual([{ id: "20260902185913_jj-workspace-metadata" }])
       }),
     )
   })
