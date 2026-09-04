@@ -230,7 +230,7 @@ intent.
 | Doc | Says | Status | Dependencies |
 | --- | --- | --- | --- |
 | [`vision0`](/.design/watchman/vision0.gpt56s.md) | Revision chain: initial freeze, four-review synthesis, VCS requirement, then the human **B2 and full-current-line decisions**. The early hypotheses are deliberation history; the final decision addendum remains authority until explicitly superseded. | decision-record · proposal history | synthesizes:[`review-architecture0`](/.design/watchman/review-architecture0.gpt56s.md)+3 · decides: B2/current-line scope |
-| [`carrier0`](/.design/watchman/carrier0.gpt56s.md) | First clean-rebuild plan: C1-C12 final-state ladder, proof-line + parity construction, B2, metrics last. Carrier1 supersedes the plan; its collision map and deterministic test ladder remain useful evidence. | superseded → [`carrier1`](/.design/watchman/carrier1.gpt56s.md) | executes:[`vision0`](/.design/watchman/vision0.gpt56s.md) · inventoried-by:[`tools0`](/.design/watchman/tools0.gpt56s.md) |
+| [`carrier0`](/.design/watchman/carrier0.gpt56s.md) | First clean-rebuild plan: C1-C12 final-state ladder, proof-line + parity construction, B2, metrics last. Carrier1 supersedes the plan; its collision map and deterministic test ladder remain useful evidence. | superseded by [`carrier1`](/.design/watchman/carrier1.gpt56s.md) | executes:[`vision0`](/.design/watchman/vision0.gpt56s.md) · inventoried-by:[`tools0`](/.design/watchman/tools0.gpt56s.md) |
 | [`carrier1`](/.design/watchman/carrier1.gpt56s.md) | The remake as architecture: owners declare what can make state stale; substrate emits exact changes while continuous, explicit invalidation when not; never silently changes backend. **Promotes B3** (contested). | open proposal | supersedes:[`carrier0`](/.design/watchman/carrier0.gpt56s.md) · adopts:[`typed-watcher0`](/.design/watchman/typed-watcher0.glm53.md) · reviewed-by:[`carrier1-review0 sol`](/.design/watchman/carrier1-review0.gpt56sol.md) |
 | [`carrier1-review0 s`](/.design/watchman/carrier1-review0.gpt56s.md) | Bounded self-review: judges the central shape coherent but requires 7 edits (continuity invalidation, linearization, VCS sentinels, reproducible probe). It is not an acceptance record. | review | reviews:[`carrier1`](/.design/watchman/carrier1.gpt56s.md) |
 | [`carrier1-review0 sol`](/.design/watchman/carrier1-review0.gpt56sol.md) | Source-grounded review at pinned commit: **CB1–CB7** correctness blockers (daemon can ack a deaf root; no structured `error_code` on the wire); AA1–AA5 amendments; **SD1**: B3 promotion is a new proposal requiring explicit human acceptance. | review | reviews:[`carrier1`](/.design/watchman/carrier1.gpt56s.md) · grounds:[`assurances0`](/.design/watchman/assurances0.gpt56sol.md) |
@@ -342,25 +342,25 @@ delivery boundedness, and measured audit/probe periods as deferred branches.
   hashes or pre-review authority.
 - [Current reconvergence orientation](file:///home/rektide/src/opencode-watchman-observation-synthesis/.design/watchman/observation-reconvergence0.gpt56solmax.md)
   and [new scope reassessment](/.design/watchman/rebuild-assessment0.gpt56solxh.md)
-  — complementary, not cumulative authority: one continues the recorded scope;
+  are complementary, not cumulative authority: one continues the recorded scope;
   the other asks whether to supersede it.
 - [Watchwoman config implementation](file:///home/rektide/src/watchwoman-systemd-vcs-config/.design/opencode/config-foundation-implementation0.gpt56solmax.md),
   [snapshot spec](file:///home/rektide/src/watchwoman-systemd/.design/opencode/config-snapshots-spec0.gpt56solmax.md),
   [view-filter design](file:///home/rektide/src/watchwoman-systemd/.design/opencode/vcs-config2-draft0.gpt56solmax.md),
   and [lifecycle spec](file:///home/rektide/src/watchwoman-systemd-production-lifecycle/.design/opencode/production-lifecycle-spec0.gpt56solmax.md)
-  — the daemon lane's implemented, provisional, and specified material.
+  describe the daemon lane's implemented, provisional, and specified material.
 - [Watchwoman rebuild audit](file:///home/rektide/src/watchwoman-systemd/.design/rebuild-audit/rebuild-audit0.gpt56solmid.md)
   and [truthful-root direction](file:///home/rektide/src/watchwoman-systemd/.design/observation/direction0.gpt56t.md)
-  — the newest daemon-side ranking and proposed correction order. Both are
+  provide the newest daemon-side ranking and proposed correction order. Both are
   drafts; the direction workspace also contains newer uncommitted refinements.
-- [OpenCode patch policy](file:///home/rektide/a/doc/opencode/patches.md) —
+- [OpenCode patch policy](file:///home/rektide/a/doc/opencode/patches.md):
   final-state carrier, freshen, snapshot, and bookmark conventions.
 - [Compfuzor Watchwoman playbook](file:///home/rektide/src/compfuzor/watchwoman.src.pb)
-  — production authority for the currently selected historical daemon revision,
+  is production authority for the currently selected historical daemon revision,
   socket/service pairing, legacy configuration, and restart procedure.
 - [Watchwoman since-query probes](file:///home/rektide/src/watchwoman-systemd/.test-agent/since-queries/README.md)
-  and `@superbfowle/fb-watchman-esm` — external evidence and transport surface
+  and `@superbfowle/fb-watchman-esm` provide external evidence and the transport surface
   behind the reconnect diagnosis and client harness work.
 - [Watchment engine synthesis](file:///home/rektide/src/watchment/.design/engine1-syn.glm53x.md)
-  — contemporaneous but separate filesystem-state research. It is not an
+  is contemporaneous but separate filesystem-state research. It is not an
   OpenCode/Watchwoman continuation or a reason to expand this feature.
