@@ -260,9 +260,10 @@ export function fromPromise(plugin: Plugin) {
               { signal: context.signal },
             )
 
-        const adaptApiMethod = <PromiseMethod>(
+        const adaptApiMethod = <PromiseMethod, MethodInput = never>(
           endpoint: HttpApiEndpoint.Top,
-          method: (input: never) => Effect.Effect<unknown, unknown>,
+          method: (input: MethodInput) => Effect.Effect<unknown, unknown>,
+          mapInput?: (input: never) => MethodInput,
         ) => {
           const compiled = compileEndpoint(endpoint)
           return ((input?: unknown) =>
@@ -272,7 +273,8 @@ export function fromPromise(plugin: Plugin) {
                 Effect.flatMap(Schema.decodeUnknownEffect(JsonInput)),
               )
               const decoded = yield* Effect.forEach(compiled.decode, (decode) => decode(normalized))
-              const result = yield* method(Object.assign({}, ...decoded) as never)
+              const value = Object.assign({}, ...decoded) as never
+              const result = yield* method(mapInput === undefined ? value : mapInput(value))
               if (compiled.noContent) return undefined
               return yield* compiled.encode(result)
             }).pipe(Effect.runPromiseWith(runtime))) as PromiseMethod
@@ -291,6 +293,15 @@ export function fromPromise(plugin: Plugin) {
         const sessionList = adaptApiMethod<PromiseContext["session"]["list"]>(
           SessionEndpoints["session.list"],
           host.session.list,
+        )
+        const sessionChildren = adaptApiMethod<PromiseContext["session"]["list"], Parameters<typeof host.session.children>[0]>(
+          SessionEndpoints["session.list"],
+          host.session.children,
+          (input: Parameters<typeof host.session.list>[0]) => ({
+            sessionID: input!.parentID!,
+            cursor: input!.cursor,
+            limit: input!.limit,
+          }),
         )
 
         const context2: PromiseContext = {
@@ -585,7 +596,7 @@ export function fromPromise(plugin: Plugin) {
               ),
             list: sessionList,
             children: (input) =>
-              sessionList({
+              sessionChildren({
                 parentID: input.sessionID,
                 cursor: input.cursor,
                 limit: input.limit,
