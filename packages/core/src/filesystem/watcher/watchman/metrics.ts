@@ -66,7 +66,6 @@ export type MetricsEvent = {
   readonly uptime_ms: number
   readonly totals: Counters & {
     readonly acquires: number
-    readonly fallbacks: number
     readonly channels: number
     readonly channels_open: number
     readonly command_avg_ms: number
@@ -359,16 +358,11 @@ export class WatchmanMetrics {
   readonly created = performance.now()
   readonly channels = new Map<string, ChannelMetrics>()
   acquires = 0
-  fallbacks = 0
 
   constructor(readonly log: (line: string) => void = (line) => console.log(line)) {}
 
   acquire() {
     this.acquires++
-  }
-
-  fallback() {
-    this.fallbacks++
   }
 
   channel(intent: RootIntent) {
@@ -399,7 +393,6 @@ export class WatchmanMetrics {
       totals: {
         ...totals,
         acquires: this.acquires,
-        fallbacks: this.fallbacks,
         channels: snapshots.length,
         channels_open: snapshots.filter((channel) => channel.open).length,
         command_avg_ms: totals.commands_out ? Math.round(totals.command_ms / totals.commands_out) : 0,

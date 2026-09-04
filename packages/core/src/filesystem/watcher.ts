@@ -106,11 +106,7 @@ export const layer = (options?: Options) =>
         options?.backend === "watchman"
           ? yield* Effect.promise(() => import("./watcher/watchman/backend.js")).pipe(
               Effect.flatMap(({ make }) => make(fallback, options?.watchman)),
-              Effect.catch((error) =>
-                Effect.logWarning("watchman backend unavailable; using parcel watcher", { error }).pipe(
-                  Effect.as(fallback),
-                ),
-              ),
+              Effect.orDie,
             )
           : fallback
 
