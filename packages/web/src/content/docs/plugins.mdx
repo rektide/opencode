@@ -139,6 +139,27 @@ export const MyPlugin: Plugin = async ({ project, client, $, directory, worktree
 
 ---
 
+## TUI exit epilogue
+
+CLI plugins can add one structured row to the session summary printed after the terminal is restored. The projection must be cheap and synchronous: read live cached data, return `undefined` when no row applies, and do not fetch or start other work.
+
+```ts
+return context.ui.epilogue.register(({ sessionID }) => {
+  const session = context.data.session.get(sessionID)
+  if (!session) return
+  return {
+    label: "Updated",
+    value: { type: "relative-time", timestamp: session.time.updated },
+  }
+})
+```
+
+Rows stay in plugin setup order after OpenCode's core rows. Re-registering the same key replaces the projection without moving it; disposing a registration removes it. Each plugin may contribute through its first eight registrations. Labels are limited to 24 display columns and text values to 48; invalid or failing results omit only that registration and are logged without affecting other rows.
+
+OpenCode tracks, validates, and copies projection results while the TUI is live. Shutdown freezes those retained values before ordinary plugin cleanup and prints them afterward, so no plugin code runs to compose the epilogue during shutdown.
+
+---
+
 ### Events
 
 Plugins can subscribe to events as seen below in the Examples section. Here is a list of the different events available.
