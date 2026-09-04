@@ -3,10 +3,18 @@ import { testRender } from "@opentui/solid"
 import { expect, test } from "bun:test"
 import { RGBA } from "@opentui/core"
 import { DEFAULT_THEME, selectTheme } from "@opencode-ai/theme/tui"
+import { createSignal } from "solid-js"
 import { createTuiResolvedConfig } from "../../fixture/tui-runtime"
 import { DEFAULT_THEMES } from "../../../src/theme"
-import { ConfigProvider } from "../../../src/config"
-import { ThemeContextProvider, ThemeProvider, type ThemeError, useTheme, useThemes } from "../../../src/context/theme"
+import { ConfigProvider, type Info, type Interface } from "../../../src/config"
+import {
+  ThemeContextProvider,
+  ThemeProvider,
+  type ThemeError,
+  upsertTheme,
+  useTheme,
+  useThemes,
+} from "../../../src/context/theme"
 
 async function wait(fn: () => boolean) {
   const started = Date.now()
@@ -73,6 +81,102 @@ test("uses an available mode while retaining the pinned preference", async () =>
     await wait(() => current().selected === "native")
     expect(current().modes()).toEqual(["dark"])
     expect(current().current.text.default.equals(RGBA.fromHex("#abcdef"))).toBeTrue()
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("runtime theme overrides compose and dispose to the latest configured theme", async () => {
+  let themes: ReturnType<typeof useThemes> | undefined
+  let config: Info = { theme: { name: "opencode", mode: "dark" } }
+  let updates = 0
+  const service: Interface = {
+    get: async () => config,
+    update: async (update) => {
+      updates++
+      const draft = structuredClone(config)
+      update(draft)
+      config = draft
+      return config
+    },
+  }
+  const [first, setFirst] = createSignal<string | undefined>("first")
+  const [second, setSecond] = createSignal<string | undefined>("second")
+  const restored = `restored-${crypto.randomUUID()}`
+
+  function Probe() {
+    themes = useThemes()
+    return <text>{themes.selected}</text>
+  }
+
+  function current() {
+    if (!themes) throw new Error("Theme provider is not mounted")
+    return themes
+  }
+
+  const app = await testRender(
+    () => (
+      <ConfigProvider config={createTuiResolvedConfig(config)} service={service}>
+        <ThemeProvider
+          mode="dark"
+          source={{
+            discover: () =>
+              Promise.resolve({
+                first: structuredClone(DEFAULT_THEMES.opencode),
+                second: structuredClone(DEFAULT_THEMES.opencode),
+                configured: structuredClone(DEFAULT_THEMES.opencode),
+              }),
+          }}
+        >
+          <Probe />
+        </ThemeProvider>
+      </ConfigProvider>
+    ),
+    { width: 20, height: 2 },
+  )
+  app.renderer.start()
+
+  try {
+    await wait(() => themes?.ready === true)
+    const disposeFirst = current().override(first)
+    expect(current().selected).toBe("first")
+    expect(current().configured).toBe("opencode")
+    expect(current().locked()).toBeTrue()
+    expect(updates).toBe(0)
+
+    const disposeSecond = current().override(second)
+    expect(current().selected).toBe("second")
+    expect(updates).toBe(0)
+
+    setSecond(undefined)
+    expect(current().selected).toBe("first")
+    setSecond(restored)
+    expect(current().selected).toBe("first")
+    expect(updates).toBe(0)
+
+    expect(upsertTheme(restored, structuredClone(DEFAULT_THEMES.opencode))).toBeTrue()
+    expect(current().selected).toBe(restored)
+    expect(current().configured).toBe("opencode")
+    expect(current().locked()).toBeTrue()
+    expect(updates).toBe(0)
+
+    expect(current().set("configured")).toBeTrue()
+    await wait(() => updates === 1)
+    expect(current().configured).toBe("configured")
+    expect(current().selected).toBe(restored)
+    expect(current().locked()).toBeTrue()
+
+    disposeSecond()
+    expect(current().selected).toBe("first")
+    setFirst(undefined)
+    expect(current().selected).toBe("configured")
+    setFirst("first")
+    expect(current().selected).toBe("first")
+    disposeFirst()
+    expect(current().selected).toBe("configured")
+    disposeFirst()
+    expect(current().selected).toBe("configured")
+    expect(updates).toBe(1)
   } finally {
     app.renderer.destroy()
   }
