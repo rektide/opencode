@@ -24,7 +24,7 @@ import {
 import { generateSystem, terminalMode } from "../theme/system"
 import { discoverThemes } from "../theme/discovery"
 import { createComponentTheme, type ComponentTheme } from "../theme/component"
-import { createEffect, createMemo, onCleanup, onMount, type Accessor, type ParentProps } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, onMount, type Accessor, type ParentProps } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { createSimpleContext } from "./helper"
 import { useConfig } from "../config"
@@ -32,7 +32,7 @@ import { DevTools } from "../devtools"
 import { configDirectories } from "../util/config-directories"
 
 const themePerformance = DevTools.register({ id: "theme-performance", title: "Theme performance" })
-export type ThemeError = { name: string; error: Error }
+export type ThemeError = { name: string; error: Error; owner?: string }
 type ThemeErrorHandler = (event: ThemeError) => void
 
 function createThemeErrors() {
@@ -40,8 +40,8 @@ function createThemeErrors() {
   let pending: ThemeError | undefined
 
   return {
-    emit(name: string, cause: unknown) {
-      const event = { name, error: cause instanceof Error ? cause : new Error(String(cause)) }
+    emit(name: string, cause: unknown, owner?: string) {
+      const event = { name, error: cause instanceof Error ? cause : new Error(String(cause)), owner }
       if (handler) {
         handler(event)
         return
@@ -94,19 +94,55 @@ export {
 const THEME_REFRESH_DELAYS = [250, 1000] as const
 
 type State = {
-  themes: Record<string, ThemeDocumentSource>
   mode: "dark" | "light"
   lock: "dark" | "light" | undefined
   active: string
   ready: boolean
 }
 
+export type ThemeClaimStatus =
+  | { readonly type: "transparent" }
+  | { readonly type: "selected"; readonly name: string }
+  | { readonly type: "masked"; readonly name: string; readonly selected: string }
+  | {
+      readonly type: "skipped"
+      readonly name?: string
+      readonly reason: "missing" | "accessor-error" | "invalid-value" | "theme-error"
+      readonly message?: string
+    }
+  | { readonly type: "disposed" }
+
+export interface ThemeClaim {
+  (): void
+  status(): ThemeClaimStatus
+}
+
+type ThemeClaimRegistration = {
+  readonly source: Accessor<unknown>
+  readonly owner?: string
+}
+
+type ThemeCandidate =
+  | {
+      readonly name: string
+      readonly kind: "override"
+      readonly source: ThemeDocumentSource
+      readonly claim: ThemeClaimRegistration
+    }
+  | {
+      readonly name: string
+      readonly kind: "configured" | "fallback"
+      readonly source: ThemeDocumentSource
+    }
+
 type Themes = {
   current: ComponentTheme
   currentTokens: Accessor<ResolvedTheme>
   readonly selected: string
+  readonly configured: string
   all: typeof allThemes
-  has: typeof hasTheme
+  names(): readonly string[]
+  has(name: string): boolean
   currentSyntax: Accessor<SyntaxStyle>
   mode: Accessor<"dark" | "light">
   modes: Accessor<readonly ("dark" | "light")[]>
@@ -116,6 +152,7 @@ type Themes = {
   unlock(): void
   setMode(mode?: "dark" | "light", persist?: boolean): boolean
   set(theme: string): boolean
+  override(source: Accessor<unknown>, owner?: string): ThemeClaim
   onError(handler: ThemeErrorHandler): () => void
   readonly ready: boolean
 }
@@ -127,14 +164,14 @@ type ThemeContextValue = {
 }
 
 const [store, setStore] = createStore<State>({
-  themes: allThemes(),
   mode: "dark",
   lock: undefined,
   active: "opencode",
   ready: false,
 })
 
-subscribeThemes((themes) => setStore("themes", themes))
+const [inventory, setInventory] = createSignal(allThemes())
+subscribeThemes((themes) => setInventory(themes))
 
 const themeContext = createSimpleContext({
   name: "Theme",
@@ -145,7 +182,7 @@ const themeContext = createSimpleContext({
     const themes = props.source
     const pick = (value: unknown) => {
       if (value === "dark" || value === "light") return value
-      return
+      return undefined
     }
 
     setStore(
@@ -162,7 +199,7 @@ const themeContext = createSimpleContext({
 
     createEffect(() => {
       const theme = config.theme?.name
-      if (theme) setStore("active", theme)
+      setStore("active", theme || "opencode")
     })
 
     createEffect(() => {
@@ -207,7 +244,7 @@ const themeContext = createSimpleContext({
           if (store.mode !== next) setStore("mode", next)
           const signature = JSON.stringify(colors)
           hasResolvedSystemTheme = true
-          if (store.themes.system && systemThemeSignature === signature && systemThemeMode === next) return
+          if (inventory().system && systemThemeSignature === signature && systemThemeMode === next) return
           systemThemeSignature = signature
           systemThemeMode = next
           setSystemTheme(generateSystem(colors, next))
@@ -301,21 +338,113 @@ const themeContext = createSimpleContext({
       themeRefreshTimeouts.length = 0
     })
 
-    const initStarted = performance.now()
-    const selected = createMemo(() => {
-      const name = store.themes[store.active] ? store.active : "opencode"
-      try {
-        return loadTheme(store.themes[name], name, store.mode)
-      } catch (error) {
-        if (name === "opencode") throw error
-        themeErrors.emit(name, error)
-        setStore("active", "opencode")
-        return loadTheme(store.themes.opencode, "opencode", store.mode)
+    const [overrides, setOverrides] = createSignal<readonly ThemeClaimRegistration[]>([])
+    const reported = new Map<ThemeClaimRegistration | "configured", string>()
+    const clearReported = (key: ThemeClaimRegistration | "configured") => reported.delete(key)
+    const report = (
+      key: ThemeClaimRegistration | "configured",
+      name: string,
+      reason: "accessor-error" | "invalid-value" | "theme-error",
+      cause: unknown,
+      owner?: string,
+    ) => {
+      const error = cause instanceof Error ? cause : new Error(String(cause))
+      const signature = `${reason}\u0000${name}\u0000${error.message}`
+      if (reported.get(key) !== signature) {
+        reported.set(key, signature)
+        themeErrors.emit(name, error, owner)
       }
+      return error.message
+    }
+
+    const initStarted = performance.now()
+    const resolution = createMemo(() => {
+      const statuses = new Map<ThemeClaimRegistration, ThemeClaimStatus>()
+      const candidates: ThemeCandidate[] = []
+
+      for (const claim of overrides().toReversed()) {
+        let value: unknown
+        try {
+          value = claim.source()
+        } catch (error) {
+          statuses.set(claim, {
+            type: "skipped",
+            reason: "accessor-error",
+            message: report(claim, claim.owner ?? "theme override", "accessor-error", error, claim.owner),
+          })
+          continue
+        }
+
+        if (value === undefined) {
+          clearReported(claim)
+          statuses.set(claim, { type: "transparent" })
+          continue
+        }
+        if (typeof value !== "string") {
+          const error = new TypeError("Theme override must return a string or undefined")
+          statuses.set(claim, {
+            type: "skipped",
+            reason: "invalid-value",
+            message: report(claim, claim.owner ?? "theme override", "invalid-value", error, claim.owner),
+          })
+          continue
+        }
+
+        const source = inventory()[value]
+        if (!source) {
+          clearReported(claim)
+          statuses.set(claim, { type: "skipped", name: value, reason: "missing" })
+          continue
+        }
+        candidates.push({ name: value, kind: "override", source, claim })
+      }
+
+      const configured = inventory()[store.active] ? store.active : "opencode"
+      if (!candidates.some((candidate) => candidate.name === configured)) {
+        candidates.push({
+          name: configured,
+          kind: "configured",
+          source: inventory()[configured] ?? DEFAULT_THEMES.opencode,
+        })
+      }
+      candidates.push({ name: "opencode", kind: "fallback", source: DEFAULT_THEMES.opencode })
+
+      for (let index = 0; index < candidates.length; index++) {
+        const candidate = candidates[index]
+        try {
+          const loaded = loadTheme(candidate.source, candidate.name, store.mode)
+          if (candidate.kind === "override") {
+            clearReported(candidate.claim)
+            statuses.set(candidate.claim, { type: "selected", name: candidate.name })
+          } else if (candidate.kind === "configured") {
+            clearReported("configured")
+          }
+          for (const masked of candidates.slice(index + 1)) {
+            if (masked.kind !== "override") continue
+            clearReported(masked.claim)
+            statuses.set(masked.claim, { type: "masked", name: masked.name, selected: candidate.name })
+          }
+          return { name: candidate.name, statuses, ...loaded }
+        } catch (error) {
+          if (candidate.kind === "fallback") throw error
+          if (candidate.kind === "override") {
+            statuses.set(candidate.claim, {
+              type: "skipped",
+              name: candidate.name,
+              reason: "theme-error",
+              message: report(candidate.claim, candidate.name, "theme-error", error, candidate.claim.owner),
+            })
+            continue
+          }
+          report("configured", candidate.name, "theme-error", error)
+          if (store.active === candidate.name) setStore("active", "opencode")
+        }
+      }
+      throw new Error("No usable theme")
     })
-    const modes = () => selected().modes
-    const mode = () => selected().mode
-    const valuesV2 = () => selected().theme
+    const modes = () => resolution().modes
+    const mode = () => resolution().mode
+    const valuesV2 = () => resolution().theme
     valuesV2()
     themePerformance.set("Init", `${(performance.now() - initStarted).toFixed(2)} ms`)
     const current = createComponentTheme(valuesV2, mode)
@@ -328,10 +457,14 @@ const themeContext = createSimpleContext({
       currentTokens: valuesV2,
       currentSyntax,
       get selected() {
-        return store.active
+        return resolution().name
+      },
+      get configured() {
+        return config.theme?.name || "opencode"
       },
       all: allThemes,
-      has: hasTheme,
+      names: () => Object.keys(inventory()).sort((left, right) => left.localeCompare(right)),
+      has: (name) => Boolean(inventory()[name]),
       mode,
       modes,
       supports: (requested) => modes().includes(requested),
@@ -350,10 +483,30 @@ const themeContext = createSimpleContext({
           .update((draft) => {
             draft.theme = { ...draft.theme, name: theme }
           })
-          .catch(() => {})
+          .catch(() => {
+            if (store.active === theme) setStore("active", config.theme?.name || "opencode")
+          })
         return true
       },
-      onError: themeErrors.onError,
+      override(source, owner) {
+        const claim = { source, owner }
+        let active = true
+        setOverrides((current) => [...current, claim])
+        const handle: ThemeClaim = Object.assign(
+          () => {
+            if (!active) return
+            active = false
+            clearReported(claim)
+            setOverrides((current) => current.filter((item) => item !== claim))
+          },
+          {
+            status: (): ThemeClaimStatus =>
+              active ? (resolution().statuses.get(claim) ?? { type: "transparent" }) : { type: "disposed" },
+          },
+        )
+        return handle
+      },
+      onError: (handler) => themeErrors.onError(handler),
       get ready() {
         return store.ready
       },
