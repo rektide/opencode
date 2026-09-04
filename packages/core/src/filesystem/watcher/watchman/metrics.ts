@@ -1,3 +1,4 @@
+import type { AcquisitionObservation } from "./acquisition.js"
 import type { RootIntent } from "./route.js"
 
 // Temp wide-event telemetry for the root-scoped Watchman backend. Counters
@@ -8,6 +9,18 @@ import type { RootIntent } from "./route.js"
 export const DEFAULT_METRICS_INTERVAL_MS = 900_000
 export type MetricsMode = "wide" | "lines"
 export type MetricsKind = "interval" | "final"
+
+export type AcquisitionEvent = {
+  readonly limit: number
+  readonly in_flight: number
+  readonly admission_waiting: number
+  readonly circuit_waiting: number
+  readonly circuit_state: "closed" | "open" | "half_open"
+  readonly connect_failures: number
+  readonly circuit_opens: number
+  readonly half_open_probes: number
+  readonly circuit_recoveries: number
+}
 
 export type Counters = {
   commands_out: number
@@ -71,6 +84,7 @@ export type MetricsEvent = {
     readonly command_avg_ms: number
   }
   readonly totals_delta: Counters
+  readonly acquisition: AcquisitionEvent
   readonly channels: readonly ChannelEvent[]
 }
 
@@ -358,8 +372,39 @@ export class WatchmanMetrics {
   readonly created = performance.now()
   readonly channels = new Map<string, ChannelMetrics>()
   acquires = 0
+  acquisition_in_flight = 0
+  acquisition_waiting = 0
+  circuit_waiting = 0
+  circuit_state: AcquisitionEvent["circuit_state"] = "closed"
+  connect_failures = 0
+  circuit_opens = 0
+  half_open_probes = 0
+  circuit_recoveries = 0
 
-  constructor(readonly log: (line: string) => void = (line) => console.log(line)) {}
+  constructor(
+    readonly log: (line: string) => void = (line) => console.log(line),
+    readonly acquisitionLimit = 4,
+  ) {}
+
+  acquisition(event: AcquisitionObservation) {
+    if (event.type === "admission") {
+      this.acquisition_waiting += event.waiting
+      this.acquisition_in_flight += event.inFlight
+      return
+    }
+    if (event.type === "circuit_wait") {
+      this.circuit_waiting += event.change
+      return
+    }
+    if (event.type === "connect_failure") {
+      this.connect_failures++
+      return
+    }
+    this.circuit_state = event.state
+    if (event.state === "open") this.circuit_opens++
+    if (event.state === "half_open") this.half_open_probes++
+    if (event.state === "closed") this.circuit_recoveries++
+  }
 
   acquire() {
     this.acquires++
@@ -398,6 +443,17 @@ export class WatchmanMetrics {
         command_avg_ms: totals.commands_out ? Math.round(totals.command_ms / totals.commands_out) : 0,
       },
       totals_delta,
+      acquisition: {
+        limit: this.acquisitionLimit,
+        in_flight: this.acquisition_in_flight,
+        admission_waiting: this.acquisition_waiting,
+        circuit_waiting: this.circuit_waiting,
+        circuit_state: this.circuit_state,
+        connect_failures: this.connect_failures,
+        circuit_opens: this.circuit_opens,
+        half_open_probes: this.half_open_probes,
+        circuit_recoveries: this.circuit_recoveries,
+      },
       channels: snapshots,
     }
   }

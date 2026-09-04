@@ -70,14 +70,15 @@ const RETRY_CAP_MS = 2000
 
 export const makeRegistry = (factory: RawClientFactory, options?: Options) =>
   Effect.gen(function* () {
-    const metrics = new WatchmanMetrics(options?.metricsLog)
     const limit = options?.maxConcurrentAcquisitions ?? DEFAULT_MAX_CONCURRENT_ACQUISITIONS
     if (!Number.isSafeInteger(limit) || limit < 1)
       throw new RangeError("maxConcurrentAcquisitions must be a positive integer")
+    const metrics = new WatchmanMetrics(options?.metricsLog, limit)
     const acquisition = yield* makeAcquisitionCoordinator({
       limit,
       retryBaseMs: options?.retryBaseMs ?? RETRY_BASE_MS,
       retryCapMs: options?.retryCapMs ?? RETRY_CAP_MS,
+      observe: (event) => metrics.acquisition(event),
     })
     const roots = yield* RcMap.make({
       lookup: (intent: RootIntent) => makeConnection(intent, factory, options, metrics, acquisition),

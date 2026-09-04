@@ -7,7 +7,14 @@ type Options = {
   readonly limit: number
   readonly retryBaseMs: number
   readonly retryCapMs: number
+  readonly observe: (event: AcquisitionObservation) => void
 }
+
+export type AcquisitionObservation =
+  | { readonly type: "admission"; readonly waiting: number; readonly inFlight: number }
+  | { readonly type: "circuit_wait"; readonly change: number }
+  | { readonly type: "connect_failure" }
+  | { readonly type: "circuit"; readonly state: "open" | "half_open" | "closed" }
 
 type Closed = {
   readonly _tag: "Closed"
@@ -53,7 +60,7 @@ export const makeAcquisitionCoordinator = (options: Options) =>
       if (state._tag === "HalfOpen") Deferred.doneUnsafe(state.changed, Effect.void)
     }
 
-    const open = (attempt: number) =>
+    const open = (attempt: number, reason: "connect_failure" | "probe_interrupted", cause?: unknown) =>
       Effect.uninterruptible(
         Effect.gen(function* () {
           const ready = Deferred.makeUnsafe<void>()
@@ -61,6 +68,14 @@ export const makeAcquisitionCoordinator = (options: Options) =>
           circuit = { _tag: "Open", epoch: ++epoch, attempt, ready }
           wake(previous)
           const delay = Math.min(options.retryCapMs, options.retryBaseMs * 2 ** attempt)
+          options.observe({ type: "circuit", state: "open" })
+          yield* Effect.logWarning("watchman acquisition circuit open", {
+            reason,
+            attempt,
+            delay,
+            limit: options.limit,
+            cause,
+          })
           yield* Effect.sleep(delay).pipe(
             Effect.andThen(Effect.sync(() => Deferred.doneUnsafe(ready, Effect.void))),
             Effect.forkIn(scope),
@@ -69,30 +84,33 @@ export const makeAcquisitionCoordinator = (options: Options) =>
       )
 
     const close = (candidate: Admission) =>
-      Effect.sync(() => {
+      Effect.suspend(() => {
         if (candidate._tag === "Probe" && (circuit._tag !== "HalfOpen" || circuit.epoch !== candidate.epoch))
-          return
-        if (circuit._tag === "Closed") return
+          return Effect.void
+        if (circuit._tag === "Closed") return Effect.void
         const previous = circuit
         circuit = { _tag: "Closed", epoch: ++epoch }
         wake(previous)
+        options.observe({ type: "circuit", state: "closed" })
+        return Effect.logInfo("watchman acquisition circuit closed", { limit: options.limit })
       })
 
-    const trip = (candidate: Admission) =>
+    const trip = (candidate: Admission, error: WatchmanError) =>
       Effect.suspend(() => {
+        options.observe({ type: "connect_failure" })
         if (candidate._tag === "Probe") {
           if (circuit._tag !== "HalfOpen" || circuit.epoch !== candidate.epoch) return Effect.void
-          return open(candidate.attempt + 1)
+          return open(candidate.attempt + 1, "connect_failure", error)
         }
         if (circuit._tag !== "Closed" || circuit.epoch !== candidate.epoch) return Effect.void
-        return open(0)
+        return open(0, "connect_failure", error)
       })
 
     const abandon = (candidate: Admission) =>
       Effect.suspend(() => {
         if (candidate._tag !== "Probe") return Effect.void
         if (circuit._tag !== "HalfOpen" || circuit.epoch !== candidate.epoch) return Effect.void
-        return open(candidate.attempt)
+        return open(candidate.attempt, "probe_interrupted")
       })
 
     const decide = Effect.sync((): Decision => {
@@ -101,6 +119,7 @@ export const makeAcquisitionCoordinator = (options: Options) =>
       if (!Deferred.isDoneUnsafe(circuit.ready)) return { _tag: "Wait", changed: circuit.ready }
       const changed = Deferred.makeUnsafe<void>()
       circuit = { _tag: "HalfOpen", epoch: ++epoch, attempt: circuit.attempt, changed }
+      options.observe({ type: "circuit", state: "half_open" })
       return { _tag: "Probe", epoch: circuit.epoch, attempt: circuit.attempt }
     })
 
@@ -110,28 +129,66 @@ export const makeAcquisitionCoordinator = (options: Options) =>
         : circuit._tag === "HalfOpen" && circuit.epoch === candidate.epoch
 
     const run = <A, R>(candidate: Admission, work: Effect.Effect<A, WatchmanError, R>) => {
-      const admitted = admission.withPermit(
-        Effect.suspend(() => {
-          if (!valid(candidate)) return Effect.succeed({ _tag: "Retry" } as const)
-          return work.pipe(
-            Effect.flatMap((value) => close(candidate).pipe(Effect.as({ _tag: "Success", value } as const))),
-            Effect.catch((error) =>
-              error.stage === "connect"
-                ? trip(candidate).pipe(Effect.as({ _tag: "Retry" } as const))
-                : close(candidate).pipe(Effect.andThen(Effect.fail(error))),
+      const admitted = Effect.suspend(() => {
+        let started = false
+        options.observe({ type: "admission", waiting: 1, inFlight: 0 })
+        return admission
+          .withPermit(
+            Effect.sync(() => {
+              started = true
+              options.observe({ type: "admission", waiting: -1, inFlight: 1 })
+            }).pipe(
+              Effect.andThen(
+                Effect.suspend(() => {
+                  if (!valid(candidate)) return Effect.succeed({ _tag: "Retry" } as const)
+                  return work.pipe(
+                    Effect.flatMap((value) => close(candidate).pipe(Effect.as({ _tag: "Success", value } as const))),
+                    Effect.catch((error) =>
+                      error.stage === "connect"
+                        ? trip(candidate, error).pipe(Effect.as({ _tag: "Retry" } as const))
+                        : close(candidate).pipe(Effect.andThen(Effect.fail(error))),
+                    ),
+                  )
+                }),
+              ),
+              Effect.ensuring(
+                Effect.sync(() => options.observe({ type: "admission", waiting: 0, inFlight: -1 })),
+              ),
             ),
           )
-        }),
-      )
+          .pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                if (!started) options.observe({ type: "admission", waiting: -1, inFlight: 0 })
+              }),
+            ),
+          )
+      })
       return candidate._tag === "Probe" ? admitted.pipe(Effect.onExit(() => abandon(candidate))) : admitted
     }
+
+    const awaitCircuit = (changed: Deferred.Deferred<void>) =>
+      Effect.suspend(() => {
+        options.observe({ type: "circuit_wait", change: 1 })
+        return Deferred.await(changed).pipe(
+          Effect.ensuring(Effect.sync(() => options.observe({ type: "circuit_wait", change: -1 }))),
+        )
+      })
 
     const acquire: AcquisitionCoordinator["acquire"] = <A, R>(work: Effect.Effect<A, WatchmanError, R>) =>
       Effect.suspend(() =>
         decide.pipe(
+          Effect.tap((decision) =>
+            decision._tag === "Probe"
+              ? Effect.logInfo("watchman acquisition circuit half-open", {
+                  attempt: decision.attempt,
+                  limit: options.limit,
+                })
+              : Effect.void,
+          ),
           Effect.flatMap((decision): Effect.Effect<Result<A>, WatchmanError, R> => {
             if (decision._tag === "Wait")
-              return Deferred.await(decision.changed).pipe(Effect.as({ _tag: "Retry" } as const))
+              return awaitCircuit(decision.changed).pipe(Effect.as({ _tag: "Retry" } as const))
             return run(decision, work)
           }),
           Effect.flatMap((result) => (result._tag === "Retry" ? acquire(work) : Effect.succeed(result.value))),
