@@ -108,10 +108,11 @@ const makeConnection = (
     const state: {
       active?: RootGeneration
       fatal?: WatchmanError
-      recovering?: Deferred.Deferred<RootGeneration, WatchmanError>
+      acquiring?: Deferred.Deferred<RootGeneration, WatchmanError>
     } = {}
     let nextGeneration = 0
     let nextSubscription = 0
+    let hasConnected = false
 
     const close = (generation: Generation, cause?: unknown) =>
       Effect.sync(() => {
@@ -165,6 +166,7 @@ const makeConnection = (
         const route = yield* resolve(generation, intent, requestOptions(generation))
         const active = { generation, route } satisfies RootGeneration
         state.active = active
+        hasConnected = true
         yield* Effect.logInfo("watchman root connected", {
           intent,
           generation: generation.id,
@@ -174,25 +176,6 @@ const makeConnection = (
         return active
       }).pipe(Effect.onError(() => close(generation)))
     })
-
-    const current = () =>
-      connection.withPermit(
-        Effect.gen(function* () {
-          if (state.fatal) return yield* Effect.fail(state.fatal)
-          if (state.active && !Deferred.isDoneUnsafe(state.active.generation.closed)) return state.active
-          if (state.recovering) return yield* Deferred.await(state.recovering)
-          return yield* create.pipe(
-            Effect.tapError((error) =>
-              Effect.sync(() => {
-                if (error.stage === "decode" || error.stage === "route") {
-                  state.fatal = error
-                  channel.fatalChange()
-                }
-              }),
-            ),
-          )
-        }),
-      )
 
     const establish = (item: SubscriptionState, root: RootGeneration, previous?: Established) =>
       Effect.gen(function* () {
@@ -287,51 +270,50 @@ const makeConnection = (
         )
       })
 
-    const recoverable = (error: WatchmanError) =>
+    const recoverable = (error: WatchmanError, root: RootGeneration) =>
       error instanceof GenerationClosed ||
       error.stage === "connect" ||
       error.stage === "command" ||
       error.stage === "reconnect" ||
-      (error.stage === "subscribe" &&
-        !!state.active?.generation &&
-        Deferred.isDoneUnsafe(state.active.generation.closed))
+      (error.stage === "subscribe" && Deferred.isDoneUnsafe(root.generation.closed))
 
-    const recoverRoot = (attempt = 0): Effect.Effect<RootGeneration, WatchmanError> => {
-      channel.attempt()
+    const acquireRoot = (attempt = 0): Effect.Effect<RootGeneration, WatchmanError> => {
+      if (hasConnected || attempt > 0) channel.attempt()
       const interval = Math.min(
         options?.retryCapMs ?? RETRY_CAP_MS,
         (options?.retryBaseMs ?? RETRY_BASE_MS) * 2 ** attempt,
       )
-      return Effect.sync(() => interval * (0.7 + Math.random() * 0.6)).pipe(
-        Effect.flatMap(Effect.sleep),
-        Effect.andThen(create),
+      return create.pipe(
         Effect.catch((error) => {
-          if (error.stage === "decode" || error.stage === "route") {
+          if (error.stage === "decode") {
             state.fatal = error
             channel.fatalChange()
             return Effect.fail(error)
           }
-          return recoverRoot(attempt + 1)
+          return Effect.sync(() => interval * (0.7 + Math.random() * 0.6)).pipe(
+            Effect.flatMap(Effect.sleep),
+            Effect.andThen(acquireRoot(attempt + 1)),
+          )
         }),
       )
     }
 
-    const replacement = () =>
+    const acquire = () =>
       Effect.gen(function* () {
         const result = yield* connection.withPermit(
           Effect.gen(function* () {
             if (state.fatal) return yield* Effect.fail(state.fatal)
             if (state.active && !Deferred.isDoneUnsafe(state.active.generation.closed))
               return { type: "active" as const, root: state.active }
-            if (state.recovering) return { type: "pending" as const, deferred: state.recovering }
+            if (state.acquiring) return { type: "pending" as const, deferred: state.acquiring }
             const deferred = Deferred.makeUnsafe<RootGeneration, WatchmanError>()
-            state.recovering = deferred
+            state.acquiring = deferred
             channel.recoveringChange(true)
-            yield* recoverRoot().pipe(
+            yield* acquireRoot().pipe(
               Deferred.into(deferred),
               Effect.ensuring(
                 Effect.sync(() => {
-                  if (state.recovering === deferred) state.recovering = undefined
+                  if (state.acquiring === deferred) state.acquiring = undefined
                   channel.recoveringChange(false)
                 }),
               ),
@@ -344,10 +326,13 @@ const makeConnection = (
         return yield* Deferred.await(result.deferred)
       })
 
-    const reconnect = (item: SubscriptionState, previous: Established): Effect.Effect<Established, WatchmanError> =>
-      replacement().pipe(
-        Effect.flatMap((root) => establish(item, root, previous)),
-        Effect.catch((error) => (recoverable(error) ? reconnect(item, previous) : Effect.fail(error))),
+    const attach = (item: SubscriptionState, previous?: Established): Effect.Effect<Established, WatchmanError> =>
+      acquire().pipe(
+        Effect.flatMap((root) =>
+          establish(item, root, previous).pipe(
+            Effect.catch((error) => (recoverable(error, root) ? attach(item, previous) : Effect.fail(error))),
+          ),
+        ),
       )
 
     const wait = (item: SubscriptionState, established: Established) =>
@@ -363,7 +348,7 @@ const makeConnection = (
         if (result.type === "closed") {
           yield* detach(item, established, false)
           const next = yield* Effect.raceFirst(
-            reconnect(item, established).pipe(Effect.map((established) => ({ type: "resumed" as const, established }))),
+            attach(item, established).pipe(Effect.map((established) => ({ type: "resumed" as const, established }))),
             Deferred.await(item.stop).pipe(Effect.as({ type: "stopped" as const })),
           )
           if (next.type === "stopped") return yield* Effect.void
@@ -378,10 +363,7 @@ const makeConnection = (
           item.input.publish({ path: item.input.target, type: "update" })
           item.sub.pdu({ canceled: true, fresh: false, files: 0, published: 1 })
           yield* detach(item, established, false)
-          const root = yield* current()
-          const next = yield* establish(item, root, established).pipe(
-            Effect.catch((error) => (recoverable(error) ? reconnect(item, established) : Effect.fail(error))),
-          )
+          const next = yield* attach(item, established)
           return yield* loop(item, next)
         }
         item.clock = pdu.clock
@@ -408,7 +390,7 @@ const makeConnection = (
         }
         subscriptions.set(item.id, item)
         return yield* Effect.gen(function* () {
-          const initial = yield* current().pipe(Effect.flatMap((root) => establish(item, root)))
+          const initial = yield* attach(item)
           const fiber = yield* loop(item, initial).pipe(
             Effect.catch((error) => Effect.sync(() => input.fail(error))),
             Effect.ensuring(
