@@ -1,5 +1,6 @@
 import { expect } from "bun:test"
 import { Deferred, Effect, Exit, Fiber } from "effect"
+import { TestClock } from "effect/testing"
 import type { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import { make as makeBackend } from "@opencode-ai/core/filesystem/watcher/watchman/backend"
 import { command, makeGeneration, type RawClient } from "@opencode-ai/core/filesystem/watcher/watchman/client"
@@ -48,6 +49,18 @@ function standard(args: readonly unknown[], callback: (error: Error | null, resp
   if (args[0] === "clock") return callback(null, { clock: "c:1" })
   if (args[0] === "subscribe") return callback(null, { subscribe: args[2] })
   callback(null, { unsubscribe: args[2], deleted: true })
+}
+
+type ResponseCallback = (error: Error | null, response?: unknown) => void
+
+function capabilityResponse(callback: ResponseCallback) {
+  callback(null, { capabilities: { relative_root: true } })
+}
+
+function controlAt(controls: readonly (ResponseCallback | undefined)[], index: number) {
+  const control = controls[index]
+  if (!control) throw new Error(`Missing capability control ${index}`)
+  return control
 }
 
 function input(target: string, updates: Watcher.Update[] = []) {
@@ -165,6 +178,292 @@ it.live("shares initial acquisition retries across interests on one root", () =>
     expect(clients[0].commands.filter((args) => args[0] === "subscribe")).toHaveLength(2)
     yield* Effect.promise(() => first.unsubscribe())
     yield* Effect.promise(() => second.unsubscribe())
+  }),
+)
+
+it.effect("bounds acquisition work across distinct roots", () =>
+  Effect.gen(function* () {
+    const starts = yield* Effect.all(Array.from({ length: 4 }, () => Deferred.make<void>()), {
+      concurrency: "unbounded",
+    })
+    const controls: (ResponseCallback | undefined)[] = []
+    let attempts = 0
+    let inFlight = 0
+    let highWater = 0
+    const registry = yield* makeRegistry(
+      () => {
+        const index = attempts++
+        inFlight++
+        highWater = Math.max(highWater, inFlight)
+        const raw = client((args, callback) => {
+          standard(args, callback)
+          if (args[0] === "watch") inFlight--
+        })
+        return {
+          ...raw,
+          capabilityCheck: (_capabilities, callback) => {
+            controls[index] = callback
+            Deferred.doneUnsafe(starts[index], Effect.void)
+          },
+        }
+      },
+      { maxConcurrentAcquisitions: 2 },
+    )
+    const fibers = yield* Effect.all(
+      Array.from({ length: 4 }, (_, index) =>
+        registry
+          .subscribe({ type: "project", project: `/root-${index}` }, input(`/root-${index}`))
+          .pipe(Effect.forkScoped({ startImmediately: true })),
+      ),
+      { concurrency: "unbounded" },
+    )
+
+    yield* Deferred.await(starts[1])
+    yield* Effect.yieldNow
+    const initiallyAdmitted = attempts
+    capabilityResponse(controlAt(controls, 0))
+    yield* Deferred.await(starts[2])
+    capabilityResponse(controlAt(controls, 1))
+    yield* Deferred.await(starts[3])
+    capabilityResponse(controlAt(controls, 2))
+    capabilityResponse(controlAt(controls, 3))
+
+    const subscriptions = yield* Effect.all(fibers.map(Fiber.join), { concurrency: "unbounded" })
+    expect(initiallyAdmitted).toBe(2)
+    expect(highWater).toBe(2)
+    yield* Effect.forEach(subscriptions, (subscription) => Effect.promise(() => subscription.unsubscribe()), {
+      discard: true,
+    })
+  }),
+)
+
+it.effect("uses one shared half-open probe sequence during a connect outage", () =>
+  Effect.gen(function* () {
+    const starts = yield* Effect.all(Array.from({ length: 10 }, () => Deferred.make<void>()), {
+      concurrency: "unbounded",
+    })
+    let attempts = 0
+    const registry = yield* makeRegistry(
+      () => {
+        const index = attempts++
+        Deferred.doneUnsafe(starts[index], Effect.void)
+        throw new Error("daemon unavailable")
+      },
+      { maxConcurrentAcquisitions: 1, retryBaseMs: 100, retryCapMs: 400 },
+    )
+    const fibers = yield* Effect.all(
+      Array.from({ length: 8 }, (_, index) =>
+        registry
+          .subscribe({ type: "project", project: `/root-${index}` }, input(`/root-${index}`))
+          .pipe(Effect.scoped, Effect.forkScoped({ startImmediately: true })),
+      ),
+      { concurrency: "unbounded" },
+    )
+
+    yield* Deferred.await(starts[0])
+    yield* Effect.yieldNow
+    expect(attempts).toBe(1)
+    yield* TestClock.adjust("99 millis")
+    expect(attempts).toBe(1)
+    yield* TestClock.adjust("1 millis")
+    yield* Deferred.await(starts[1])
+    expect(attempts).toBe(2)
+    yield* Effect.yieldNow
+    yield* TestClock.adjust("199 millis")
+    expect(attempts).toBe(2)
+    yield* TestClock.adjust("1 millis")
+    yield* Deferred.await(starts[2])
+    expect(attempts).toBe(3)
+
+    yield* Effect.forEach(fibers, Fiber.interrupt, { discard: true })
+  }),
+)
+
+it.effect("drains circuit waiters only through bounded admission after probe success", () =>
+  Effect.gen(function* () {
+    const starts = yield* Effect.all(Array.from({ length: 6 }, () => Deferred.make<void>()), {
+      concurrency: "unbounded",
+    })
+    const controls: (ResponseCallback | undefined)[] = []
+    let attempts = 0
+    let inFlight = 0
+    let highWater = 0
+    const registry = yield* makeRegistry(
+      () => {
+        const index = attempts++
+        Deferred.doneUnsafe(starts[index], Effect.void)
+        if (index === 0) throw new Error("daemon unavailable")
+        inFlight++
+        highWater = Math.max(highWater, inFlight)
+        const raw = client((args, callback) => {
+          standard(args, callback)
+          if (args[0] === "watch") inFlight--
+        })
+        return {
+          ...raw,
+          capabilityCheck: (_capabilities, callback) => {
+            if (index === 1) return capabilityResponse(callback)
+            controls[index] = callback
+          },
+        }
+      },
+      { maxConcurrentAcquisitions: 2, retryBaseMs: 100, retryCapMs: 400 },
+    )
+    const fibers = yield* Effect.all(
+      Array.from({ length: 5 }, (_, index) =>
+        registry
+          .subscribe({ type: "project", project: `/root-${index}` }, input(`/root-${index}`))
+          .pipe(Effect.forkScoped({ startImmediately: true })),
+      ),
+      { concurrency: "unbounded" },
+    )
+
+    yield* Deferred.await(starts[0])
+    yield* Effect.yieldNow
+    yield* TestClock.adjust("100 millis")
+    yield* Deferred.await(starts[1])
+    yield* Deferred.await(starts[3])
+    yield* Effect.yieldNow
+    expect(attempts).toBe(4)
+    expect(highWater).toBe(2)
+
+    capabilityResponse(controlAt(controls, 2))
+    yield* Deferred.await(starts[4])
+    capabilityResponse(controlAt(controls, 3))
+    yield* Deferred.await(starts[5])
+    capabilityResponse(controlAt(controls, 4))
+    capabilityResponse(controlAt(controls, 5))
+
+    const subscriptions = yield* Effect.all(fibers.map(Fiber.join), { concurrency: "unbounded" })
+    expect(highWater).toBe(2)
+    yield* Effect.forEach(subscriptions, (subscription) => Effect.promise(() => subscription.unsubscribe()), {
+      discard: true,
+    })
+  }),
+)
+
+it.effect("keeps a root-specific watch failure out of the backend circuit", () =>
+  Effect.gen(function* () {
+    const rejected = yield* Deferred.make<void>()
+    let attempts = 0
+    const registry = yield* makeRegistry(
+      () => {
+        const index = attempts++
+        return client((args, callback) => {
+          if (index === 0 && args[0] === "watch") {
+            callback(new Error("root rejected"))
+            Deferred.doneUnsafe(rejected, Effect.void)
+            return
+          }
+          standard(args, callback)
+        })
+      },
+      { maxConcurrentAcquisitions: 1, retryBaseMs: 100, retryCapMs: 400 },
+    )
+    const failedRoot = yield* registry
+      .subscribe({ type: "project", project: "/rejected" }, input("/rejected"))
+      .pipe(Effect.scoped, Effect.forkScoped({ startImmediately: true }))
+    yield* Deferred.await(rejected)
+    yield* Effect.yieldNow
+
+    const healthy = yield* registry.subscribe({ type: "project", project: "/healthy" }, input("/healthy"))
+
+    expect(attempts).toBe(2)
+    yield* Fiber.interrupt(failedRoot)
+    yield* Effect.promise(() => healthy.unsubscribe())
+  }),
+)
+
+it.effect("keeps structural decode failure out of the backend circuit", () =>
+  Effect.gen(function* () {
+    let attempts = 0
+    const registry = yield* makeRegistry(
+      () => {
+        const raw = client()
+        if (attempts++ > 0) return raw
+        return {
+          ...raw,
+          capabilityCheck: (_capabilities, callback) => callback(null, {}),
+        }
+      },
+      { maxConcurrentAcquisitions: 1 },
+    )
+
+    const malformed = yield* registry
+      .subscribe({ type: "project", project: "/malformed" }, input("/malformed"))
+      .pipe(Effect.exit)
+    const healthy = yield* registry.subscribe({ type: "project", project: "/healthy" }, input("/healthy"))
+
+    expect(Exit.isFailure(malformed)).toBe(true)
+    expect(attempts).toBe(2)
+    yield* Effect.promise(() => healthy.unsubscribe())
+  }),
+)
+
+it.effect("removes an acquisition waiter when its final demand is canceled", () =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<void>()
+    const controls: (ResponseCallback | undefined)[] = []
+    let attempts = 0
+    const registry = yield* makeRegistry(
+      () => {
+        const index = attempts++
+        const raw = client()
+        return {
+          ...raw,
+          capabilityCheck: (_capabilities, callback) => {
+            controls[index] = callback
+            if (index === 0) Deferred.doneUnsafe(started, Effect.void)
+          },
+        }
+      },
+      { maxConcurrentAcquisitions: 1 },
+    )
+    const admitted = yield* registry
+      .subscribe({ type: "project", project: "/admitted" }, input("/admitted"))
+      .pipe(Effect.forkScoped({ startImmediately: true }))
+    yield* Deferred.await(started)
+    const queued = yield* registry
+      .subscribe({ type: "project", project: "/queued" }, input("/queued"))
+      .pipe(Effect.scoped, Effect.forkScoped({ startImmediately: true }))
+    yield* Effect.yieldNow
+    const attemptsWhileQueued = attempts
+
+    const interrupting = yield* Fiber.interrupt(queued).pipe(Effect.forkScoped({ startImmediately: true }))
+    yield* Effect.yieldNow
+    if (controls[1]) capabilityResponse(controls[1])
+    yield* Fiber.join(interrupting)
+    capabilityResponse(controlAt(controls, 0))
+    const subscription = yield* Fiber.join(admitted)
+
+    expect(attemptsWhileQueued).toBe(1)
+    expect(attempts).toBe(1)
+    yield* Effect.promise(() => subscription.unsubscribe())
+  }),
+)
+
+it.effect("does not probe after final demand is canceled while the circuit is open", () =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<void>()
+    let attempts = 0
+    const registry = yield* makeRegistry(
+      () => {
+        attempts++
+        Deferred.doneUnsafe(started, Effect.void)
+        throw new Error("daemon unavailable")
+      },
+      { maxConcurrentAcquisitions: 1, retryBaseMs: 100, retryCapMs: 400 },
+    )
+    const pending = yield* registry
+      .subscribe({ type: "project", project: "/canceled" }, input("/canceled"))
+      .pipe(Effect.scoped, Effect.forkScoped({ startImmediately: true }))
+    yield* Deferred.await(started)
+    yield* Effect.yieldNow
+
+    yield* Fiber.interrupt(pending)
+    yield* TestClock.adjust("2 seconds")
+
+    expect(attempts).toBe(1)
   }),
 )
 
