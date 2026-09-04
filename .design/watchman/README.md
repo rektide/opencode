@@ -1,381 +1,206 @@
 ---
-type: Design
-title: Root-scoped Watchman maintenance log
-description: Implementation state, verification record, and operational notes for the root-scoped Watchman backend.
+type: Index
+title: Watchman design corpus
+description: What the 32 design documents say, their status, and their dependency graph — the entry point for the root-scoped Watchman backend and its unbuilt remake.
 resource: /.design/watchman/README.md
-tags: [opencode, watchman, watchwoman, filesystem, maintenance]
+tags: [opencode, watchman, watchwoman, filesystem, index]
 status: stable
-generated: { by: model:gpt-5.6-terra, at: 2026-08-31T21:40:00Z }
-verified: { by: model:gpt-5.6-terra, at: 2026-08-30T21:10:00Z }
-stale_after: 2026-10-30
+generated: { by: model:glm-5.3-flash, at: 2026-09-03T23:59:00Z }
+verified: { by: model:glm-5.3-flash, at: 2026-09-03T23:59:00Z }
+stale_after: 2026-10-15
 sources:
-  - id: accepted-design
-    resource: /.design/watchman/draft2.gpt56t.md
-  - id: daemon-validation
-    resource: /.design/watchman/watchwoman0.unknown.md
-  - id: patch-policy
-    resource: file:///home/rektide/a/doc/opencode/patches.md
+  - id: maintenance-log
+    resource: /.design/watchman/maintenance.glm53.md
+  - id: current-route
+    resource: /.design/watchman/nav0-syn0.gpt56sol.md
+  - id: corpus-read
+    resource: /.design/watchman/tools0.gpt56s.md
 ---
 
-# Root-scoped Watchman maintenance log
+# Watchman design corpus
 
-> **Remake design status:**
-> [`assurances0.gpt56sol.md`](/.design/watchman/assurances0.gpt56sol.md) is the
-> current source-grounded map of observation promises, the mandatory root-epoch
-> floor, and optional freshness/path/coverage assurances under the retained B2
-> decision. [`carrier1.gpt56s.md`](/.design/watchman/carrier1.gpt56s.md) remains
-> the original clean-rebuild proposal, but its B3-dependent interface requires
-> revision before construction.
-> [`nav0-syn0.gpt56sol.md`](/.design/watchman/nav0-syn0.gpt56sol.md) synthesizes
-> the three navigation drafts into the current authority-correct route: pinned
-> revisions, owner claims, two deterministic harnesses, the Profile R floor,
-> the still-open recommended G5 fork, current-line completion, and clean-carrier
-> promotion. This log continues to describe the implemented historical
-> fallback/cursor/metrics line until a replacement lands.
+> **Current state:** the root-scoped backend is **built and instrumented** (see
+> [`maintenance.glm53.md`](/.design/watchman/maintenance.glm53.md)). The
+> **remake** — a clean re-authoring that fixes its known defects — is designed
+> but not started. [`nav0-syn0.gpt56sol.md`](/.design/watchman/nav0-syn0.gpt56sol.md)
+> is the authority-correct route. One decision fork (**G5**) and one contested
+> promotion (**B3**) await explicit human acceptance.
 
-This workspace carries the implementation of
-[`draft2.gpt56t.md`](/.design/watchman/draft2.gpt56t.md) as an independent stack over
-`v2@origin` `43d09b9d`, freshened 2026-09-01 from the previous `6a2c3e91` base
-(see the freshen records below). The dated `watchman-20260829` bookmark remains
-the audit snapshot of the deleted process-global implementation, and the
-floating `watchman` bookmark now tracks this root-scoped replacement line.
+## What the corpus is trying to say
 
-## Current stack
+1. **A root-scoped Watchman backend replaced a deleted process-global one.**
+   [`draft1`](/.design/watchman/draft1.gpt56t.md) built one shared connection;
+   it was deleted after its shared FIFO turned one slow root into a fleet-wide
+   outage. [`draft2`](/.design/watchman/draft2.gpt56t.md) is the accepted
+   replacement — one `RootConnection` per route intent, source-owned interests
+   — and it is implemented, tested, and tuned (25+ commits).
+2. **A live daemon reshaped the design before it landed.**
+   [`watchwoman0`](/.design/watchman/watchwoman0.unknown.md) validated draft2
+   against watchwoman 0.7.0 and produced its three governing amendments (plain
+   `watch`, never `watch-project`; best-effort `unsubscribe`; stale cursors
+   return full state) plus the 29.2 GB `$HOME` crawl incident.
+3. **The August 30 incident is understood to source level.**
+   [`timeout0`](/.design/watchman/timeout0.gpt56s.md) +
+   [`cookie-clash0`](/.design/watchman/cookie-clash0.gpt56s.md): queue-residence
+   timeouts on one serialized FIFO, and 3 cookie pathnames amplifying into 74
+   skill refreshes — application amplification, not corruption. This justified
+   admitted dispatch, per-root failure domains, and Skill-boundary cookie
+   filtering.
+4. **The implemented result has two sharp known defects.**
+   [`fallbacks0`](/.design/watchman/fallbacks0.glm53.md): the *acquisition
+   cliff* — the same failure is permanent Parcel pre-ack but retry-forever
+   post-ack. [`topic-query0`](/.design/watchman/topic-query0.glm53.md): the
+   resume path discards the daemon-computed disconnect delta, violating
+   draft2's own Amendment 3. The four September 1 reviews add the full defect
+   and test-gap list.
+5. **The watch-surface boundary is settled.** Directories earn the daemon
+   layer; files stay on `node:fs.watch` unconditionally
+   ([`files-too0`](/.design/watchman/files-too0.glm53.md)), and Parcel's own
+   watchman client is documented as the incident class this layer eliminates
+   ([`parcel0`](/.design/watchman/parcel0.glm53.md)).
+6. **Everything after `vision0` is one question: how to honestly rebuild.**
+   [`vision0`](/.design/watchman/vision0.gpt56s.md) records the human **B2
+   decision** (Config-local typed invalidation now; watcher-level B3 later).
+   [`carrier1`](/.design/watchman/carrier1.gpt56s.md) proposes the remake
+   architecture but *promotes B3* — ruled by
+   [`carrier1-review0.gpt56sol`](/.design/watchman/carrier1-review0.gpt56sol.md)
+   (SD1) to still require explicit human acceptance, and carrying 7 correctness
+   blockers (CB1–CB7). Upstream then landed in the carrier's planned seams
+   ([`upstream-delta0`](/.design/watchman/upstream-delta0.glm53h.md)): the
+   rebuild must *generalize* upstream's `ConfigWatch`/`onReady`, not bypass it.
+7. **The current route is `nav0-syn0`.** Authority before architecture:
+   crossing contract → two deterministic harnesses → **Profile R** floor
+   (detected-loss convergence) → the open **G5 fork** (bounded Config
+   freshness lease, or not) → complete the current line including VCS signals →
+   re-author the carrier from final state on pinned upstream.
+8. **Forward product direction: VCS-internal watch signals** (git refs, jj
+   `op_heads/heads`, hg branch) as invalidation-not-data
+   ([`watches`](/.design/watchman/watches.glm53.md)), restructured by
+   [`alignment0`](/.design/watchman/opwatch-vcs-signals-alignment0.gpt56solmax.md)
+   into two independently shippable lanes, with
+   [`tools0`](/.design/watchman/tools0.gpt56s.md) specifying the harnesses
+   that make it provable.
 
-Change IDs are the freshened (duplicated-then-rebased) line; the pre-freshen
-originals remain in the repo under their old change IDs.
+**Read only three:** [`nav0-syn0`](/.design/watchman/nav0-syn0.gpt56sol.md)
+(the route) · [`assurances0`](/.design/watchman/assurances0.gpt56sol.md) (the
+map it navigates) · [`maintenance.glm53.md`](/.design/watchman/maintenance.glm53.md)
+(what already runs).
 
-| Change | Scope |
+## Status legend
+
+| Status | Meaning |
 | --- | --- |
-| `srpksroy` | `refactor(core): reconcile source watch interests` - owner-local `ensure`/`reconcile`, stable Config and Skill subscriptions, post-ack dirty replay, missing and symlink sentinels, Skill cookie filtering |
-| `znylspvo` | `feat(core): add root-scoped Watchman backend` - private placement metadata, exact-interest sharing, one admitted connection per route intent, cursor recovery, initial Parcel fallback, typed response decoding, injected and live tests |
-| `wqssnrny` | `feat: expose Watchman backend selection` - optional environment and `ServerOptions` plumbing |
-| `wzzxryxo` | `docs(watchman): document root-scoped backend` - this corpus and maintenance record |
-| `tpnsvulo` | `fix(core): enforce root-owned watch recovery` - review fixes for submitted-command admission, one shared root reconnect sequence, owner-stream failures, and failed Skill scans |
-| `qukmyzry` | `docs(watchman): trim implementation corpus` - retain only the implemented design and its direct evidence |
-| `puwuuxxp` | `fix(core): recover source watch failures` - resubscribe failed owner interests and retain per-source URL snapshots |
-| `pvkvkwlt` | `docs(watchman): record review fixes` - update the accepted design and verification record |
-| `muomvswy` | `refactor(core): tighten watcher internals` - centralize generic watcher types and simplify established-generation access |
-| `nownkqor` | `docs(watchman): finalize maintenance record` - configuration table and verification record |
-| `vsnyruwx` | `feat: make watcher timeouts configurable` - 60s default command deadline plus env and `ServerOptions` tuning for all watcher deadlines and reconnect backoff |
-| `wzqmrknl` | `docs(watchman): record timeout tuning` - timeout rationale in the design and maintenance record |
-| `nxxrysru` | `chore(core): lower default reconnect cap to 2s` - tighten the default ceiling of the jittered root recovery loop |
-| `sokysuus` | `feat: expose watchman binary override` - passthrough to the transport's existing CLI path option, plus per-root subscription counts in connection logs |
-| `qpqtqors` | `feat(core): add watchman channel metrics` - wide-event counter/gauge telemetry per channel with per-window deltas, wide and line-per-channel modes, and a shutdown final dump |
-| `myqxruxs` | `feat(server): expose watchman metrics options` - `metricsIntervalMs` and `metricsMode` in `ServerOptions` plus env plumbing |
-| `yvzzxvyv` | `feat(core): widen ignore patterns and wire them into watch owners` - `.jj`/`.venv`/`venv`/`.tox`/`.mypy_cache` plus root-level and nested watchman-cookie globs in `Ignore.PATTERNS`, which now backs Config's directory ignore list and ConfigSkillPlugin directory interests instead of a hand-rolled three-entry list |
+| implemented | Documents landed, verified code |
+| superseded | Replaced; retained for lineage |
+| evidence | Source-level / probe / live-daemon findings |
+| review | Findings over a design or the implementation |
+| open proposal | Proposed, not built, no human acceptance recorded |
+| decision-record | Records a convention or decision state |
 
-The source-owner change stays in upstream's current `Config` and
-`ConfigSkillPlugin` modules rather than reviving the withdrawn
-`ConfigSourceWatch` and `SkillSourceObserver` branches. This keeps the patch
-small while preserving the designed ownership boundary: each owner has its
-own `WatchInterests` plan, and no caller chooses Watchman routing.
+**Dependency tags** use named refs with a role prefix: `builds-on`, `evidence`,
+`supersedes`, `reviews`, `contradicts`, `synthesizes`, `validates`, `feeds`,
+`decides`, `implements`.
 
-## Runtime shape
+---
 
-- `Watcher` remains a process-global exact-interest registry with no idle TTL.
-- `WatchInterests` is owner-local and attaches project or exact placement from
-  the current `Location` through private symbol metadata.
-- Files continue to use `node:fs.watch`; Parcel remains the default directory
-  adapter.
-- Opted-in directory interests use one `RootConnection` per explicit project
-  root or exact external target.
-- Every connection has its own raw client, command semaphore, response
-  deadline, route, subscription map, and reconnect lifecycle.
-- All location graphs in a process share one hoisted Watcher build (pinned in
-  `test/location-layer.test.ts`): sessions, subagents, and additional watch
-  owners never multiply registries or connections — only distinct live root
-  intents and separate processes do.
-- Project routing always sends `watch <explicit project root>`. It never sends
-  `watch-project` and no code sends `watch-del`.
-- Initial Watchman acquisition failures fall back to Parcel. After Watchman
-  acknowledges, recovery is unbounded with capped, approximately 30 percent
-  jittered backoff and cursor resume.
-- A submitted command timeout closes only its root generation. A command that
-  loses its generation before admission retries through subscription recovery.
-- Explicit unsubscribe removes client ownership immediately. Daemon
-  `unsubscribe` is best-effort and does not control client-side resurrection.
+## Implemented line
 
-## Configuration
-
-| Environment | `ServerOptions` | Effect | Default |
+| Doc | Says | Status | Dependencies |
 | --- | --- | --- | --- |
-| `OPENCODE_WATCHER_BACKEND` | `fs.watcherBackend` | `watchman` or `parcel` directory backend | absent, which selects Parcel |
-| `OPENCODE_WATCHMAN_COMMAND_TIMEOUT_MS` | `fs.watchman.commandTimeoutMs` | millis before an admitted command retires its root generation | 60000 |
-| `OPENCODE_WATCHMAN_RETRY_BASE_MS` / `OPENCODE_WATCHMAN_RETRY_CAP_MS` | `fs.watchman.retryBaseMs` / `fs.watchman.retryCapMs` | millis reconnect backoff growth and cap, about 30 percent jitter | 100 / 2000 |
-| `OPENCODE_WATCHER_SUBSCRIBE_TIMEOUT_MS` | `fs.subscribeTimeoutMs` | millis Parcel acquisition deadline | 10000 |
-| `OPENCODE_WATCHMAN_BINARY` | `fs.watchman.binary` | Watchman CLI path for socket discovery when `WATCHMAN_SOCK` is unset | `watchman` on `PATH` |
-| `OPENCODE_WATCHMAN_METRICS_INTERVAL_MS` | `fs.watchman.metricsIntervalMs` | millis between watchman metrics dumps; `0` disables | 900000 (15 min) when the watchman backend is active |
-| `OPENCODE_WATCHMAN_METRICS_MODE` | `fs.watchman.metricsMode` | `wide` logs one JSON line per dump, `lines` logs a header plus one line per channel | `wide` |
-| `OPENCODE_FILEWATCHER_DISABLE` / `OPENCODE_DISABLE_FILEWATCHER` | `fs.filewatcher` | truthy disables all watching (`fs.filewatcher: false` is the options form) | enabled |
-| `WATCHMAN_SOCK` | - | Watchman transport socket override | transport discovery |
+| [`draft1`](/.design/watchman/draft1.gpt56t.md) | Original accepted design: one process-global Watchman connection; roots expensive, subscriptions cheap; 15-min idle TTL. Built, then deleted after the FIFO incident. | superseded → [`draft2`](/.design/watchman/draft2.gpt56t.md) | — |
+| [`draft2`](/.design/watchman/draft2.gpt56t.md) | The accepted, implemented design: per-root-intent `RootConnection`s, source-owned `WatchInterests`, admitted dispatch, 60 s deadlines; Amendments 1–3 from live validation. | implemented | supersedes:[`draft1`](/.design/watchman/draft1.gpt56t.md) · validated-by:[`watchwoman0`](/.design/watchman/watchwoman0.unknown.md) · evidence:[`timeout0`](/.design/watchman/timeout0.gpt56s.md) |
+| [`watchwoman0`](/.design/watchman/watchwoman0.unknown.md) | Live-daemon + source validation of draft2's six assumptions: re-watch 2 ms, incremental `since` 7 ms; no `canceled` PDU, no cursor rejection; the 32M-file `$HOME` crawl incident. | evidence | validates:[`draft2`](/.design/watchman/draft2.gpt56t.md) |
+| [`maintenance.glm53`](/.design/watchman/maintenance.glm53.md) | Implementation state of the landed stack: commit table, runtime shape, config, metrics, verification records, freshen history. | implemented | implements:[`draft2`](/.design/watchman/draft2.gpt56t.md) |
+| [`metrics0`](/.design/watchman/metrics0.glm53.md) | Reading guide for the landed channel telemetry: `delta.generations` + `command_timeouts` = incident signature; `files_in − updates_out` = ignore-drop rate; frozen `subs[].clock` = delivery stopped. | implemented | documents:[`maintenance.glm53`](/.design/watchman/maintenance.glm53.md) · detects:[`timeout0`](/.design/watchman/timeout0.gpt56s.md) |
 
-Unknown backend values fail CLI startup validation, as do non-positive
-timeout values. There is no `default` enum value, notification interval, or
-root TTL. Deadline and backoff tuning exists specifically for heavily loaded
-hosts where a short deadline converts a slow command into generation churn.
+## Incident & evidence studies
 
-## Metrics
+| Doc | Says | Status | Dependencies |
+| --- | --- | --- | --- |
+| [`timeout0`](/.design/watchman/timeout0.gpt56s.md) | Aug 30 incident, corrected: the 10 s timer starts at FIFO *enqueue*, so a 9.46 s cold crawl made 8 callers "time out"; 20 s `clock` calls are the daemon sanity thread, not us. Retire only for post-submission deadlines. | review | evidence-for:[`draft2`](/.design/watchman/draft2.gpt56t.md) · extended-by:[`cookie-clash0`](/.design/watchman/cookie-clash0.gpt56s.md) |
+| [`cookie-clash0`](/.design/watchman/cookie-clash0.gpt56s.md) | Cookie semantics from daemon source + two-daemon experiment: 3 physical cookie pathnames → 74 skill refreshes in <3 min. Amplification, not recrawl. Sanity thread is the dominant cookie producer. | evidence | builds-on:[`timeout0`](/.design/watchman/timeout0.gpt56s.md) · informs:[`draft2`](/.design/watchman/draft2.gpt56t.md) |
+| [`fallbacks0`](/.design/watchman/fallbacks0.glm53.md) | Static map of every Parcel-degradation path. The **acquisition cliff**: one-shot five-round-trip acquisition with catch-all catch pre-ack vs retry-forever post-ack; terminal per-interest fallback; uncleared `fatal` latch; mixed-backend states. | evidence | maps:[`draft2`](/.design/watchman/draft2.gpt56t.md) · dissected-by:[`review-architecture0`](/.design/watchman/review-architecture0.gpt56s.md) · instrumented-by:[`metrics0`](/.design/watchman/metrics0.glm53.md) |
+| [`topic-query0`](/.design/watchman/topic-query0.glm53.md) | Live streaming aligns; **resume discards the daemon-computed delta** (decoded schema drops `files`), violating Amendment 3; tombstone GC (~60 s) bounds disconnect recovery; fix is small and designed. | open proposal | contradicts:[`draft2`](/.design/watchman/draft2.gpt56t.md) · instrumented-by:[`metrics0`](/.design/watchman/metrics0.glm53.md) |
+| [`parcel0`](/.design/watchman/parcel0.glm53.md) | Parcel's built-in watchman client is process-global, one socket, no timeouts/reconnect/cursor, silently falls back to inotify under the `watchman` label — the incident class minus the visible timers. Keep the root-scoped layer. | review | evaluates:[`draft2`](/.design/watchman/draft2.gpt56t.md) · mutual:[`files-too0`](/.design/watchman/files-too0.glm53.md) |
+| [`files-too0`](/.design/watchman/files-too0.glm53.md) | The daemon cannot watch a file; files are the cheapest primitive with a zero-sized failure domain. Keep files on `node:fs.watch` unconditionally; codify the `backend.ts:18` bypass as a documented invariant. | open proposal | affirms:[`draft2`](/.design/watchman/draft2.gpt56t.md) · mutual:[`parcel0`](/.design/watchman/parcel0.glm53.md) |
 
-While the Watchman backend is selected it emits `watchman_metrics` wide
-events to the server console, one dump per interval (default 15 minutes)
-plus one final dump when the registry scope closes, so short-lived
-processes still surface counters. A channel is one root intent's
-connection; every dump reports cumulative totals and a delta for the
-window just ended, both per channel and summed.
+## Implementation reviews (2026-09-01 wave)
 
-Per channel: commands out by label (`watch`, `clock`, `subscribe`,
-`unsubscribe`, `capabilityCheck`) with round-trip millis (total, avg,
-window max), command errors and timeouts, generations, reconnect attempts,
-connections, establishments and resubscribes, unsubscribes, acquisition
-failures, PDUs in (with canceled and fresh-instance counts), files in, and
-updates published out after ignore filtering — the `files_in` vs
-`updates_out` gap is the ignore-filter drop rate. Live subscriptions
-appear per channel with their target (project-relative when possible),
-counters, and current Watchman cursor. Gauges: `open`, `generation`,
-`recovering`, `fatal`. Registry-wide: `acquires`, parcel `fallbacks`,
-and open channel count.
+| Doc | Says | Status | Dependencies |
+| --- | --- | --- | --- |
+| [`review-architecture0`](/.design/watchman/review-architecture0.gpt56s.md) | Fallback policy is split across seven sites, producing the temporal acquisition cliff. Keep the delivery fork explicit: exact response-row replay is the safe near-term correction; cursorless invalidation is blocked until Config has first-class subtree invalidation. | review | builds-on:[`fallbacks0`](/.design/watchman/fallbacks0.glm53.md) · reopens:[`draft2`](/.design/watchman/draft2.gpt56t.md) · feeds:[`vision0`](/.design/watchman/vision0.gpt56s.md) |
+| [`review-failure-paths0`](/.design/watchman/review-failure-paths0.gpt56s.md) | Nine probed findings (V1–V9): response loss on *every* establishment (PubSub is not replay storage); fatal gauge disagrees with behavior; Parcel EOF is silent. Corrects `fallbacks0`/`topic-query0` claims; defines test matrix M1–M6. | review | corrects:[`fallbacks0`](/.design/watchman/fallbacks0.glm53.md) · corrects:[`topic-query0`](/.design/watchman/topic-query0.glm53.md) · feeds:[`vision0`](/.design/watchman/vision0.gpt56s.md) |
+| [`review-ownership0`](/.design/watchman/review-ownership0.gpt56s.md) | All load-bearing Watchman policy is downstream-owned; freshen conflicts landed only in `routes.ts`. Names six clean seams and the missing injected-factory seam that blocks fallback unit testing. Flags bookmark debt + `AGENTS.md` contamination. | review | audits:[`maintenance.glm53`](/.design/watchman/maintenance.glm53.md) · feeds:[`vision0`](/.design/watchman/vision0.gpt56s.md) |
+| [`review-simplification0`](/.design/watchman/review-simplification0.gpt56s.md) | Decision: strict Watchman selection with retry-forever async availability — configured interests never invoke Parcel. Two-tier deletion list; conditional-deletion analysis shows exact rows are "correctness, not optional detail"; metrics trim sequenced after rewrite. | review | narrows:[`draft2`](/.design/watchman/draft2.gpt56t.md) · builds-on:[`fallbacks0`](/.design/watchman/fallbacks0.glm53.md) |
 
-`wide` mode is a single JSON line per dump (a two-channel sample with
-subscriptions runs about 3.3 KB); `lines` mode logs a header line with
-totals plus one `watchman_metrics_channel` line per channel. Emission is
-plain `console.log` until OTEL export exists (see the
-`opencode-otel` follow-up); the sink is injectable for tests, and direct
-`makeRegistry` callers get no emission unless they pass
-`metricsIntervalMs`.
+## Remake line (designed, not built)
 
-Two sample renders live in
-`.test-agent/watchman-metrics/` (fake-daemon `smoke.ts` and live-daemon
-`live-smoke.ts`); the live run shows daemon coalescing (three writes and
-a delete surfacing as two updates) and the shutdown race where a daemon
-`unsubscribe` errors after its generation closes, both visible in the
-counters.
+| Doc | Says | Status | Dependencies |
+| --- | --- | --- | --- |
+| [`vision0`](/.design/watchman/vision0.gpt56s.md) | Freeze-frame of the implemented stack + six consolidation hypotheses (H1–H6); verifies the reconnect-delta gap and the exact-path consumer caveat; addenda synthesize the four reviews, add VCS watching, and record the human **B2 decision**. Founding doc of the remake. | open proposal · decision-record | synthesizes:[`review-architecture0`](/.design/watchman/review-architecture0.gpt56s.md)+3 · decides: B2 · evidence:[`fallbacks0`](/.design/watchman/fallbacks0.glm53.md) |
+| [`carrier0`](/.design/watchman/carrier0.gpt56s.md) | Execution plan for the clean rebuild: C1–C12 final-state commit ladder authored on pinned upstream, two-pass proof-line + parity construction, B2 kept, metrics trimmed last. | superseded → [`carrier1`](/.design/watchman/carrier1.gpt56s.md) | executes:[`vision0`](/.design/watchman/vision0.gpt56s.md) |
+| [`carrier1`](/.design/watchman/carrier1.gpt56s.md) | The remake as architecture: owners declare what can make state stale; substrate emits exact changes while continuous, explicit invalidation when not; never silently changes backend. **Promotes B3** (contested). | open proposal | supersedes:[`carrier0`](/.design/watchman/carrier0.gpt56s.md) · adopts:[`typed-watcher0`](/.design/watchman/typed-watcher0.glm53.md) · reviewed-by:[`carrier1-review0 sol`](/.design/watchman/carrier1-review0.gpt56sol.md) |
+| [`carrier1-review0 s`](/.design/watchman/carrier1-review0.gpt56s.md) | Bounded self-review: architecture settled, 7 findings each with a prescribed edit (invalidation rows on continuity loss, linearization rule, VCS sentinels, reproducible probe). Also recommends this README become an index. | review | reviews:[`carrier1`](/.design/watchman/carrier1.gpt56s.md) |
+| [`carrier1-review0 sol`](/.design/watchman/carrier1-review0.gpt56sol.md) | Source-grounded review at pinned commit: **CB1–CB7** correctness blockers (daemon can ack a deaf root; no structured `error_code` on the wire); AA1–AA5 amendments; **SD1**: B3 promotion is a new proposal requiring explicit human acceptance. | review | reviews:[`carrier1`](/.design/watchman/carrier1.gpt56s.md) · grounds:[`assurances0`](/.design/watchman/assurances0.gpt56sol.md) |
+| [`assurances0`](/.design/watchman/assurances0.gpt56sol.md) | What a watcher can honestly promise under B2: mandatory floor **F1–F9** (fenced acquisition, observation epochs, complete loss handling), guarantees G1–G8, orthogonal assurance mechanisms, profiles **R/RC/RD/RP/RS**; frames the **G5 fork**. | open proposal | builds-on:[`carrier1-review0 sol`](/.design/watchman/carrier1-review0.gpt56sol.md) · maps:[`watchwoman0`](/.design/watchman/watchwoman0.unknown.md) |
+| [`typed-watcher0`](/.design/watchman/typed-watcher0.glm53.md) | The deliberately deferred end-state: `Watcher.Update` gains `{type:"invalidation"}`; near-term B2's tag vocabulary matches the future member so migration deletes one classification site. Delivery ordering is the named prerequisite. | open proposal (deferral recorded) | defers-from:[`vision0`](/.design/watchman/vision0.gpt56s.md) · adopted-by:[`carrier1`](/.design/watchman/carrier1.gpt56s.md) |
 
-A reading guide for the dump shape — deltas, gauges, in/out vocabulary,
-drop rate, symptom→field table, and jq recipes — is
-[`metrics0.glm53.md`](/.design/watchman/metrics0.glm53.md).
+## Navigation (current route)
 
-## Verification
+| Doc | Says | Status | Dependencies |
+| --- | --- | --- | --- |
+| [`nav0 sol`](/.design/watchman/nav0.gpt56sol.md) | The assurance spine: build Profile R (G1–G4) as non-negotiable floor, land at RC via a *measured* Config audit; six legs with claim cards, fork-and-stop rules, default-worthiness gate. | superseded → [`nav0-syn0`](/.design/watchman/nav0-syn0.gpt56sol.md) | charts:[`assurances0`](/.design/watchman/assurances0.gpt56sol.md) |
+| [`nav0 glm53`](/.design/watchman/nav0.glm53.md) | The chart: crossing contract first (error-code vocabulary, B2/B3 tag names), then parallel client/daemon crews; 18 named rocks, false-beacons table, "permanent fog," station for every open ledger decision. | superseded → [`nav0-syn0`](/.design/watchman/nav0-syn0.gpt56sol.md) | charts:[`assurances0`](/.design/watchman/assurances0.gpt56sol.md) |
+| [`nav0 fmax`](/.design/watchman/nav0.glm53fmax.md) | The program: position fix, seven beacons with arrival proofs, nine rudder decisions, three routes; the **no-incoherent-middle rule**; names the corpus disagreeing with itself on interim depth. | superseded → [`nav0-syn0`](/.design/watchman/nav0-syn0.gpt56sol.md) | programs:[`carrier1`](/.design/watchman/carrier1.gpt56s.md) |
+| [`nav0-syn0`](/.design/watchman/nav0-syn0.gpt56sol.md) | **The current authority-correct route.** "Authority before architecture": recorded human decisions outrank model proposals; B3 is not a departure gate; Profile R floor → G5 fork (recommends accept; no human record) → full current line incl. required reactive VCS → re-author carrier on pinned upstream. | open proposal — the route | synthesizes:[`nav0 sol`](/.design/watchman/nav0.gpt56sol.md)+2 · authority:[`vision0`](/.design/watchman/vision0.gpt56s.md) · rests-on:[`assurances0`](/.design/watchman/assurances0.gpt56sol.md) |
+| [`g5-accept`](/.design/watchman/g5-accept0.glm53max.md) | Pro-lease pitch: permanent fog leaves Config-mediated staleness **unbounded** at Profile R; the owner source audit is the only mapped mechanism that bounds it; mediated G5 is additive and fails safe to R. Requests a decision record. | open proposal | argues-from:[`nav0-syn0`](/.design/watchman/nav0-syn0.gpt56sol.md) · argues-from:[`assurances0`](/.design/watchman/assurances0.gpt56sol.md) |
+| [`g5-reject`](/.design/watchman/g5-reject0.glm53max.md) | Anti-lease pitch: R covers all *reported* failure classes; mediated G5 is a standing cost and a second correctness surface bought before the first (R's 24 gates) has passed; R→RC stays additive — defer with revisit triggers. | open proposal | answers:[`g5-accept`](/.design/watchman/g5-accept0.glm53max.md) · argues-from:[`nav0-syn0`](/.design/watchman/nav0-syn0.gpt56sol.md) |
+| [`position0`](/.design/watchman/position0.glm53max.md) | The light position fix: **chase, do not pin** — citations record what they read, drift goes to a dated log. Snapshots docs/upstream/daemon revisions; stale after 2026-09-18. | decision-record | satisfies:[`nav0-syn0`](/.design/watchman/nav0-syn0.gpt56sol.md) |
+| [`upstream-delta0`](/.design/watchman/upstream-delta0.glm53h.md) | Upstream landed `ConfigWatch.plan` reconcile, an `entries` watch kind, and public `onReady` **in the carrier's planned seams**. The rebuild must generalize `ConfigWatch` into a generic `WatchSet` and replace `onReady` with typed invalidation, preserving its test outcomes. | evidence | assesses:[`carrier1`](/.design/watchman/carrier1.gpt56s.md) · refreshes:[`review-ownership0`](/.design/watchman/review-ownership0.gpt56s.md) |
 
-Run tests from package directories, never the repository root.
+## Forward direction: VCS signals & tooling
 
-```sh
-cd packages/core
-bun typecheck
-bun test test/filesystem/watchman-root.test.ts \
-  test/filesystem/watcher-interests.test.ts \
-  test/config/skill.test.ts \
-  test/config/config.test.ts
-OPENCODE_WATCHMAN_LIVE=1 bun test test/filesystem/watchman-live.test.ts
+| Doc | Says | Status | Dependencies |
+| --- | --- | --- | --- |
+| [`watches`](/.design/watchman/watches.glm53.md) | Probe-backed VCS signal matrix: git `HEAD`/`refs/heads`/`packed-refs`, jj `op_heads/heads` (resolves via the `.jj/repo` pointer; repo-global from any workspace), hg `.hg/branch`. Watching is an invalidation signal, not data. | open proposal | feeds:[`alignment0`](/.design/watchman/opwatch-vcs-signals-alignment0.gpt56solmax.md) · rides-on:[`draft2`](/.design/watchman/draft2.gpt56t.md) |
+| [`alignment0`](/.design/watchman/opwatch-vcs-signals-alignment0.gpt56solmax.md) | Restructures the `opwatch-vcs-signals` epic into two independently shippable lanes (OpenCode exact-interest; Watchwoman broad-root filter) joined at one behavioral activation ticket. Deletes the false `core-subscriptions → daemon-allowlist` dependency. | open proposal | restructures:[`watches`](/.design/watchman/watches.glm53.md) · absorbs:[`carrier1-review0 sol`](/.design/watchman/carrier1-review0.gpt56sol.md) |
+| [`tools0`](/.design/watchman/tools0.gpt56s.md) | Provenance-tagged inventory of the carrier's executed checks; **corrects the upstream-collision record** (ten intersections, not two). Proposes seven durable tools, scripted protocol harness first. | evidence | documents:[`carrier0`](/.design/watchman/carrier0.gpt56s.md) · automates:[`review-failure-paths0`](/.design/watchman/review-failure-paths0.gpt56s.md) |
 
-cd ../server
-bun typecheck
-bun test test/options.test.ts
+---
 
-cd ../cli
-bun typecheck
-```
+## Open decisions
 
-Results on 2026-08-30, re-run after the freshen onto `6a2c3e91`:
+| # | Decision | Where it stands |
+| --- | --- | --- |
+| 1 | **G5 fork** — does Config get a bounded freshness lease after silent observer loss (Profile RC), or stop at detected-loss convergence (Profile R)? | Two pitches exist ([`g5-accept`](/.design/watchman/g5-accept0.glm53max.md), [`g5-reject`](/.design/watchman/g5-reject0.glm53max.md)); `nav0-syn0` recommends accept; **no human decision recorded**. |
+| 2 | **B3 promotion** — watcher-level typed invalidation in the remake's generic foundation, vs B2-at-Config only. | `carrier1` promotes it; `carrier1-review0 sol` SD1 rules it needs explicit human acceptance. `vision0`'s recorded decision was B2. |
+| 3 | **carrier1 corrections** — CB1–CB7 blockers, AA1–AA5 amendments, plus `upstream-delta0`'s eight adaptations (generalize `ConfigWatch`, replace `onReady`). | Required before construction; an addendum for carrier1 is drafted in the review. |
+| 4 | **Resume-delta fix** — publish the subscribe response's `files` on resume. | Small, designed ([`topic-query0`](/.design/watchman/topic-query0.glm53.md)), not implemented; would land on the current line. |
+| 5 | **Fallback policy choice** — Candidate A (centralized phase-and-scope fallback) vs Candidate B (strict selection). | `review-failure-paths0` deliberately refuses to pick; all four reviews lean strict. |
+| 6 | **Watchman as default** — make watchman the default directory backend. | Gated on many-project cold-start measurement ([`maintenance.glm53`](/.design/watchman/maintenance.glm53.md) follow-ups); channel metrics are the instrument. |
 
-- Core typecheck: clean.
-- Focused Watchman, interest-owner, Config, Skill, and watcher tests
-  (5 files incl. `watcher.test.ts`): 69 passed, 1 failed — the known
-  `.hg/branch` flake timed out in the combined run and passed twice in
-  isolation (~0.9s), matching its documented behavior.
-- Opt-in live watchwoman suite: 1 passed, 0 failed against watchwoman 0.7.0.
-- Server typecheck: clean; options tests 7 passed, 0 failed (the timeouts
-  commit added a 7th case after the previous record of 6).
-- CLI typecheck: clean.
-- Full Server suite as a bonus check: 53 tests, 0 failed, 3 skipped (up from
-  46+3 because upstream added RPC tests).
-- Pre-freshen full-suite runs from the implementation review (identical line
-  content): full Core 3,998 passed / 31 skipped with only the same `.hg/branch`
-  flake (passing in isolation); full CLI 232 passed; targeted Oxlint reported
-  no new errors. Full Core/CLI were not repeated after this mechanical,
-  zero-conflict freshen.
+## Gotchas
 
-Results on 2026-08-31, after the metrics commits:
-
-- Core typecheck: clean; the new `watchman-metrics.test.ts` passes 6/6, and
-  `test/filesystem/` as a whole passes 65 with 1 skipped (live) and no
-  failures — the `.hg/branch` flake did not recur.
-- Live watchwoman suite against watchwoman 0.7.0: 1 passed, 0 failed.
-- Server typecheck: clean; options tests 9 passed, 0 failed (the metrics
-  commit added cases 8 and 9).
-- CLI typecheck: clean.
-- Targeted Oxlint on all touched files: no new warnings beyond the four
-  pre-existing ones in `watcher.ts` and `server-process.ts`.
-- Fake-daemon and live-daemon smoke renders in `.test-agent/watchman-metrics/`
-  confirm wide-line size (~3.3 KB for two channels), per-window deltas, ignore
-  filtering counts, and the shutdown final dump.
-
-## Freshen onto `43d09b9d` (2026-09-01)
-
-Mechanical freshen of the 25-commit line (the 13-commit root-scoped stack
-plus the 2026-08-31 binary-override/metrics work and the accumulated design
-docs) from base `6a2c3e91c780` to `v2@origin` `43d09b9d75ad`
-("fix(server): await plugin activation when checking updates"), 97 upstream
-commits, via duplicate-then-rebase. The floating `watchman` bookmark was
-first fast-forwarded from `96e57e6e3403` over the 11 unbookmarked commits to
-`7d380beaa8e7` (bookmark-debt repair per the convention); the pre-freshen
-originals and dated snapshots remain untouched.
-
-- **Conflicts: 2**, both in `packages/server/src/routes.ts` and both the
-  same shape — upstream refactored the `standard` replacement array from
-  tuple form (`[Watcher.node, Watcher.configured(...)]`) to accessor form
-  (`Watcher.node.replace(...)`) while the feature extends
-  `Watcher.configured` with its own fields. Resolutions are unions keeping
-  upstream's `.replace()` structure with the feature's fields re-homed in
-  it: the backend-selection commit's resolution adds `backend`, the
-  timeouts commit's resolution carries the full `backend`,
-  `subscribeTimeoutMs`, `watchman` set. Both sides' intents preserved.
-- **One post-rebase adaptation** (textually clean merge, semantically stale):
-  the feature's added block in `packages/core/test/location-layer.test.ts`
-  (watcher-sharing pin) used the removed tuple form for replacements.
-  Followed the signature to its new shape —
-  `Global.node.replace(tempGlobalLayer)`,
-  `LocationServiceMap.node.replace(makeGlobalNode({...}))`, and
-  `buildLocationServiceMap([Watcher.node.replace(countingWatcher)])` —
-  amended into the duplicated test commit. Pure API-drift adaptation; no
-  assertion or behavior changes.
-- **Collision check (mandated)**: no commit in `6a2c3e91c780..43d09b9d75ad`
-  lands an equivalent retained-backend/watchman direction or restructures
-  watcher interests. The only watcher-internals change is the one-line
-  `plugins.flush` → `plugins.awaitActivation` rename in
-  `location-watcher.ts` (a file this feature does not touch; the rename
-  propagated through upstream-owned tests via the rebase). Upstream's
-  `LayerNode` replacement-API refactor is the sole structural churn.
-- **Diffstat**: same 34-file set as the previous line; 7093 insertions,
-  114 deletions (previous: 7095/114 — the two-line delta is exactly the
-  `.replace()` reformatting in `routes.ts` and the tuple-to-accessor
-  compaction in `location-layer.test.ts`). No file the old line did not
-  touch; no diff creep.
-- **Verification**: `bun install` left `bun.lock` unchanged. Core
-  typecheck clean; focused suites — watchman-root 8, watcher-interests 3,
-  watchman-metrics 6, config/skill 10, config/config 35, watcher 14,
-  plugin/skill 2 (all pass; the known `.hg/branch` flake did not trigger),
-  location-layer 24 including the watcher-sharing pin, live watchwoman
-  suite 1 pass against the running daemon. Server typecheck clean, options
-  tests 9/9. CLI typecheck clean. Host load average was ~32 during the
-  run; one watchman-root test (`recovers a canceled subscription without
-  disturbing its sibling`) failed once in the first combined run and passed
-  in isolation and on an identical re-run — treated as load-transient.
-- **Bookmarks**: `watchman` + `watchman-20260901` at this docs commit.
-- **Confidence**: high. Both conflicts and the one adaptation are
-  upstream-refactor-follows-feature-intent unions, the file set is
-  unchanged, and all focused verification matches the pre-freshen record.
-
-## Freshen onto `6a2c3e91` (2026-08-30)
-
-Upstream tip `6a2c3e91` (`feat(plugin): add typed rpc and custom events
-(#46105)`), 18 upstream commits past the previous `e70d667a` base.
-Duplicate-then-rebase: the 13-commit line `srpksroy..nxxrysru` was duplicated
-and the duplicate bottom rebased onto the upstream tip by explicit commit ID,
-so the pre-freshen originals and `watchman-20260829` remain untouched.
-
-- **Conflicts: zero.** The upstream delta (typed plugin RPC, AI provider
-  fixes, plugin supervisor changes) intersects the feature's files only in
-  `bun.lock`, and there the two sides edited disjoint regions: upstream
-  bumped unrelated dependencies while the feature inserts
-  `@superbfowle/fb-watchman-esm@3.0.0`, `@superbfowle/bser-esm@3.0.0`,
-  `is-glob`, `micromatch`, `@types/is-glob`, and `@types/micromatch`. The
-  merged lockfile keeps both sides; `bun install --minimum-release-age=0`
-  reported no changes, confirming lockfile consistency.
-- **Old-vs-new diffstat:** the changed-file list is byte-identical between the
-  pre-freshen (`e70d667a..00d76007`) and freshened (`6a2c3e91..c4b2b22c`)
-  lines — 27 files, 4066 insertions, 113 deletions on both. No file the old
-  line did not touch; no diff creep.
-- **Floating bookmark move:** `watchman` previously pointed at `41597e37`
-  ("watchman timeout resilience wave", one superseded design-wave doc
-  (`timeout0.glm53.md`) atop the old process-global 29-commit line whose tip
-  is `watchman-20260829`). That line is the deleted implementation this stack
-  replaces per [`draft2.gpt56t.md`](/.design/watchman/draft2.gpt56t.md), and
-  its timeout-resistance conclusions were re-landed here as the admitted-
-  dispatch and failure-domain design. The bookmark therefore moved to the
-  freshened root-scoped tip; `watchman-20260829` (and the older
-  `watchman-20260819`) are untouched.
-- **Bookmarks:** `watchman` + `watchman-20260830` at the freshened tip
-  (this docs commit).
-- **Confidence:** high. The rebase was conflict-free, the diffstat is
-  identical, and all focused verification matches the pre-freshen record.
-  The only judgment call is the floating-bookmark move off the stale
-  alternate tip, which the workspace lineage and design corpus both support.
-
-## Known flaky test
-
-`packages/core/test/filesystem/watcher.test.ts` test
-`LocationWatcher > publishes .hg/branch events` intermittently reaches its
-five-second timeout in combined runs. It exercises the Node/Parcel path and
-already appeared in the historical maintenance record. It has also passed in
-the same workspace; do not attribute it to root-scoped Watchman without a
-backend-specific reproduction.
-
-## Possible improvements
-
-Conscious refinements deferred from the implementation review; neither is a
-known defect.
-
-- **Invert the `WatchInput` alias.** `watcher/internal.ts` re-exports
-  `Watcher.WatchInput` from `../watcher.js`, so the private leaf module
-  reaches back into its parent. The `import type` is erased at runtime, so
-  there is no runtime cycle, but defining the input type in the leaf module
-  and re-exporting it from `watcher.ts` is the cleaner dependency direction
-  if bundling or `isolatedDeclarations` ever objects.
-- **Split the internals grab-bag when it grows.** `watcher/internal.ts` hosts
-  the metadata symbol, `Placement`, the `WatchInput` alias, and `normalize()`.
-  Normalization is watcher-core logic rather than internal metadata; if the
-  module keeps growing, move it beside the registry or into its own module.
-
-## Follow-ups
-
-- Publish the subscribe response's `files` on resume (and set
-  `always_include_directories: false`) so the Amendment 3 full-dump
-  degradation actually reaches consumers; see
-  [`topic-query0.glm53.md`](/.design/watchman/topic-query0.glm53.md).
-- Measure many-project cold-daemon startup and reconnect spread before making
-  Watchman the default; the channel metrics dumps are the intended instrument
-  for this.
-- Retire the console wide-event dump in favor of OTEL export once the
-  `opencode-otel` plugin tooling lands; the metrics object and render modes
-  are the seam to swap.
-- Publish transport declarations and replace the dynamic structural transport
-  check when the fork release is available. There is no local declaration
-  shim in this stack.
-- Consider extracting upstream's withdrawn `SkillSourceObserver` only if that
-  ownership move is revived independently; the Watchman seam does not require
-  it.
-- A fork PR adding a `sock` constructor option to the transport would let
-  `WATCHMAN_SOCK` move behind `ServerOptions`; env-only until then, since the
-  constructor accepts only `watchmanBinaryPath`.
+- **Near-identical filenames:** `carrier1-review0.gpt56s.md` (bounded
+  self-review) vs `carrier1-review0.gpt56sol.md` (source-grounded review,
+  CB/AA/SD taxonomy). Cite carefully.
+- **Stale `/.design/watch/` paths:** the corpus was renamed from
+  `.design/watch/` to `.design/watchman/`; an empty `.design/watch/` remains
+  and a few docs (e.g. `draft1` frontmatter, `timeout0` citations) still link
+  to the old prefix. Paths in this README are correct.
+- **`nav0` drafts are retained, not dead:** the synthesis keeps them as named
+  layers — sol = *what must be true*, glm53 = *what can wreck the passage*,
+  fmax = *how the two repos and the carrier move*.
 
 ## Cross-references
 
-- [`assurances0.gpt56sol.md`](/.design/watchman/assurances0.gpt56sol.md)
-  separates the future remake's mandatory detected-loss correctness floor from
-  optional owner freshness leases, active path probes, and structural daemon
-  coverage. It also records the retained B2 decision and current daemon/client
-  promise gaps.
-- [`draft2.gpt56t.md`](/.design/watchman/draft2.gpt56t.md) is the implemented architecture and
-  its watchwoman routing amendment governs conflicts with the earlier body.
-- [`upstream-delta0.glm53h.md`](/.design/watchman/upstream-delta0.glm53h.md)
-  assesses `v2@origin` movement since the carrier1 baseline freeze
-  (`4772b6a3` → `43bd2a516b`): upstream landed a source-derived config watch
-  plan, an `entries` watch kind, and a public `onReady` acknowledgement, so the
-  remake's generic-foundation steps must generalize rather than introduce them.
-- [`metrics0.glm53.md`](/.design/watchman/metrics0.glm53.md) is the channel-metrics reading
-  guide: dump shape, deltas, gauges, symptom→field table, and jq recipes.
-- [`watchwoman0.unknown.md`](/.design/watchman/watchwoman0.unknown.md) validates daemon crawl,
-  query, root persistence, routing, and unsubscribe behavior.
-- [`timeout0.gpt56s.md`](/.design/watchman/timeout0.gpt56s.md) records the FIFO timeout incident
-  that motivated admitted dispatch and failure-domain isolation.
-- [`cookie-clash0.gpt56s.md`](/.design/watchman/cookie-clash0.gpt56s.md) traces cookie lifecycle,
-  cross-daemon and nested-root visibility, current Skill containment, and the
-  remaining application, operational, and upstream solution threads.
-- [`topic-query0.glm53.md`](/.design/watchman/topic-query0.glm53.md) assesses
-  watchwoman-systemd's probe-verified since-query semantics against this
-  backend: live streaming aligns, but resume discards the subscribe
-  response's daemon-computed delta that Amendment 3's degradation story
-  depends on, plus tombstone-GC and directory-noise notes.
-- [`draft1.gpt56t.md`](/.design/watchman/draft1.gpt56t.md) is the retained
-  one-subscription-per-interest design from the earlier wave.
+- [`maintenance.glm53.md`](/.design/watchman/maintenance.glm53.md) — the
+  implemented stack's commit table, runtime shape, configuration, metrics,
+  verification records, and freshen history. This README replaced it as the
+  corpus entry point; the log remains the source of record for what runs.
+- Beads epic `opwatch-vcs-signals` (`.beads/issues.jsonl`) — the ticket graph
+  that [`alignment0`](/.design/watchman/opwatch-vcs-signals-alignment0.gpt56solmax.md)
+  restructures; its dependency edges await the prescribed renames.
+- External, load-bearing: `~/a/doc/opencode/patches.md` (patch/freshen/bookmark
+  policy), watchwoman-systemd source + since-query probes, `@superbfowle/fb-watchman-esm`
+  transport fork.
