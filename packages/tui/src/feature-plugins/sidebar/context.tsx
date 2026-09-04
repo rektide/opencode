@@ -44,6 +44,10 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
 export default Plugin.define({
   id: "opencode.sidebar.context",
   setup(context) {
+    context.ui.epilogue.register(({ sessionID }) => {
+      const cost = context.data.session.cost(sessionID)
+      return cost > 0 ? { label: "Cost", value: { type: "text", text: money.format(cost) } } : undefined
+    })
     context.ui.slot({
       append: "sidebar.content",
       render: (props) => <SidebarContext context={context} sessionID={props.sessionID} />,
