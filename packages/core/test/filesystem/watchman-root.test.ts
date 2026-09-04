@@ -291,8 +291,10 @@ it.effect("drains circuit waiters only through bounded admission after probe suc
     const registry = yield* makeRegistry(
       () => {
         const index = attempts++
-        Deferred.doneUnsafe(starts[index], Effect.void)
-        if (index === 0) throw new Error("daemon unavailable")
+        if (index === 0) {
+          Deferred.doneUnsafe(starts[index], Effect.void)
+          throw new Error("daemon unavailable")
+        }
         inFlight++
         highWater = Math.max(highWater, inFlight)
         const raw = client((args, callback) => {
@@ -302,6 +304,7 @@ it.effect("drains circuit waiters only through bounded admission after probe suc
         return {
           ...raw,
           capabilityCheck: (_capabilities, callback) => {
+            Deferred.doneUnsafe(starts[index], Effect.void)
             if (index === 1) return capabilityResponse(callback)
             controls[index] = callback
           },
