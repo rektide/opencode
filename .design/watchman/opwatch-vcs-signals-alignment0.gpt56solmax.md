@@ -664,6 +664,10 @@ and root shape.
   is the daemon contract for the generic rule engine, root-only smart scope,
   immutable snapshots, startup controls, production-lifecycle split, and
   behavioral activation.
+- [Watchwoman `config-snapshots-spec0.gpt56solmax.md`](file:///home/rektide/src/watchwoman-systemd/.design/opencode/config-snapshots-spec0.gpt56solmax.md)
+  turns the config-snapshots child into an implementation-ready deep module:
+  exact breaking schemas, one publication registry, single-flight root slots,
+  last-good SIGHUP, current recrawl limits, and snapshot-backed `get-config`.
 - [Watchwoman `vcs-config2-reality0.gpt56solmax.md`](file:///home/rektide/src/watchwoman-systemd/.design/opencode/vcs-config2-reality0.gpt56solmax.md)
   prevents the tickets from treating the fresh carrier, historical deployed
   line, and target smart behavior as one baseline.
