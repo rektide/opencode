@@ -24,7 +24,8 @@ export const make = Effect.gen(function* () {
   const fs = yield* FSUtil.Service
   const proc = yield* AppProcess.Service
   const db = (yield* Database.Service).db
-  const projectID = (yield* Location.Service).project.id
+  const location = yield* Location.Service
+  const projectID = location.project.id
 
   const run = Effect.fnUntraced(function* (operation: string, directory: AbsolutePath, args: string[]) {
     const result = yield* proc
@@ -74,6 +75,20 @@ export const make = Effect.gen(function* () {
       .run()
       .pipe(Effect.orDie, Effect.asVoid)
 
+  const repository = Effect.fnUntraced(function* (directory: AbsolutePath) {
+    const reference = path.join(directory, ".jj", "repo")
+    const direct = yield* fs.isDir(reference)
+    const pointer = direct
+      ? undefined
+      : yield* fs.readFileStringSafe(reference).pipe(Effect.orElseSucceed(() => undefined))
+    const target = direct ? reference : pointer ? path.resolve(path.dirname(reference), pointer.trim()) : undefined
+    if (!target) return undefined
+    return yield* fs.realPath(target).pipe(
+      Effect.map(AbsolutePath.make),
+      Effect.orElseSucceed(() => undefined),
+    )
+  })
+
   const list = Effect.fn("Worktree.Jj.list")(function* (directory: AbsolutePath) {
     const source = yield* canonical(fs, directory)
     if (!(yield* fs.existsSafe(path.join(source, ".jj", "repo"))))
@@ -94,27 +109,31 @@ export const make = Effect.gen(function* () {
       commitID: fields[index * 4 + 3],
     })).filter((item) => item.workspace && item.root)
 
-    return yield* Effect.forEach(records, (item) =>
+    const entries = yield* Effect.forEach(records, (item) =>
       canonical(fs, AbsolutePath.make(item.root)).pipe(
-        Effect.flatMap((root) =>
-          Effect.gen(function* () {
-            const previous = yield* read(root)
-            const metadata: Worktree.JjWorkspaceMetadata = {
-              type: "jj_workspace",
-              workspace: item.workspace,
-              changeID: item.changeID || undefined,
-              commitID: item.commitID || undefined,
-              ...(previous?.workspace === item.workspace && previous.base ? { base: previous.base } : {}),
-            }
-            yield* write(root, metadata)
-            return root === source
-              ? ({ directory: root, type: "root" } as const)
-              : ({ directory: root, type: "worktree", metadata } as const)
-          }),
-        ),
+        Effect.map((root) => ({ root, item })),
         Effect.catchTag("Worktree.DirectoryUnavailableError", () => Effect.undefined),
       ),
     ).pipe(Effect.map((items) => items.filter(defined)))
+    const root = entries.some((entry) => entry.root === location.project.canonical)
+      ? location.project.canonical
+      : source
+    return yield* Effect.forEach(entries, ({ item, root: directory }) =>
+      Effect.gen(function* () {
+        const previous = yield* read(directory)
+        const metadata: Worktree.JjWorkspaceMetadata = {
+          type: "jj_workspace",
+          workspace: item.workspace,
+          changeID: item.changeID || undefined,
+          commitID: item.commitID || undefined,
+          ...(previous?.workspace === item.workspace && previous.base ? { base: previous.base } : {}),
+        }
+        yield* write(directory, metadata)
+        return directory === root
+          ? ({ directory, type: "root" } as const)
+          : ({ directory, type: "worktree", metadata } as const)
+      }),
+    )
   })
 
   return {
@@ -168,7 +187,16 @@ export const make = Effect.gen(function* () {
             .where(and(eq(WorktreeTable.project_id, projectID), ne(JjWorktreeTable.id, directory)))
             .all()
             .pipe(Effect.orDie)
-      const source = discovered ?? (yield* Effect.filter(candidates, (item) => fs.isDir(item.directory)))[0]?.directory
+      const store = discovered ? undefined : yield* repository(directory)
+      const source =
+        discovered ??
+        (
+          yield* Effect.filter(candidates, (item) =>
+            Effect.all([fs.isDir(item.directory), repository(item.directory)]).pipe(
+              Effect.map(([exists, candidate]) => exists && store !== undefined && candidate === store),
+            ),
+          )
+        )[0]?.directory
       if (!source)
         return yield* new Worktree.OperationError({ message: "Cannot forget the only registered JJ workspace" })
       const entries = direct.length ? direct : yield* list(source)
