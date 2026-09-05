@@ -170,6 +170,16 @@ Audit completed before classifier edits; the initial audit checkpoint is `322e7d
   proxy `toMatchObject` assertion shape. Final mutation matrix **24 pass**;
   combined transcript/mutation suites **62 pass**, Client typecheck passed.
 - Both preserved reviewer scratch suites independently pass: **5 pass, 0 fail**.
+- Classifier/direct-projection commit: `a572c653`.
+
+### Bounded ownership refinement
+
+A held failing GET plus 100 terminal notifications exposed **101 retained error
+observers** despite one HTTP request. The regression failed before correction.
+Automatic refresh now returns when an entry already owns a pending job as well as
+when it owns a timer. Events still set the persistent duty, but retain no additional
+Promise callbacks. Explicit callers may join the returned job normally. This
+closes the pending-work bound, not just the transport request-rate bound.
 
 ## Cross-references
 

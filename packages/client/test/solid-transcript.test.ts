@@ -530,6 +530,39 @@ test("viewed metadata overlapping every GET does not drive transcript repair", a
   }
 })
 
+test("terminal floods retain one automatic failure observer on a held repair", async () => {
+  const captured = Promise.withResolvers<Response>()
+  const errors: unknown[] = []
+  let reads = 0
+  const canonical = assistant("", 3)
+  const f = fixture(
+    () =>
+      ++reads === 2
+        ? captured.promise
+        : Response.json({ data: [reads === 1 ? assistant("ephemeral") : canonical], cursor: {} }),
+    {
+      onError: (error) => {
+        errors.push(error)
+      },
+    },
+  )
+  try {
+    await f.data.session.message.sync("ses_test")
+    f.emit(failed)
+    await until(() => reads === 2)
+    for (let i = 0; i < 100; i++) f.emit(failed)
+    captured.resolve(Response.json({ message: "unavailable" }, { status: 503 }))
+    await until(() => errors.length > 0)
+    expect(errors).toHaveLength(1)
+    await until(() => reads === 3)
+    await Bun.sleep(0)
+    expect(f.data.session.message.get("ses_test", "msg_assistant")).toEqual(canonical)
+  } finally {
+    captured.resolve(Response.json({ data: [], cursor: {} }))
+    f.dispose()
+  }
+})
+
 test("terminal repair survives ordinary admit-only input superseding its last scan", async () => {
   let reads = 0
   const canonical = {

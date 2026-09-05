@@ -245,8 +245,10 @@ export function createData(config: CreateDataInput) {
   onCleanup(() => transcripts.forEach((entry) => clearTimeout(entry.timer)))
 
   function refreshTranscript(sessionID: string) {
-    // Event traffic joins active work but cannot bypass its trailing backoff.
-    if (transcripts.get(sessionID)?.timer) return
+    // One automatic observer per job, not one retained catch per incoming event.
+    // The active job or trailing timer already owns the outstanding duty.
+    const entry = transcripts.get(sessionID)
+    if (!entry || entry.pending || entry.timer) return
     refresh(() => result.session.message.sync(sessionID))
   }
   const pendingReads = new Map<string, { dirty: boolean }>()
