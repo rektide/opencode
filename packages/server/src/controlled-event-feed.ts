@@ -82,16 +82,43 @@ export const make = Effect.fn("ControlledEventFeed.make")(function* (
   const render = options?.encode ?? frame
   const createID = options?.createID ?? randomID
   const subscribers = new Map<EventSubscriptionID, Subscriber>()
+  const focusedBySession = new Map<SessionID, Set<Subscriber>>()
   const admission = Semaphore.makeUnsafe(1)
   let activeCount = 0
+  let activeLocationCount = 0
   let overflowCount = 0
 
   const critical = <A>(section: () => A) => admission.withPermit(Effect.sync(section))
 
+  // Called only in synchronous admission sections, paired with the active/requested mutation.
+  const index = (subscriber: Subscriber, before?: InterestSet, after?: InterestSet) => {
+    if (before?.profile === "location") activeLocationCount--
+    if (after?.profile === "location") activeLocationCount++
+    if (before?.profile === "session-streaming") {
+      for (const id of before.sessions) {
+        if (after?.profile === "session-streaming" && after.sessions.has(id)) continue
+        const followers = focusedBySession.get(id)
+        followers?.delete(subscriber)
+        if (followers?.size === 0) focusedBySession.delete(id)
+      }
+    }
+    if (after?.profile === "session-streaming") {
+      for (const id of after.sessions) {
+        if (before?.profile === "session-streaming" && before.sessions.has(id)) continue
+        const followers = focusedBySession.get(id) ?? new Set<Subscriber>()
+        followers.add(subscriber)
+        focusedBySession.set(id, followers)
+      }
+    }
+  }
+
   const remove = (subscriber: Subscriber) => {
     if (subscribers.get(subscriber.id) !== subscriber) return
     subscribers.delete(subscriber.id)
-    if (subscriber.active) activeCount -= 1
+    if (subscriber.active) {
+      activeCount -= 1
+      index(subscriber, subscriber.requested)
+    }
   }
 
   const offer = (subscriber: Subscriber, value: string) => {
@@ -122,6 +149,8 @@ export const make = Effect.fn("ControlledEventFeed.make")(function* (
       const current = Array.from(subscribers.values())
       subscribers.clear()
       activeCount = 0
+      activeLocationCount = 0
+      focusedBySession.clear()
       current.forEach((subscriber) => Queue.failCauseUnsafe(subscriber.queue, Cause.fail(error)))
     })
 
@@ -146,26 +175,32 @@ export const make = Effect.fn("ControlledEventFeed.make")(function* (
     const keys = input.audience.type === "locations" ? input.audience.refs.map(locationKey) : []
     const overflow = yield* critical(() => {
       const subscriptionIDs: EventSubscriptionID[] = []
-      for (const subscriber of subscribers.values()) {
-        if (!subscriber.active) continue
+      if (streaming) {
         const sessionID = input.audience.sessionID
-        if (subscriber.requested.profile === "session-streaming") {
-          if (
-            (!streaming || (sessionID !== undefined && subscriber.requested.sessions.has(sessionID))) &&
-            !offer(subscriber, encoded)
-          )
-            subscriptionIDs.push(subscriber.id)
-          continue
-        }
-        if (sessionID !== undefined && isMoved(event) && subscriber.requested.sessions.has(sessionID)) {
-          subscriber.derivedLocations.set(sessionID, event.data.location)
-        }
-        if (sessionID !== undefined && event.type === SessionEvent.Deleted.type) {
-          subscriber.derivedLocations.delete(sessionID)
-        }
-        if (matches(subscriber, input.audience, keys) && !offer(subscriber, encoded))
-          subscriptionIDs.push(subscriber.id)
+        const followers = sessionID === undefined ? undefined : focusedBySession.get(sessionID)
+        // Overflow removes the current Set entry; iteration still visits its remaining neighbors.
+        if (followers)
+          for (const subscriber of followers) {
+            if (!offer(subscriber, encoded)) subscriptionIDs.push(subscriber.id)
+          }
       }
+      if (!streaming || activeLocationCount > 0)
+        for (const subscriber of subscribers.values()) {
+          if (!subscriber.active) continue
+          const sessionID = input.audience.sessionID
+          if (subscriber.requested.profile === "session-streaming") {
+            if (!streaming && !offer(subscriber, encoded)) subscriptionIDs.push(subscriber.id)
+            continue
+          }
+          if (sessionID !== undefined && isMoved(event) && subscriber.requested.sessions.has(sessionID)) {
+            subscriber.derivedLocations.set(sessionID, event.data.location)
+          }
+          if (sessionID !== undefined && event.type === SessionEvent.Deleted.type) {
+            subscriber.derivedLocations.delete(sessionID)
+          }
+          if (matches(subscriber, input.audience, keys) && !offer(subscriber, encoded))
+            subscriptionIDs.push(subscriber.id)
+        }
       if (subscriptionIDs.length === 0) return
       return { subscriptionIDs, overflowCount }
     })
@@ -229,6 +264,7 @@ export const make = Effect.fn("ControlledEventFeed.make")(function* (
               message: `Controlled event subscription ${input.subscriptionID} was not found`,
             }),
           }
+        if (subscriber.active) index(subscriber, subscriber.requested, requested)
         subscriber.requested = requested
         for (const sessionID of subscriber.derivedLocations.keys()) {
           if (requested.profile !== "location" || !requested.sessions.has(sessionID))
@@ -244,6 +280,7 @@ export const make = Effect.fn("ControlledEventFeed.make")(function* (
             overflow: { subscriptionIDs: [subscriber.id], overflowCount },
           }
         subscriber.active = true
+        index(subscriber, undefined, requested)
         activeCount += 1
         return {}
       })

@@ -115,6 +115,44 @@ function labels(values: readonly string[]) {
 }
 
 describe("ControlledEventFeed", () => {
+  it.effect("indexed overflow removes the slow follower without skipping its fast neighbor", () =>
+    Effect.gen(function* () {
+      const source = makeSource()
+      const feed = yield* ControlledEventFeed.make(source.observe, { capacity: 1, createID: ids(firstID, secondID) })
+      const slow = yield* feed.subscribe
+      const fast = yield* feed.subscribe
+      for (const stream of [slow, fast]) yield* stream.pipe(Stream.take(1), Stream.runDrain)
+      for (const id of [firstID, secondID])
+        yield* feed.replaceInterests({
+          subscriptionID: id,
+          interest: { locations: [], sessions: [sessionID], profile: "session-streaming" },
+        })
+      for (const stream of [slow, fast]) yield* stream.pipe(Stream.take(1), Stream.runDrain)
+      const delta = (id: string) =>
+        source.publish(
+          {
+            id: Event.ID.make(`evt_${id}`),
+            created: 1,
+            type: SessionEvent.Text.Delta.type,
+            data: { sessionID, assistantMessageID: SessionMessage.ID.make("msg_test"), ordinal: 0, delta: id },
+          },
+          { type: "global", sessionID },
+        )
+      yield* delta("one")
+      expect(labels(Array.from(yield* fast.pipe(Stream.take(1), Stream.runCollect)))).toEqual(["evt_one"])
+      yield* delta("two")
+      expect(labels(Array.from(yield* fast.pipe(Stream.take(1), Stream.runCollect)))).toEqual(["evt_two"])
+      yield* delta("three")
+      expect(labels(Array.from(yield* fast.pipe(Stream.take(1), Stream.runCollect)))).toEqual(["evt_three"])
+      expect(
+        yield* feed.replaceInterests({ subscriptionID: firstID, interest: interests() }).pipe(Effect.flip),
+      ).toBeInstanceOf(EventSubscriptionNotFoundError)
+      yield* feed.replaceInterests({ subscriptionID: secondID, interest: interests([a]) })
+      yield* delta("no-longer-focused")
+      // Global is still admitted by Location compatibility, exactly once after a switch.
+      expect(labels(Array.from(yield* fast.pipe(Stream.take(1), Stream.runCollect)))).toEqual(["evt_no-longer-focused"])
+    }),
+  )
   it.effect("gates all five streaming types by authoritative Session identity, retaining broad RPC and lifecycle", () =>
     Effect.gen(function* () {
       const source = makeSource()
