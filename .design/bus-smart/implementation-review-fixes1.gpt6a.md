@@ -5,6 +5,7 @@ description: Astra correction commits, read bounds, pagination semantics, verifi
 resource: /.design/bus-smart/implementation-review-fixes1.gpt6a.md
 status: draft
 generated: { by: "openai/gpt-6-astra#xhigh", at: 2026-09-05 }
+stale_after: 2026-10-05
 sources:
   - resource: /.design/bus-smart/code-review1-standards.gpt6a.md
   - resource: /.design/bus-smart/code-review1-spec.gpt6a.md
@@ -26,8 +27,10 @@ sources:
 
 ## Finding-to-commit and verification record
 
-Implementation in progress; exact read bounds, pagination contract, commits and
-test outcomes are recorded below as each correction lands.
+All four P2 corrections and the P3 adoption consolidation are implemented.
+The following records preserve failures before fixes as well as later regression
+coverage. This is a correction candidate awaiting the parent's review recheck,
+not acceptance or graduation of the default-off experiment.
 
 ### Standards P2: optimistic creation ownership
 
@@ -118,6 +121,7 @@ test outcomes are recorded below as each correction lands.
   also takes a final **empty page**. Both early-end and empty-page-end cursor
   fixtures are covered: the latter takes **four repair GETs**, not three. Both
   fixtures fail the old count-preservation implementation loaded from `1f5b413e`.
+  Empty-page regression commit: `639fff48`.
 - Fixtures cover exhaustion, a deleted anchor, a deleted entire retained window,
   committed revert, continued load-more, and message IDs opposite to Server order.
   Browser-conditioned transcript suite **25 pass**; Client typecheck passed.
@@ -168,6 +172,119 @@ test outcomes are recorded below as each correction lands.
   small named operation but removes the transport-dependent read policy from both
   high-churn callers. No registry, provider rearrangement or second policy owner.
 - Commit: `1c0575c5`.
+
+## Final verification
+
+Commands run from the named package directory, never the repository root:
+
+| Scope | Command / coverage | Result |
+| --- | --- | --- |
+| Client | `bun run test` | **197 pass, 8 skip, 0 fail**, 16 files |
+| Client | `bun test --conditions=browser test/solid-transcript.test.ts test/solid-controlled-event-feed.test.ts test/solid-connection.test.ts` | **51 pass, 0 skip, 0 fail**, 3 files; executes the browser-only fixtures |
+| Client | `bun typecheck` | Passed after the final test-only addition |
+| TUI | `bun run test` | **1,311 pass, 4 skip, 0 fail**, 143 files, 2 snapshots |
+| TUI | `bun test test/context/event-interest-binding.test.ts test/context/event-interest.test.ts test/context/session-tabs.test.tsx test/app-lifecycle.test.tsx test/cli/tui/data.test.tsx` | **129 pass, 0 fail**, 5 files |
+| TUI | `bun typecheck` | Passed after the full package suite |
+| Preserved review repro | Client: `bun test --conditions=browser ../../.test-agent/bus-smart/spec-review1-gpt6a/reproduction.test.ts` | **3 pass, 0 fail**; scratch originals untouched |
+| Broader browser data baseline | Client: `bun test --conditions=browser test/solid-data.test.ts` | **22 pass, 2 fail**, same previously baseline-confirmed Solid-proxy assertions |
+
+The two broader browser failures are `preserves assistant content replacement
+events across an active message read` and `projects background user shell metadata
+from durable shell data`. They are **not** counted as green. The prior report's
+baseline confirmation against `9843c21f` remains available; this pass reran the
+candidate and found the same pair, not new failure names.
+
+The TUI package suite also logs handled failed refreshes for event-only fixtures
+without transcript HTTP endpoints (`session-retry`, `session-manual`, and
+`session-compaction-queued`). The retry fixture already logged this on the earlier
+green baseline; the two additional notices are consistent with re-armed settlement
+reads after unavailable first snapshots. These are not silently successful reads,
+nor unhandled test failures. Production intentionally surfaces HTTP failures and
+does not turn them into an automatic retry loop.
+
+Raw outputs and direct-source commands live in the ignored
+[correction verification directory](/.test-agent/bus-smart/review-fixes1/README.md).
+No Protocol, Server `HttpApi`, generated Client, Schema, Core, or SharedEvents file
+changed in this correction range, so no generator or unrelated Server/Core suite
+was required. Prettier checks passed on all seven changed runtime/test files.
+The local-link check verified **42 Markdown destinations across three documents**
+(this report, the original report and the index). Reviewer reports were untouched;
+the original report and index received only minimal navigation links.
+
+## Repair workload recheck and precise limits
+
+The existing isolated **real HTTP Server / Bus / generated controlled wrapper /
+Core projector** fixture was rerun from `packages/server`:
+
+```sh
+bun --conditions=browser ../../.test-agent/bus-smart/bench/snapshot.ts
+```
+
+It exits successfully and compares the repaired Client row with actual canonical
+Core `Session.messages`: failed non-durable partial text is empty, not the live
+suffix. This run records **three transcript-page GETs plus two boundary lookups**.
+The measured trace is [review-fixes-snapshot.jsonl](/.test-agent/bus-smart/bench/review-fixes-snapshot.jsonl).
+The fixture counter was extended to expose point lookups separately; its existing
+canonical oracle and native HTTP abort/cleanup remain unchanged.
+
+- A **scan** is up to `K` point probes for `K` retained authoritative rows, followed
+  by descending pages through the oldest surviving anchor, or to exhaustion when
+  the already-loaded window was exhausted. It is **not one GET**. Each new adoption
+  with no loaded window takes one default page. Replacements preserve outbox and
+  admitted pending rows, and never splice stale retained rows back into the result.
+- A bounded retained window plus `N` new rows must fetch the new prefix to its
+  retained anchor. There is no honest constant request bound independent of `N`.
+  The code avoids scanning older unobserved history just because its old anchor
+  was deleted; normal cost is one probe, worst deleted-window probe cost is `K`.
+- Two scans bound one transcript job, and two GETs bound one pending job. Continued
+  ordinary mutations can leave a dirty cache after that budget. New terminal
+  batches may start later bounded jobs; infinitely many new terminal events imply
+  continuing event-driven work, not a global constant read budget. No timer, retry
+  service, replay log, or spin-until-quiet promise was introduced.
+- Eventual canonical repair still requires quiescent durable activity **and a
+  fresh successful read**. HTTP failure does not guarantee automatic convergence;
+  later explicit adoption, reconnect or a qualifying terminal event can retry.
+  This is not replay of missed streaming prefixes or a cross-request transaction.
+- The old delta-heavy many-client CPU result was **not** rerun or reused as proof
+  of zero repair cost. The new point probes and history-span pages are explicitly
+  additional work. A representative mixed metadata/repair/notification CPU and
+  foreground-latency workload remains a release gate, not a result of this pass.
+
+## Carry footprint, commit sequence, and remaining gates
+
+Corrections start after reviewer checkpoint `4396b563`. The logical commits are:
+
+| Commit | Change |
+| --- | --- |
+| `20d1ef5d` | Record correction baseline and scope |
+| `1f5b413e` | Gate transcript GETs on actual optimistic creation ownership |
+| `e3182f01` | Classify transcript mutations and bound coalesced read jobs |
+| `dd6fa0d9` | Preserve historical boundaries; correct opaque-cursor requests |
+| `da99e4da` | Fence committed-revert pending hydration and bound its read job |
+| `93ba6f88` | Preserve explicit observation while the creation gate is held |
+| `1c0575c5` | Centralize TUI transcript adoption |
+| `b2405f26` | Cover actual renderer history retention and canonical deletion |
+| `189e9901` | Verify original-sync completion under continued terminal overlap |
+| `639fff48` | Cover real empty-page exhaustion semantics |
+
+The runtime diff remains in one existing Client data owner, the existing TUI
+binding, and its two actual callers. Client adds two transcript flags (`loaded`,
+`repair`) and a named event classifier; it does not add a cache for foreign Session
+creation or another provider/registry. The existing single-message API avoids a
+Protocol/Server carry change at the cost of bounded point probes. The repeated
+transport-dependent policy leaves the two higher-churn renderer callers.
+
+The independent reviewers have **not** rechecked these commits yet. Parent owns
+that next wave. The experiment stays default off. Prior release gates still apply:
+no live-user trial, 32-client stress, sustained RPC overload, representative repair
+CPU matrix, cross-process grace-removal cohort, full tool/reasoning/retention race
+matrix, or already-busy real-model move through completion is claimed. There was
+no live elected service operation, child agent, history rewrite, squash, reset,
+discard of reviewer work, or push.
+
+Runtime/test correction tip: `639fff48`; the final report/navigation commit follows
+that tip in the same history. For recheck, compare from `4396b563`; do not infer an
+accepted or graduated experiment from this report's completed verification.
 
 ## Cross-references
 

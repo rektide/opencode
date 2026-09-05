@@ -7,6 +7,9 @@ execution report. The experiment is not graduated or verified against live-user 
 
 ## Current entry points
 
+- [Independent-review corrections — Astra](/.design/bus-smart/implementation-review-fixes1.gpt6a.md)
+  — four P2 repairs, one TUI adoption operation, exact read/pagination bounds,
+  regression proofs and verification; awaiting reviewer recheck, still default off.
 - [Runtime execution report — Astra](/.design/bus-smart/implementation-report1.gpt6a.md)
   — implementation progress, commits, exact verification, carry cost and limits.
 - [draft1 — scope streaming, preserve observation](/.design/bus-smart/draft1.gpt6a.md)

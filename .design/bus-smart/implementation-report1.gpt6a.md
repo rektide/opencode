@@ -258,6 +258,10 @@ default-off candidate, not a graduated performance/notification guarantee.
 
 ## Cross-references
 
+- [Independent-review corrections](/.design/bus-smart/implementation-review-fixes1.gpt6a.md):
+  creation ownership, bounded repair jobs, retained history boundaries, reverted
+  pending hydration, and centralized TUI adoption; supersedes this report's
+  read-repair assumptions and records the added boundary-lookup cost.
 - [Implementation plan](/.design/bus-smart/implementation1.gpt6a.md): scope and proof boundaries.
 - [Client assessment](/.design/bus-smart/implementation-research1-client.gpt6a.md):
   corrected snapshot, retention and actual transcript-read seams.
