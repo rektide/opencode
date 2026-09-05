@@ -275,6 +275,100 @@ async function until(check: () => boolean) {
   throw new Error("transcript state timed out")
 }
 
+test("viewed metadata overlapping every GET does not drive transcript repair", async () => {
+  let reads = 0
+  const f = fixture(() => {
+    reads++
+    if (reads <= 10)
+      f.emit({
+        type: "session.viewed",
+        id: `evt_viewed${reads}`,
+        created: reads,
+        durable: { aggregateID: "ses_test", seq: reads, version: 1 },
+        data: { sessionID: "ses_test", idle: reads },
+      })
+    return Response.json({ data: [assistant("unchanged")], cursor: {} })
+  })
+  try {
+    await f.data.session.message.sync("ses_test")
+    expect(reads).toBe(1)
+  } finally {
+    f.dispose()
+  }
+})
+;(isServer ? test.skip : test)(
+  "a terminal event between snapshot publication and promise cleanup still repairs",
+  async () => {
+    let reads = 0
+    const canonical = assistant("", 3)
+    const f = fixture(() => Response.json({ data: [++reads === 1 ? assistant("captured") : canonical], cursor: {} }))
+    const observer = createRoot((dispose) => {
+      createMemo(() => {
+        const row = f.data.session.message.list("ses_test")[0]
+        if (row?.type === "assistant" && row.content.some((part) => part.type === "text" && part.text === "captured"))
+          queueMicrotask(() => f.emit(failed))
+      })
+      return dispose
+    })
+    try {
+      await f.data.session.message.sync("ses_test")
+      await until(() => reads === 2)
+      await Bun.sleep(0)
+      expect(f.data.session.message.list("ses_test")).toEqual([canonical])
+    } finally {
+      observer()
+      f.dispose()
+    }
+  },
+)
+
+test.each([false, true])(
+  "continued transcript mutation has a two-scan budget and preserves the final repair (terminal during last scan: %s)",
+  async (during) => {
+    let reads = 0
+    let mutate = false
+    const canonical = assistant("", 3)
+    const f = fixture(() => {
+      reads++
+      if (mutate && reads < 12) {
+        f.emit({
+          type: "session.text.started",
+          id: `evt_started${reads}`,
+          created: reads,
+          durable: { aggregateID: "ses_test", seq: reads, version: 1 },
+          data: { sessionID: "ses_test", assistantMessageID: "msg_assistant", ordinal: reads },
+        })
+        if (during && reads === 3) {
+          mutate = false
+          f.emit(failed)
+        }
+        return Response.json({ data: [assistant("stale running")], cursor: {} })
+      }
+      return Response.json({ data: [reads === 1 ? assistant("baseline") : canonical], cursor: {} })
+    })
+    try {
+      await f.data.session.message.sync("ses_test")
+      mutate = true
+      f.data.session.message.invalidate("ses_test")
+      await f.data.session.message.sync("ses_test")
+      if (!during) {
+        expect(reads).toBe(3)
+        await Bun.sleep(10)
+        expect(reads).toBe(3)
+        expect(f.data.session.message.list("ses_test")[0]).not.toEqual(assistant("stale running"))
+        mutate = false
+        f.emit(failed)
+      }
+      await until(() => reads === 4)
+      await Bun.sleep(0)
+      expect(f.data.session.message.list("ses_test")).toEqual([canonical])
+      expect(reads).toBe(4)
+    } finally {
+      f.dispose()
+    }
+  },
+)
+
 test.each([false, true])(
   "optimistic creation guards transcript reads until the POST settles (failure: %s)",
   async (failure) => {

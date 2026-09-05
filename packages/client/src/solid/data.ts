@@ -228,7 +228,10 @@ export function createData(config: CreateDataInput) {
   )
   const messageIndex = new Map<string, Map<string, number>>()
   // Only explicit transcript reads own repair state; metadata and foreign live rows do not.
-  const transcripts = new Map<string, { version: number; complete: boolean; pending?: Promise<void> }>()
+  const transcripts = new Map<
+    string,
+    { version: number; complete: boolean; repair?: boolean; pending?: Promise<void> }
+  >()
   const pendingReads = new Map<string, { dirty: boolean }>()
   let connected = false
   const sync = createSync()
@@ -580,6 +583,7 @@ export function createData(config: CreateDataInput) {
           transcripts.forEach((entry, id) => {
             entry.version++
             entry.complete = false
+            entry.repair = true
             refresh(() => result.session.message.sync(id))
           })
         connected = true
@@ -1578,7 +1582,10 @@ export function createData(config: CreateDataInput) {
           // Defer once so adjacent terminal events coalesce before the authoritative GET.
           const pending = Promise.resolve()
             .then(async () => {
-              while (!disposed && transcripts.get(sessionID) === entry) {
+              // One initial scan and one repair, never a loop seeking a quiet snapshot.
+              for (let attempt = 0; attempt < 2; attempt++) {
+                if (disposed || transcripts.get(sessionID) !== entry) return
+                entry.repair = false
                 const version = entry.version
                 const count = store.session.message[sessionID]?.length ?? 0
                 const rows: SessionMessageInfo[] = []
@@ -1614,6 +1621,15 @@ export function createData(config: CreateDataInput) {
                 entry.complete = true
                 return
               }
+            })
+            .then(() => {
+              // Settle ownership before checking the coalesced settlement flag:
+              // events after this cut can start their own read rather than join
+              // a completed promise. Read failures do not automatically retry.
+              if (entry.pending !== pending) return
+              entry.pending = undefined
+              if (entry.repair && transcripts.get(sessionID) === entry)
+                refresh(() => result.session.message.sync(sessionID))
             })
             .finally(() => {
               if (entry.pending === pending) entry.pending = undefined
@@ -1930,9 +1946,11 @@ export function createData(config: CreateDataInput) {
         if (pending && (details.type.startsWith("session.inbox.") || details.type === "session.compaction.started"))
           pending.dirty = true
         const entry = transcripts.get(id)
-        if (entry) {
+        const mutation = transcriptMutation(details)
+        if (entry && mutation) {
           entry.version++
           if (
+            (mutation === "settled" && (!entry.complete || entry.pending)) ||
             details.type === "session.step.failed" ||
             details.type === "session.compaction.failed" ||
             details.type === "session.execution.succeeded" ||
@@ -1940,6 +1958,7 @@ export function createData(config: CreateDataInput) {
             details.type === "session.execution.interrupted"
           ) {
             entry.complete = false
+            entry.repair = true
             refresh(() => result.session.message.sync(id))
           }
         }
@@ -1952,3 +1971,45 @@ export function createData(config: CreateDataInput) {
 }
 
 export type Data = ReturnType<typeof createData>
+
+/** Transcript dirtiness is not Session metadata freshness. Ephemeral fragments
+ * are deliberately excluded by the caller's durable-event boundary. */
+function transcriptMutation(event: OpenCodeEvent) {
+  switch (event.type) {
+    case "session.agent.selected":
+    case "session.model.selected":
+    case "session.moved":
+    case "session.synthetic":
+    case "session.message.content.updated":
+    case "session.shell.ended":
+    case "session.step.ended":
+    case "session.step.failed":
+    case "session.text.ended":
+    case "session.reasoning.ended":
+    case "session.tool.input.ended":
+    case "session.tool.success":
+    case "session.tool.failed":
+    case "session.compaction.ended":
+    case "session.compaction.failed":
+    case "session.execution.succeeded":
+    case "session.execution.failed":
+    case "session.execution.interrupted":
+    case "session.revert.committed":
+      return "settled"
+    case "session.instructions.updated":
+      return event.data.text === undefined ? undefined : "settled"
+    case "session.inbox.enqueued":
+    case "session.inbox.delivered":
+    case "session.inbox.cancelled":
+    case "session.shell.started":
+    case "session.step.started":
+    case "session.step.streamed":
+    case "session.text.started":
+    case "session.reasoning.started":
+    case "session.tool.input.started":
+    case "session.tool.called":
+    case "session.compaction.started":
+    case "session.retry.scheduled":
+      return "update"
+  }
+}
