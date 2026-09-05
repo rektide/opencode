@@ -413,6 +413,17 @@ export type WorkspaceDestroyResult = { destroyed: boolean }
 
 export type VcsBranch = { current?: string; default?: string }
 
+export type VcsWorkingCopy = {
+  label?: string
+  workspace?: string
+  changeID?: string
+  commitID?: string
+  bookmarks: Array<string>
+  description?: string
+  conflicted: boolean
+  empty: boolean
+}
+
 export type VcsBase = { name: string; ref: string; source: "reflog" | "default" }
 
 export type VcsFileStatus = {
@@ -1644,7 +1655,7 @@ export type ReferenceSource = ReferenceLocalSource | ReferenceGitSource
 
 export type WorktreeList = Array<WorktreeDirectory>
 
-export type VcsInfo = { branch: VcsBranch }
+export type VcsInfo = { branch: VcsBranch; workingCopy?: VcsWorkingCopy }
 
 export type PermissionRuleset = Array<PermissionRule>
 
