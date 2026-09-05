@@ -7,8 +7,13 @@ execution report. The experiment is not graduated or verified against live-user 
 
 ## Current entry points
 
+- [Upstream plan, revision 3: ship the architecture, separate the commitments](/.design/bus-smart/upstream-plan3.gpt6a.md)
+  — current delivery direction: indexed controlled delivery and the full TUI,
+  with composite integrated-observation and streaming-extraction paths, real
+  read dependencies, chosen policy boundaries and feature-owning review units.
+  Replaces revision 2's test/CLI-first delivery order without discarding the built architecture.
 - [Upstream plan, revision 2: two paths and their composite epics](/.design/bus-smart/upstream-plan2.gpt6a.md)
-  — explains the implemented managed-transcript architecture versus the proposed
+  — predecessor explaining the implemented managed-transcript architecture versus the proposed
   selective-transport extraction, their shared code and policy differences,
   staged work plans, implementation guidance and evidence needed to choose.
 - [Upstream plan: two separate epics, smaller deliverables](/.design/bus-smart/upstream-plan1.gpt6a.md)

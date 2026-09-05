@@ -23,6 +23,12 @@ sources:
 
 # Two paths for bus-smart
 
+> Delivery revision: [upstream plan 3](/.design/bus-smart/upstream-plan3.gpt6a.md)
+> retains the architectural distinction but replaces this revision's test/CLI-first
+> sequence with the built indexed feed and full-TUI product. It makes each path's
+> read-policy commitments and actual integration dependencies explicit. This
+> earlier argument is preserved as history.
+
 ## The distinction this revision makes
 
 We have **one implemented downstream system** and **one proposed leaner
