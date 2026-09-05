@@ -148,6 +148,26 @@ const toolResult = (tool: SessionMessage.AssistantTool, providerMetadata: Provid
       providerMetadata,
     })
   }
+  // A persisted call whose execution never settled (severed stream or a
+  // racing retry) must not ship unanswered: providers reject the whole
+  // request with "No tool output found for function call". Synthesize an
+  // error result the model can act on; the durable part keeps its state,
+  // and a later terminal result replaces this on the next assembly.
+  return ToolResultPart.make({
+    id: tool.id,
+    name: tool.name,
+    result: {
+      error: {
+        type: "unknown",
+        message:
+          "Tool execution was interrupted before a result was recorded. Its effects may or may not have been applied; verify state before re-running.",
+      },
+      content: [],
+    },
+    resultType: "error",
+    providerExecuted: tool.executed,
+    providerMetadata,
+  })
 }
 
 const assistant = (message: SessionMessage.Assistant, model: Model.Ref, providerMetadataKey: string) => {
