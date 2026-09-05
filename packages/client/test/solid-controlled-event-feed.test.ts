@@ -362,3 +362,171 @@ test("surfaces determinate replacement rejection without legacy fallback", async
   await iterator.return?.()
   fixture.dispose()
 })
+
+test("pre-aborted and obsolete 404 attempts never open legacy or settle a newer target", async () => {
+  const late = Promise.withResolvers<Response>()
+  let gets = 0
+  let legacy = 0
+  const api = OpenCode.make({
+    baseUrl: "http://test",
+    fetch: async (input, init) => {
+      if (new URL(request(input, init).url).pathname === "/api/event") {
+        legacy++
+        return sse(connected)
+      }
+      gets++
+      return late.promise
+    },
+  })
+  const fixture = setup()
+  const cancelled = new AbortController()
+  cancelled.abort()
+  expect(await fixture.feed.subscribe(api, cancelled.signal)[Symbol.asyncIterator]().next()).toMatchObject({
+    done: true,
+  })
+  expect(gets).toBe(0)
+  const old = fixture.feed.subscribe(api, new AbortController().signal)[Symbol.asyncIterator]()
+  const opening = old.next()
+  await waitFor(() => gets === 1)
+  const fresh = fixture.feed
+    .subscribe(
+      OpenCode.make({
+        baseUrl: "http://fresh",
+        fetch: async (input, init) =>
+          request(input, init).method === "PUT"
+            ? new Response(null, { status: 204 })
+            : sse(ready("evsub_fresh"), connected),
+      }),
+      new AbortController().signal,
+    )
+    [Symbol.asyncIterator]()
+  await fresh.next()
+  late.resolve(new Response(null, { status: 404 }))
+  expect(await opening).toMatchObject({ done: true })
+  expect(legacy).toBe(0)
+  expect(fixture.feed.mode()).toBe("controlled")
+  await fresh.return?.()
+  fixture.dispose()
+  await expect(fixture.feed.flush()).rejects.toThrow("disposed")
+})
+
+for (const profiles of [undefined, []])
+  test(`closes unsupported controlled GET before shared fallback (${JSON.stringify(profiles)})`, async () => {
+    let closed = false
+    let puts = 0
+    let legacy = 0
+    const api = OpenCode.make({
+      baseUrl: "http://test",
+      fetch: async (input, init) => {
+        const next = request(input, init)
+        if (next.method === "PUT") {
+          puts++
+          return new Response(null, { status: 204 })
+        }
+        if (new URL(next.url).pathname === "/api/event") {
+          expect(closed).toBe(true)
+          legacy++
+          return sse(connected, updated)
+        }
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode(
+                  `data: ${JSON.stringify({ type: "event-feed.ready", data: { subscriptionID: "evsub_old", profiles } })}\n\n`,
+                ),
+              )
+            },
+            cancel() {
+              closed = true
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        )
+      },
+    })
+    const fixture = setup()
+    fixture.feed.setDesired({ locations: [a], sessions: [sessionID], profile: "session-streaming" })
+    const iterator = fixture.feed.subscribe(api, new AbortController().signal)[Symbol.asyncIterator]()
+    expect(await iterator.next()).toEqual({ done: false, value: connected })
+    expect(fixture.feed.mode()).toBe("legacy")
+    expect(fixture.feed.fallback()).toBe("unsupported-profile")
+    await fixture.feed.flush()
+    expect(puts).toBe(0)
+    expect(legacy).toBe(1)
+    await iterator.return?.()
+    fixture.dispose()
+  })
+
+test("profile-only replacements install while equivalent normalized targets do not PUT", async () => {
+  const puts: unknown[] = []
+  const api = OpenCode.make({
+    baseUrl: "http://test",
+    fetch: async (input, init) => {
+      const next = request(input, init)
+      if (next.method === "PUT") {
+        puts.push(await next.json())
+        return new Response(null, { status: 204 })
+      }
+      return sse(
+        {
+          type: "event-feed.ready",
+          data: { subscriptionID: "evsub_profile", profiles: ["location", "session-streaming"] },
+        },
+        connected,
+      )
+    },
+  })
+  const fixture = setup()
+  fixture.feed.setDesired({ locations: [a, b], sessions: [sessionID] })
+  const iterator = fixture.feed.subscribe(api, new AbortController().signal)[Symbol.asyncIterator]()
+  await iterator.next()
+  fixture.feed.setDesired({ locations: [b, a, a], sessions: [sessionID, sessionID], profile: "location" })
+  await fixture.feed.flush()
+  expect(puts).toHaveLength(1)
+  fixture.feed.setDesired({ locations: [a, b], sessions: [sessionID], profile: "session-streaming" })
+  await fixture.feed.flush()
+  expect(puts).toHaveLength(2)
+  expect(puts[1]).toMatchObject({ profile: "session-streaming" })
+  await iterator.return?.()
+  fixture.dispose()
+})
+
+test("preserves a midstream PUT rejection through generated SSE abort and rejects later flushes", async () => {
+  let puts = 0
+  const api = OpenCode.make({
+    baseUrl: "http://test",
+    fetch: async (input, init) => {
+      const next = request(input, init)
+      if (next.method === "PUT")
+        return ++puts === 1
+          ? new Response(null, { status: 204 })
+          : Response.json({ _tag: "InvalidRequestError", field: "interest", message: "too large" }, { status: 400 })
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode(
+                `data: ${JSON.stringify(ready("evsub_bad"))}\n\ndata: ${JSON.stringify(connected)}\n\n`,
+              ),
+            )
+            next.signal.addEventListener("abort", () => controller.error(new Error("aborted")), { once: true })
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      )
+    },
+  })
+  const fixture = setup()
+  const iterator = fixture.feed.subscribe(api, new AbortController().signal)[Symbol.asyncIterator]()
+  await iterator.next()
+  const reading = iterator.next()
+  fixture.feed.setDesired({ locations: [a], sessions: [] })
+  const error = await reading.catch((error: unknown) => error)
+  expect(error).toMatchObject({ _tag: "InvalidRequestError", field: "interest" })
+  expect(fixture.feed.retry(error)).toBe("pause")
+  await expect(fixture.feed.flush()).rejects.toBe(error)
+  fixture.feed.setDesired({ locations: [a, b], sessions: [] })
+  expect(fixture.feed.retry(error)).toBe("retry")
+  fixture.dispose()
+})

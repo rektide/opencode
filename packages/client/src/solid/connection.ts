@@ -23,6 +23,7 @@ export type EventStreamAdapter = (api: OpenCodeClient, signal: AbortSignal) => A
 export type ClientConnectionOptions = {
   readonly reconnect?: (signal: AbortSignal) => Promise<OpenCodeClient>
   readonly subscribe?: EventStreamAdapter
+  readonly retry?: (error: unknown) => "retry" | "pause"
   readonly onEvent: (event: OpenCodeEvent) => void
   readonly flushInterval?: number
   readonly pageLifecycle?: boolean
@@ -43,7 +44,8 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
     status: ClientConnectionStatus
     attempt: number
     error?: string
-  }>({ status: "connecting", attempt: 0 })
+    paused: boolean
+  }>({ status: "connecting", attempt: 0, paused: false })
   let api = initialApi
   let pending: OpenCodeEvent[] = []
   let flushTimer: ReturnType<typeof setTimeout> | undefined
@@ -54,6 +56,9 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
   let subscriptions = 0
   let receivedDomainEvents = 0
   let reconnects = 0
+  let wakeVersion = 0
+  let wake: (() => void) | undefined
+  let resolveOnStart = false
 
   function record(status: ClientConnectionEvent["data"]["status"], attempt: number, error?: string) {
     history.push({ type: "client.connection", created: Date.now(), data: { status, attempt, error } })
@@ -77,15 +82,18 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
     const cancel = () => request.abort(signal.reason)
     const timeout = setTimeout(() => request.abort(new Error("Timed out connecting to server")), connectTimeout)
     signal.addEventListener("abort", cancel, { once: true })
+    if (signal.aborted) cancel()
+    let iterator: AsyncIterator<OpenCodeEvent> | undefined
 
     try {
       if (subscriptions > 0) reconnects += 1
       subscriptions += 1
       record(attempt === 0 ? "connecting" : "reconnecting", attempt)
       options.log?.info?.("event stream connecting", { attempt })
-      const iterator = (options.subscribe
-        ? options.subscribe(api, request.signal)
-        : api.event.subscribe({ signal: request.signal }))[Symbol.asyncIterator]()
+      if (signal.aborted) return { error: undefined, connectedAt }
+      iterator = (
+        options.subscribe ? options.subscribe(api, request.signal) : api.event.subscribe({ signal: request.signal })
+      )[Symbol.asyncIterator]()
       const first = await iterator.next()
       if (signal.aborted) return { error: undefined, connectedAt }
       if (first.done)
@@ -124,6 +132,7 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
       request.abort()
       clearTimeout(timeout)
       signal.removeEventListener("abort", cancel)
+      await iterator?.return?.()
     }
   }
 
@@ -133,6 +142,14 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
       setConnection({ status: attempt === 0 ? "connecting" : "reconnecting", attempt })
       const controller = new AbortController()
       stream = controller
+      if (resolveOnStart) {
+        resolveOnStart = false
+        const next = await options.reconnect?.(controller.signal).catch((error) => {
+          options.log?.info?.("server resolution failed", { error: errorMessage(error) })
+        })
+        if (abort.signal.aborted || !started || generation !== active) return
+        if (next) api = next
+      }
       const cancel = () => controller.abort(abort.signal.reason)
       abort.signal.addEventListener("abort", cancel)
       const result = await connect(controller.signal, attempt)
@@ -144,6 +161,17 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
       record("disconnected", attempt, message)
       options.log?.info?.("event stream disconnected", { attempt, error: message })
       setConnection({ status: "reconnecting", attempt, error: message })
+
+      const version = wakeVersion
+      if (options.retry?.(result.error) === "pause" && version === wakeVersion) {
+        setConnection("paused", true)
+        await new Promise<void>((resolve) => {
+          wake = resolve
+        })
+        wake = undefined
+        setConnection("paused", false)
+        if (abort.signal.aborted || !started || generation !== active) return
+      }
 
       if (options.reconnect) {
         const next = await options.reconnect(controller.signal).catch((error) => {
@@ -180,6 +208,18 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
     started = false
     generation += 1
     stream?.abort()
+    wakeEvents()
+  }
+
+  function wakeEvents() {
+    wakeVersion += 1
+    wake?.()
+  }
+
+  function reconnectEvents() {
+    stop()
+    resolveOnStart = true
+    if (!abort.signal.aborted) void start()
   }
 
   onMount(() => {
@@ -209,6 +249,9 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
     status: () => connection.status,
     attempt: () => connection.attempt,
     error: () => connection.error,
+    paused: () => connection.paused,
+    wakeEvents,
+    reconnectEvents,
     internal: {
       history: () => history.slice(),
       diagnostics: (): ClientConnectionDiagnostics => ({ receivedDomainEvents, reconnects }),
@@ -223,6 +266,7 @@ function errorMessage(error: unknown) {
 }
 
 function wait(delay: number, signal: AbortSignal) {
+  if (signal.aborted) return Promise.resolve()
   return new Promise<void>((resolve) => {
     const timer = setTimeout(done, delay)
     signal.addEventListener("abort", done, { once: true })
