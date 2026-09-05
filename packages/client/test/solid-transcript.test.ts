@@ -161,6 +161,100 @@ test("canonical repair retains loaded older pages and their pagination cursor", 
     f.dispose()
   }
 })
+
+test("compaction failure discards a stale partial summary, with no later event", async () => {
+  const late = Promise.withResolvers<Response>()
+  let reads = 0
+  const running = {
+    id: "msg_compaction",
+    type: "compaction",
+    status: "running",
+    reason: "manual",
+    summary: "partial",
+    recent: "",
+    time: { created: 1 },
+  }
+  const canonical = {
+    id: "msg_compaction",
+    type: "compaction",
+    status: "failed",
+    reason: "manual",
+    error: failed.data.error,
+    time: { created: 1, completed: 3 },
+  }
+  const f = fixture(() =>
+    ++reads === 2 ? late.promise : Response.json({ data: [reads === 1 ? running : canonical], cursor: {} }),
+  )
+  try {
+    await f.data.session.message.sync("ses_test")
+    f.data.session.message.invalidate("ses_test")
+    const pending = f.data.session.message.sync("ses_test")
+    await until(() => reads === 2)
+    f.emit({
+      id: "evt_compaction_failed",
+      type: "session.compaction.failed",
+      created: 3,
+      durable: { aggregateID: "ses_test", seq: 3, version: 1 },
+      data: { sessionID: "ses_test", reason: "manual", error: failed.data.error },
+    })
+    late.resolve(Response.json({ data: [running], cursor: {} }))
+    await pending
+    expect(f.data.session.message.list("ses_test")).toEqual([canonical])
+    expect(reads).toBe(3)
+  } finally {
+    f.dispose()
+  }
+})
+
+test.each(["evict", "delete", "delivery"])(
+  "pending hydration cannot resurrect stale transcript input after %s",
+  async (mode) => {
+    const late = Promise.withResolvers<Response>()
+    let reads = 0
+    const f = fixture(() => (++reads === 1 ? late.promise : Response.json({ data: [] })))
+    try {
+      const pending = f.data.session.pending.sync("ses_test")
+      await until(() => reads === 1)
+      if (mode === "evict") f.data.session.evict("ses_test")
+      if (mode === "delete")
+        f.emit({
+          id: "evt_delete",
+          type: "session.deleted",
+          created: 3,
+          durable: { aggregateID: "ses_test", seq: 3, version: 2 },
+          data: { sessionID: "ses_test" },
+        })
+      if (mode === "delivery")
+        f.emit({
+          id: "evt_delivery",
+          type: "session.inbox.delivered",
+          created: 3,
+          durable: { aggregateID: "ses_test", seq: 3, version: 1 },
+          data: { sessionID: "ses_test", inboxID: "msg_input" },
+        })
+      late.resolve(
+        Response.json({
+          data: [
+            {
+              id: "msg_input",
+              sessionID: "ses_test",
+              type: "user",
+              timeCreated: 1,
+              delivery: "steer",
+              payload: { text: "old input" },
+            },
+          ],
+        }),
+      )
+      await pending
+      expect(f.data.session.pending.list("ses_test")).toEqual([])
+      expect(f.data.session.message.list("ses_test")).toEqual([])
+      expect(reads).toBe(mode === "delivery" ? 2 : 1)
+    } finally {
+      f.dispose()
+    }
+  },
+)
 ;(isServer ? test.skip : test)("missing assistant edits do not allocate transcript state", () => {
   const f = fixture(() => {
     throw new Error("unexpected read")

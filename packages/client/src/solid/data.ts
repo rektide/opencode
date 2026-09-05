@@ -229,6 +229,8 @@ export function createData(config: CreateDataInput) {
   const messageIndex = new Map<string, Map<string, number>>()
   // Only explicit transcript reads own repair state; metadata and foreign live rows do not.
   const transcripts = new Map<string, { version: number; complete: boolean; pending?: Promise<void> }>()
+  const pendingReads = new Map<string, { dirty: boolean }>()
+  let connected = false
   const sync = createSync()
   let activeUpdates: Map<string, DataSessionStatus | undefined> | undefined
 
@@ -518,6 +520,7 @@ export function createData(config: CreateDataInput) {
   function evictSession(sessionID: string) {
     if (sessionOutbox.has(sessionID)) return
     transcripts.delete(sessionID)
+    pendingReads.delete(sessionID)
     sync.invalidate(`session.pending:${sessionID}`)
     sync.invalidate(`session.message:${sessionID}`)
     messageLoads.delete(sessionID)
@@ -541,6 +544,7 @@ export function createData(config: CreateDataInput) {
 
   function removeSession(sessionID: string) {
     transcripts.delete(sessionID)
+    pendingReads.delete(sessionID)
     messageLoads.delete(sessionID)
     activeUpdates?.set(sessionID, undefined)
     store.session.pending[sessionID]?.forEach((item) => outbox.delete(item.id))
@@ -574,11 +578,13 @@ export function createData(config: CreateDataInput) {
   function handleEvent(event: OpenCodeEvent) {
     switch (event.type) {
       case "server.connected": {
-        transcripts.forEach((entry, id) => {
-          entry.version++
-          entry.complete = false
-          refresh(() => result.session.message.sync(id))
-        })
+        if (connected)
+          transcripts.forEach((entry, id) => {
+            entry.version++
+            entry.complete = false
+            refresh(() => result.session.message.sync(id))
+          })
+        connected = true
         const updates = new Map<string, DataSessionStatus | undefined>()
         activeUpdates = updates
         refresh(() =>
@@ -1349,23 +1355,35 @@ export function createData(config: CreateDataInput) {
         },
         sync(sessionID: string) {
           return sync.run(`session.pending:${sessionID}`, async () => {
-            const pending = await api().session.inbox.list({ sessionID })
-            // A positive read acknowledges admission even when its SSE echo is delayed.
-            pending.forEach((item) => outbox.delete(item.id))
-            // Compactions also coalesce by Session, not just by the proposed ID.
-            if (pending.some((item) => item.type === "compaction"))
-              store.session.pending[sessionID]
-                ?.filter((item) => item.type === "compaction")
-                .forEach((item) => outbox.delete(item.id))
-            // Keep optimistic rows still awaiting their echo: this fetch may
-            // have raced ahead of an in-flight admission the server does not
-            // know about yet.
-            const inflight = (store.session.pending[sessionID] ?? []).filter((item) => outbox.has(item.id))
-            const merged = inflight.length === 0 ? pending : [...pending, ...inflight]
-            batch(() => {
-              setStore("session", "pending", sessionID, reconcile(merged))
-              merged.forEach(materializeInboxMessage)
-            })
+            const entry = { dirty: false }
+            pendingReads.set(sessionID, entry)
+            try {
+              while (!disposed && pendingReads.get(sessionID) === entry) {
+                entry.dirty = false
+                const pending = await api().session.inbox.list({ sessionID })
+                if (disposed || pendingReads.get(sessionID) !== entry) return
+                if (entry.dirty) continue
+                // A positive read acknowledges admission even when its SSE echo is delayed.
+                pending.forEach((item) => outbox.delete(item.id))
+                // Compactions also coalesce by Session, not just by the proposed ID.
+                if (pending.some((item) => item.type === "compaction"))
+                  store.session.pending[sessionID]
+                    ?.filter((item) => item.type === "compaction")
+                    .forEach((item) => outbox.delete(item.id))
+                // Keep optimistic rows still awaiting their echo: this fetch may
+                // have raced ahead of an in-flight admission the server does not
+                // know about yet.
+                const inflight = (store.session.pending[sessionID] ?? []).filter((item) => outbox.has(item.id))
+                const merged = inflight.length === 0 ? pending : [...pending, ...inflight]
+                batch(() => {
+                  setStore("session", "pending", sessionID, reconcile(merged))
+                  merged.forEach(materializeInboxMessage)
+                })
+                return
+              }
+            } finally {
+              if (pendingReads.get(sessionID) === entry) pendingReads.delete(sessionID)
+            }
           })
         },
         invalidate(sessionID: string) {
@@ -1903,12 +1921,18 @@ export function createData(config: CreateDataInput) {
       entry.version++
       entry.complete = false
     })
+    pendingReads.forEach((entry) => {
+      entry.dirty = true
+    })
   })
 
   onCleanup(
     config.event.listen(({ details }) => {
       if ("durable" in details && details.durable && "sessionID" in details.data) {
         const id = details.data.sessionID
+        const pending = pendingReads.get(id)
+        if (pending && (details.type.startsWith("session.inbox.") || details.type === "session.compaction.started"))
+          pending.dirty = true
         const entry = transcripts.get(id)
         if (entry) {
           entry.version++

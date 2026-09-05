@@ -545,6 +545,14 @@ test("fallback shares the upstream pool, replays only connected, and cancellatio
         new ReadableStream({
           start(controller) {
             stream.resolve(controller)
+            next.signal.addEventListener(
+              "abort",
+              () => {
+                closed++
+                controller.error(new Error("aborted"))
+              },
+              { once: true },
+            )
           },
           cancel() {
             closed++
@@ -579,6 +587,7 @@ test("fallback shares the upstream pool, replays only connected, and cancellatio
   expect(await publicReader.next()).toEqual({ done: false, value: updated })
   await publicReader.return?.()
   expect(legacy).toBe(1)
+  await waitFor(() => closed === 1)
   expect(closed).toBe(1)
   fixture.dispose()
 })
