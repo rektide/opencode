@@ -87,6 +87,23 @@ suites and review3's originals remain intact.
 - Six targeted acknowledgment tests pass. Combined browser transcript/mutation
   suites passed before the final cross-Session negative addition (**73 pass**),
   and Client typecheck passed. This repairs the authorized **pre-existing** seam.
+- Commit: `0bd27da1`.
+
+### Model-selection point-read ownership
+
+- Four promoted cases failed before the fix: eviction, deletion, disposal, and
+  eviction followed by recreation of the **same Session and message IDs**. Healthy
+  current-row hydration and prepend/load-more controls already passed.
+- The retained single-message GET captures the actual row it will enrich. Its
+  response may publish only while the data owner is not disposed and the indexed
+  row is still that same object. It no longer appends when its target is absent.
+  No new epoch, tombstone, request registry, or domain-wide fencing layer is added.
+- Capturing row ownership rather than the whole index identity preserves a healthy
+  point response across load-more's index rebuild. Recreated IDs refer to a new
+  row and cannot renew old ownership. The original point endpoint and canonical
+  enrichment payload remain unchanged.
+- All six lifetime/control cases pass; complete browser mutation suite **37 pass**
+  and Client typecheck passed. This is the second authorized **pre-existing** seam.
 
 ## Cross-references
 

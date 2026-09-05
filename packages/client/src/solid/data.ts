@@ -675,7 +675,7 @@ export function createData(config: CreateDataInput) {
         })
         return
       }
-      case "session.model.selected":
+      case "session.model.selected": {
         if (store.session.info[event.data.sessionID])
           setStore("session", "info", event.data.sessionID, "model", event.data.model)
         if (!store.session.message[event.data.sessionID]) return
@@ -685,18 +685,24 @@ export function createData(config: CreateDataInput) {
           model: event.data.model,
           time: { created: event.created },
         })
+        const current = result.session.message.get(event.data.sessionID, messageIDFromEvent(event.id))
+        if (!current) return
         refresh(() =>
           api()
             .session.message({ sessionID: event.data.sessionID, messageID: messageIDFromEvent(event.id) })
             .then((item) => {
+              // Enrich only the row that requested this point read. Recreating
+              // the same IDs after eviction does not renew the old ownership.
+              if (disposed || result.session.message.get(event.data.sessionID, item.id) !== current) return
               message.update(event.data.sessionID, (draft, index) => {
                 const position = index.get(item.id)
-                if (position === undefined) return message.append(draft, index, item)
+                if (position === undefined) return
                 draft[position] = item
               })
             }),
         )
         return
+      }
       case "session.renamed": {
         // Preserve the live title when it races the session's initial read.
         refresh(() => {

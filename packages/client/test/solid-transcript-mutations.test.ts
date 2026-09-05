@@ -361,6 +361,67 @@ async function until(check: () => boolean) {
   throw new Error("canonical mutation was not reconciled")
 }
 
+test.each(["current", "load-more", "evict", "delete", "dispose", "recreate"])(
+  "model-selection point hydration respects existing row lifetime (%s)",
+  async (action) => {
+    const response = Promise.withResolvers<Response>()
+    let points = 0
+    const model = { id: "model", providerID: "provider" }
+    const canonical: SessionMessageInfo = {
+      id: "msg_model",
+      type: "model-switched",
+      model,
+      previous: { id: "old", providerID: "provider" },
+      time: { created: 2 },
+    }
+    const selection: OpenCodeEvent = {
+      ...envelope,
+      id: "evt_model",
+      type: "session.model.selected",
+      data: { sessionID: "ses_test", model },
+    }
+    const f = fixture((url) => {
+      if (url.pathname.endsWith("/message/msg_model")) {
+        points++
+        return points === 1
+          ? response.promise
+          : Response.json({ data: { ...canonical, previous: { id: "new-owner", providerID: "provider" } } })
+      }
+      if (url.searchParams.has("cursor")) return Response.json({ data: [user], cursor: {} })
+      return Response.json({ data: [], cursor: action === "load-more" ? { next: "older" } : {} })
+    })
+    try {
+      await f.data.session.message.sync("ses_test")
+      f.emit(selection)
+      await until(() => points === 1)
+      if (action === "load-more") await f.data.session.message.loadMore("ses_test")
+      if (action === "evict" || action === "recreate") f.data.session.evict("ses_test")
+      if (action === "delete") f.emit({ ...envelope, type: "session.deleted", data: { sessionID: "ses_test" } })
+      if (action === "recreate") {
+        await f.data.session.message.sync("ses_test")
+        f.emit(selection)
+        await until(() => {
+          const row = f.data.session.message.get("ses_test", "msg_model")
+          return row?.type === "model-switched" && row.previous?.id === "new-owner"
+        })
+      }
+      const before = JSON.stringify(f.data.session.message.list("ses_test"))
+      if (action === "dispose") f.dispose()
+      response.resolve(Response.json({ data: canonical }))
+      await Bun.sleep(15)
+      if (action === "current" || action === "load-more") {
+        expect(f.data.session.message.get("ses_test", "msg_model")).toEqual(canonical)
+        expect(points).toBe(1)
+        return
+      }
+      expect(JSON.stringify(f.data.session.message.list("ses_test"))).toBe(before)
+    } finally {
+      response.resolve(Response.json({ data: canonical }))
+      f.dispose()
+    }
+  },
+)
+
 test.each(["user", "synthetic"] as const)(
   "canonical %s input acknowledgment survives a late optimistic POST failure",
   async (type) => {
