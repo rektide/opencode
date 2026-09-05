@@ -274,3 +274,72 @@ async function until(check: () => boolean) {
   }
   throw new Error("transcript state timed out")
 }
+
+test.each([false, true])(
+  "optimistic creation guards transcript reads until the POST settles (failure: %s)",
+  async (failure) => {
+    const creation = Promise.withResolvers<Response>()
+    let reads = 0
+    const f = fixture((url) => {
+      if (url.pathname === "/api/session") return creation.promise
+      reads++
+      return Response.json({ data: [], cursor: {} })
+    })
+    const info = {
+      id: "ses_creating",
+      projectID: "project",
+      location: { directory: "/project" },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      time: { created: 1, updated: 1 },
+    }
+    try {
+      const created = f.data.session.create({ id: info.id })
+      const request = created.request.catch(() => undefined)
+      await f.data.session.message.sync(created.id)
+      f.data.session.message.invalidate(created.id)
+      await f.data.session.message.sync(created.id)
+      expect(f.data.session.creating(created.id)).toBe(true)
+      expect(reads).toBe(0)
+      creation.resolve(
+        failure ? Response.json({ message: "rejected" }, { status: 500 }) : Response.json({ data: info }),
+      )
+      await request
+      expect(f.data.session.creating(created.id)).toBe(false)
+      if (failure) {
+        expect(f.data.session.get(created.id)).toBeUndefined()
+        expect(f.data.session.message.list(created.id)).toEqual([])
+        return
+      }
+      await f.data.session.message.sync(created.id)
+      expect(reads).toBe(1)
+    } finally {
+      creation.resolve(Response.json({ data: info }))
+      f.dispose()
+    }
+  },
+)
+
+test("a foreign create does not enroll an unread transcript in terminal repair", async () => {
+  let transcriptReads = 0
+  const f = fixture((url) => {
+    if (url.pathname.endsWith("/message")) transcriptReads++
+    return Response.json({
+      data: { id: "ses_test", location: { directory: "/project" }, time: { created: 1, updated: 1 } },
+    })
+  })
+  try {
+    f.emit({
+      type: "session.created",
+      id: "evt_created",
+      created: 1,
+      durable: { aggregateID: "ses_test", seq: 1, version: 1 },
+      data: { sessionID: "ses_test", slug: "test", projectID: "project", location: { directory: "/project" } },
+    })
+    f.emit(failed)
+    await Bun.sleep(0)
+    expect(transcriptReads).toBe(0)
+  } finally {
+    f.dispose()
+  }
+})

@@ -522,7 +522,6 @@ export function createData(config: CreateDataInput) {
     transcripts.delete(sessionID)
     pendingReads.delete(sessionID)
     sync.invalidate(`session.pending:${sessionID}`)
-    sync.invalidate(`session.message:${sessionID}`)
     messageLoads.delete(sessionID)
     // Keep unacknowledged submissions until their echo or rollback settles them.
     const pending = store.session.pending[sessionID]?.filter((item) => outbox.has(item.id)) ?? []
@@ -552,7 +551,6 @@ export function createData(config: CreateDataInput) {
     sync.invalidate(`session:${sessionID}`)
     sync.invalidate(`session.family:${sessionID}`)
     sync.invalidate(`session.pending:${sessionID}`)
-    sync.invalidate(`session.message:${sessionID}`)
     sync.invalidate(`session.permission:${sessionID}`)
     sync.invalidate(`session.form:${sessionID}:`)
     setStore(
@@ -624,12 +622,9 @@ export function createData(config: CreateDataInput) {
         sessionOutbox.delete(event.data.sessionID)
         result.session.invalidate(event.data.sessionID)
         refresh(() => result.session.sync(event.data.sessionID))
-        // Band-aid: a newly created session starts empty, so live events can be its source of truth.
-        // Fetching pending inputs and projected messages separately lets promotion move an input between snapshots,
-        // causing both requests to miss it and overwrite event-built state. Skip those racy initial reads until
-        // hydration can load pending and projected messages atomically.
+        // A newly created inbox starts empty. Transcript repair is owned only by
+        // explicit message reads, not by broad Session discovery.
         sync.complete(`session.pending:${event.data.sessionID}`)
-        sync.complete(`session.message:${event.data.sessionID}`)
         return
       case "session.deleted":
         removeSession(event.data.sessionID)
@@ -1427,7 +1422,6 @@ export function createData(config: CreateDataInput) {
           // before creation settles. The session.created echo re-syncs info.
           sync.complete(`session.family:${id}`)
           sync.complete(`session.pending:${id}`)
-          sync.complete(`session.message:${id}`)
         }
         // Wrapped so even a synchronous client failure reaches the rollback.
         const request = Promise.resolve()
@@ -1574,6 +1568,9 @@ export function createData(config: CreateDataInput) {
           return position === undefined ? undefined : messages?.[position]
         },
         sync(sessionID: string) {
+          // Match prompt admission's creation owner without registering a cache
+          // entry for a Session that may still fail to be created.
+          if (creating.has(sessionID)) return Promise.resolve()
           const entry = transcripts.get(sessionID) ?? { version: 0, complete: false }
           transcripts.set(sessionID, entry)
           if (entry.pending) return entry.pending
@@ -1712,7 +1709,6 @@ export function createData(config: CreateDataInput) {
             entry.version++
             entry.complete = false
           }
-          sync.invalidate(`session.message:${sessionID}`)
         },
       },
       permission: {

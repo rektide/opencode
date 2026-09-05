@@ -29,6 +29,17 @@ sources:
 Implementation in progress; exact read bounds, pagination contract, commits and
 test outcomes are recorded below as each correction lands.
 
+### Standards P2: optimistic creation ownership
+
+- Two promoted held-POST fixtures failed before the fix: both issued **two message
+  GETs while creation was unresolved**, including after explicit invalidation.
+- `message.sync` now consults the existing `creating` owner before allocating any
+  transcript entry. It returns without reading while a local creation is pending;
+  after success the next explicit read hydrates normally; failure leaves no row.
+- Removed the abandoned `session.message:*` completions/invalidations from
+  `createSync`. Foreign `session.created` still does not register transcript repair.
+- Browser-conditioned transcript suite: **14 pass**; Client `bun typecheck` passed.
+
 ## Cross-references
 
 - [Standards review](/.design/bus-smart/code-review1-standards.gpt6a.md): optimistic
