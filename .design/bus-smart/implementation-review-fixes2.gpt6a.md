@@ -337,6 +337,9 @@ independent review nor either scratch reproduction suite was edited.
 
 ## Cross-references
 
+- [Third-review localized corrections](/.design/bus-smart/implementation-review-fixes3.gpt6a.md):
+  decoded Session absence ends an automatic episode; canonical acknowledgment and
+  retained model point reads receive the narrowly authorized ownership corrections.
 - [Spec recheck](/.design/bus-smart/code-review2-spec.gpt6a.md): two new reproductions.
 - [Standards recheck](/.design/bus-smart/code-review2-standards.gpt6a.md): creation
   and TUI adoption closed; classifier maintenance identified as a carry obligation.

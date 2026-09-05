@@ -104,6 +104,101 @@ suites and review3's originals remain intact.
   enrichment payload remain unchanged.
 - All six lifetime/control cases pass; complete browser mutation suite **37 pass**
   and Client typecheck passed. This is the second authorized **pre-existing** seam.
+- Commit: `e497e886`.
+
+## Final policy and carry boundaries
+
+### Repair episodes
+
+`SessionNotFoundError` terminates the **current automatic episode**, not Session
+identity or local cache ownership. The next explicit `message.sync` remains
+eligible because the entry is still incomplete; reconnect or a new qualifying
+durable fact can establish a new duty. The original declared error is observable
+to its caller/error handler. There is no suppression based on HTTP status alone,
+no global absent-ID set, and no automatic deletion of visible state.
+
+Transient failures still retain the prior one-job/one-timer obligation with capped
+backoff. Historical-anchor `MessageNotFoundError` still permits the existing
+bounded anchor search. Both page and probe errors reach the same narrow episode
+policy. No scheduler rate, pagination, or transport-interface redesign is included.
+
+### Canonical confirmation
+
+The confirmation cut is the same synchronous, accepted-scan cut that reconciles
+the transcript. Before it, returned rows are only tentative; after its identity
+and version checks, matching user/synthetic rows are positive server facts. Only
+the corresponding local input's optimistic rollback eligibility is removed. The
+canonical payload replaces the guess, not vice versa. A later POST rejection is
+still reported but cannot retract that confirmed row. Unconfirmed input, another
+Session's input, and rejected snapshots retain their existing rollback semantics.
+
+### Point-read lifetime
+
+The point response must still own the **same live model-selection row object**,
+not merely the same ID strings. Disposal independently revokes eligibility. An
+index rebuild that preserves the row is healthy, whereas eviction and recreation
+create a different row. The HTTP request itself may still finish; this correction
+fences its publication rather than introducing generic request cancellation.
+
+All runtime edits remain in `packages/client/src/solid/data.ts`: one generated
+error helper import and a rejection branch, one accepted-input acknowledgment
+pass, and a row-identity/disposal check on the retained model point read. There is
+no new state map, registry, public API, durable fact, framework, or broader audit.
+The acknowledgment pass is linear in fetched rows and adds no network request.
+Protocol, Server, Core, Schema, generated surfaces, SharedEvents, and TUI production
+are unchanged. These are unconditional Client paths, so the ordinary/default
+transport suites are part of verification, not only focused SSE.
+
+## Closure verification
+
+Commands ran from package directories; raw results and invocations are preserved
+in the ignored [review-fixes3 verification directory](/.test-agent/bus-smart/review-fixes3/README.md).
+
+| Scope | Check | Result |
+| --- | --- | --- |
+| Client | `bun run test` | **243 pass, 11 skip, 0 fail**, 17 files |
+| Client browser | transcript, mutation, controlled feed and connection suites | **100 pass, 0 skip, 0 fail**, 4 files |
+| Client | `bun typecheck` | Passed |
+| Reviewer scratch | all three preserved spec-review suites, browser conditions | **9 pass, 0 fail**, 3 files |
+| TUI focused | policy/binding/tabs, app lifecycle and data suites | **129 pass, 0 fail**, 5 files |
+| TUI | `bun run test` | **1,311 pass, 4 skip, 0 fail**, 143 files, 2 snapshots |
+| TUI | `bun typecheck` | Passed |
+| Broader browser data | `bun test --conditions=browser test/solid-data.test.ts` | **22 pass, 2 fail**, unchanged known baseline assertions |
+
+The broader-browser failures remain `preserves assistant content replacement
+events across an active message read` and `projects background user shell metadata
+from durable shell data`. They are the previously confirmed Solid-proxy assertion
+pair, not a green suite or new failures of these corrections. Existing TUI
+event-only fixtures also log handled refresh errors for missing fixture endpoints;
+they are not declared Session absence and were not hidden by the new error policy.
+
+Prettier checks passed for the three changed runtime/test files. VCS confirms no
+changes to Core, Protocol, Server, Schema, SharedEvents, generated clients, or TUI
+production. No generation was needed. Local-link verification is recorded below.
+The link check passed: **75 local Markdown destinations across three documents**
+(this report, its predecessor, and the index).
+
+| Commit | Scope |
+| --- | --- |
+| `9255cb57` | Pin review3 baseline and the three authorized seams |
+| `dcdfac6b` | Declared Session absence terminates automatic repair, without pruning |
+| `0bd27da1` | Canonical input confirmation protects against late optimistic rollback |
+| `e497e886` | Retained model-selection point read publishes only to its live row |
+
+## Limits and handoff
+
+This is narrow closure/regression work, not another open-ended audit. No broader
+adjacent defect was pursued. The experiment stays **default off**; prior mixed
+metadata/repair CPU and foreground-latency, overload, many-observer and remaining
+movement/history race release gates are unchanged. No new performance claim is
+made from fewer missing-Session retries or the older delta-heavy benchmark.
+Parent owns the requested narrow independent closure check. No child agents,
+live elected service operation, history rewrite, squash, reset, or push was used.
+
+Correction base: `55005115`; runtime/test tip: `e497e886`. The final report/navigation
+commit follows that tip. Neither reviewer conclusions nor scratch reproductions
+were rewritten. Only minimal navigation links are added to the preceding report
+and index.
 
 ## Cross-references
 
