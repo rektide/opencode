@@ -194,6 +194,37 @@ existing message index/outbox; no delivery cache or registry was added. Overlapp
 or already-incomplete direct promotion still establishes duty, and never clears
 an outstanding one. This refinement supersedes the audit table's unconditional
 delivery row. Mutation tests **25 pass** and Client typecheck passed.
+Commit: `75210e5c`.
+
+### TUI fixture fidelity
+
+The focused integration suite initially found two footer failures and a known-input
+promotion failure. The latter motivated the production direct-delivery refinement
+above. The footer fixture emitted committed revert but still served the reverted
+suffix from its canonical endpoint, so newly required authoritative reads correctly
+rediscovered it. The fixture now removes that suffix before emitting the event.
+Both existing retained-history/deleted-history footer oracles remain unchanged.
+An intermediate fixture-only flag naming collision was corrected before the green
+rerun. No TUI runtime or adoption seam changed. The full focused suite passes.
+
+### Real HTTP/Core canonical check
+
+The existing source-direct fixture was rerun with its private HTTP listener,
+in-memory database, real Bus/Session projectors, generated controlled wrapper,
+and native SSE cancellation. Baseline failure overlap still takes **3 page GETs +
+2 boundary lookups**. A new optional `TRAILING_REPAIR=true` mode captures scan two,
+performs actual `Session.prompt({ sessionID, resume: false, delivery: "queue", ... })`,
+waits for the admit-only event, and releases the stale response. With no later
+transcript/terminal event, it takes **4 page GETs + 3 boundary lookups** and reaches
+the actual Core canonical failed assistant (empty text), retaining one pending
+input separately. Both modes exit successfully.
+
+The first trailing scratch attempt called the public Session service using the
+lower-level handle's two-argument signature; that fixture error was corrected to
+the existing object-shaped API. No Core change was necessary. Raw traces and
+commands are in [review-fixes2](/.test-agent/bus-smart/review-fixes2/README.md), notably
+[baseline](/.test-agent/bus-smart/review-fixes2/snapshot-http.log) and
+[trailing canonical repair](/.test-agent/bus-smart/review-fixes2/trailing-http-final.log).
 
 ## Cross-references
 

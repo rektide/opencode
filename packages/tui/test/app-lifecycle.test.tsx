@@ -612,6 +612,7 @@ test.each([false, true])(
       time: { created: 100, updated: 5000 },
     }
     let refresh = false
+    let committed = false
     await using setup = await createAppFixture({
       width: 100,
       height: 40,
@@ -639,7 +640,7 @@ test.each([false, true])(
             })
           return json({
             data: [
-              ...(refresh
+              ...(refresh && !committed
                 ? [
                     {
                       id: "msg_0005",
@@ -718,6 +719,7 @@ test.each([false, true])(
     expect(refreshed).toContain("4.0s \u00b7 20.0 tok/s")
     expect(refreshed).toContain("3.0s \u00b7 50.0 tok/s")
 
+    committed = true
     setup.events.emit({
       id: "evt_footer_reverted",
       created: 10000,
