@@ -361,6 +361,132 @@ async function until(check: () => boolean) {
   throw new Error("canonical mutation was not reconciled")
 }
 
+test.each(["user", "synthetic"] as const)(
+  "canonical %s input acknowledgment survives a late optimistic POST failure",
+  async (type) => {
+    const response = Promise.withResolvers<Response>()
+    let posted = false
+    let reads = 0
+    const canonical: SessionMessageInfo = {
+      id: "msg_input",
+      type,
+      text: "server-admitted payload",
+      time: { created: 2 },
+    }
+    const f = fixture((url) => {
+      if (url.pathname.endsWith("/prompt")) {
+        posted = true
+        return response.promise
+      }
+      return Response.json({ data: ++reads === 1 ? [] : [canonical], cursor: {} })
+    })
+    try {
+      await f.data.session.message.sync("ses_test")
+      const posting = f.data.session
+        .prompt({ sessionID: "ses_test", id: canonical.id, text: "local optimistic payload" })
+        .catch((error: unknown) => error)
+      await until(() => posted)
+      // The enqueue was missed. Canonical input identity/payload is authoritative,
+      // even if this POST was a conflicting retry of an earlier synthetic admission.
+      f.emit({ ...envelope, type: "session.inbox.delivered", data: { sessionID: "ses_test", inboxID: canonical.id } })
+      await until(() => reads === 2)
+      await f.data.session.message.sync("ses_test")
+      expect(f.data.session.message.list("ses_test")).toEqual([canonical])
+      expect(f.data.session.pending.list("ses_test")).toEqual([])
+      response.reject(new Error("POST response lost after server admission"))
+      expect(await posting).toHaveProperty("reason", "Transport")
+      expect(f.data.session.message.list("ses_test")).toEqual([canonical])
+      expect(f.data.session.pending.list("ses_test")).toEqual([])
+    } finally {
+      response.resolve(new Response(null, { status: 204 }))
+      f.dispose()
+    }
+  },
+)
+
+test.each(["absent", "failed", "superseded"])(
+  "%s canonical read does not acknowledge an unconfirmed optimistic input",
+  async (kind) => {
+    const response = Promise.withResolvers<Response>()
+    let posted = false
+    let reads = 0
+    const other: SessionMessageInfo = {
+      id: "msg_other",
+      type: "synthetic",
+      text: "unrelated canonical input",
+      time: { created: 2 },
+    }
+    const f = fixture((url) => {
+      if (url.pathname.endsWith("/prompt")) {
+        posted = true
+        return response.promise
+      }
+      reads++
+      if (reads === 1) return Response.json({ data: [], cursor: {} })
+      if (reads === 2 && kind === "failed") return Response.json({ message: "snapshot failed" }, { status: 503 })
+      if (reads === 2 && kind === "superseded") {
+        f.emit({
+          ...envelope,
+          type: "session.text.started",
+          data: { sessionID: "ses_test", assistantMessageID: "msg_missing", ordinal: 0 },
+        })
+        return Response.json({
+          data: [{ id: "msg_input", type: "user", text: "superseded snapshot", time: { created: 1 } }],
+          cursor: {},
+        })
+      }
+      return Response.json({ data: [other], cursor: {} })
+    })
+    try {
+      await f.data.session.message.sync("ses_test")
+      const posting = f.data.session
+        .prompt({ sessionID: "ses_test", id: "msg_input", text: "still unconfirmed" })
+        .catch((error: unknown) => error)
+      await until(() => posted)
+      f.data.session.message.invalidate("ses_test")
+      await f.data.session.message.sync("ses_test").catch(() => undefined)
+      expect(f.data.session.message.get("ses_test", "msg_input")).toHaveProperty("text", "still unconfirmed")
+      expect(f.data.session.pending.list("ses_test").map((row) => row.id)).toEqual(["msg_input"])
+      response.reject(new Error("admission failed"))
+      expect(await posting).toHaveProperty("reason", "Transport")
+      expect(f.data.session.message.get("ses_test", "msg_input")).toBeUndefined()
+      expect(f.data.session.pending.list("ses_test")).toEqual([])
+      expect(f.data.session.message.list("ses_test")).toEqual(kind === "failed" ? [] : [other])
+    } finally {
+      response.resolve(new Response(null, { status: 204 }))
+      f.dispose()
+    }
+  },
+)
+
+test("canonical input in another Session does not acknowledge this Session's optimistic retry", async () => {
+  const response = Promise.withResolvers<Response>()
+  let posted = false
+  const f = fixture((url) => {
+    if (url.pathname.endsWith("/prompt")) {
+      posted = true
+      return response.promise
+    }
+    return Response.json({ data: url.pathname.includes("/ses_other/") ? [user] : [], cursor: {} })
+  })
+  try {
+    await f.data.session.message.sync("ses_test")
+    const posting = f.data.session
+      .prompt({ sessionID: "ses_test", id: user.id, text: "unconfirmed here" })
+      .catch((error: unknown) => error)
+    await until(() => posted)
+    await f.data.session.message.sync("ses_other")
+    response.reject(new Error("conflicting Session admission failed"))
+    expect(await posting).toHaveProperty("reason", "Transport")
+    expect(f.data.session.message.list("ses_test")).toEqual([])
+    expect(f.data.session.pending.list("ses_test")).toEqual([])
+    expect(f.data.session.message.list("ses_other")).toEqual([user])
+  } finally {
+    response.resolve(new Response(null, { status: 204 }))
+    f.dispose()
+  }
+})
+
 test("metadata and textless instructions neither supersede a GET nor schedule transcript work", async () => {
   const captured = Promise.withResolvers<Response>()
   let reads = 0

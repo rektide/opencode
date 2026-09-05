@@ -65,6 +65,28 @@ suites and review3's originals remain intact.
   means a missing historical anchor, not an absent Session.
 - Browser transcript suite **43 pass**, Client typecheck passed. This is the
   review3 standards regression correction; it does not reopen the broader scheduler.
+- Commit: `dcdfac6b`.
+
+### Canonical input acknowledgment cut
+
+- Promoted the missing-enqueue/observed-delivery fixture. User and synthetic
+  canonical input cases both failed before the fix: a later POST transport failure
+  removed the already-verified canonical row.
+- Only after the **whole scan** passes its existing identity/disposal/version
+  checks, canonical user/synthetic rows acknowledge outbox IDs that match a local
+  user/synthetic row **in that Session**. Nothing is acknowledged from discarded,
+  partial, failed, or absent snapshots, unrelated IDs or another Session's read.
+- Canonical payload wins over the local guess, including a synthetic first
+  admission conflicting with a later optimistic user retry. This does not add a
+  synthetic-admission API. The original POST still rejects with its transport
+  error; only its now-ineligible optimistic rollback is suppressed.
+- No pending-delivery event is invented and no pending/control mechanism changes.
+  The observed delivery already consumed pending state in the reproduction.
+  Genuinely unconfirmed rows remain optimistic after absent/failed/superseded
+  reads and are still removed from pending/transcript when their POST fails.
+- Six targeted acknowledgment tests pass. Combined browser transcript/mutation
+  suites passed before the final cross-Session negative addition (**73 pass**),
+  and Client typecheck passed. This repairs the authorized **pre-existing** seam.
 
 ## Cross-references
 

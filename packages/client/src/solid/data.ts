@@ -1674,6 +1674,13 @@ export function createData(config: CreateDataInput) {
                 } while (version === entry.version && cursor && (exhausted || (boundary !== undefined && !reached)))
                 if (version !== entry.version) continue
                 const fetched = rows.reverse()
+                // A current canonical input is positive admission evidence even
+                // if enqueue was missed and the original POST later fails.
+                fetched.forEach((item) => {
+                  if (item.type !== "user" && item.type !== "synthetic") return
+                  const local = result.session.message.get(sessionID, item.id)
+                  if (local?.type === "user" || local?.type === "synthetic") outbox.delete(item.id)
+                })
                 // Same protection as the pending sync: a re-fetch racing an
                 // admission must not wipe its local transcript row.
                 const ids = new Set(fetched.map((item) => item.id))
