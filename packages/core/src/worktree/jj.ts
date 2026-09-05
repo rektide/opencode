@@ -3,6 +3,7 @@ export * as WorktreeJj from "./jj.js"
 import { and, eq, ne, sql } from "drizzle-orm"
 import { Effect, Option, Schema } from "effect"
 import { ChildProcess } from "effect/unstable/process"
+import path from "path"
 import { Worktree } from "@opencode-ai/schema/worktree"
 import { AppProcess } from "@opencode-ai/util/process"
 import { FSUtil } from "@opencode-ai/util/fs-util"
@@ -12,7 +13,7 @@ import { AbsolutePath } from "../schema.js"
 import { Location } from "../location.js"
 import type { Strategy } from "../worktree.js"
 import { WorktreeTable } from "./sql.js"
-import { canonical } from "./directory.js"
+import { canonical, DirectoryUnavailableError } from "./directory.js"
 import { JjWorktreeTable } from "./jj.sql.js"
 
 const decodeLegacy = Schema.decodeUnknownOption(Schema.fromJsonString(Worktree.JjWorkspaceMetadata))
@@ -74,6 +75,8 @@ export const make = Effect.gen(function* () {
 
   const list = Effect.fn("Worktree.Jj.list")(function* (directory: AbsolutePath) {
     const source = yield* canonical(fs, directory)
+    if (!(yield* fs.existsSafe(path.join(source, ".jj", "repo"))))
+      return yield* new DirectoryUnavailableError({ directory: source })
     const fields = (
       yield* run("list", source, [
         "--ignore-working-copy",
