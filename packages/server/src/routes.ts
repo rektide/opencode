@@ -27,6 +27,7 @@ import { LocationServiceMap } from "@opencode/core/location-service-map"
 import { LocationActivity } from "@opencode/core/location-activity"
 import { ModelsDev } from "@opencode/core/models-dev"
 import { SessionRestart } from "@opencode/core/session/execution/restart"
+import { PluginRuntime } from "@opencode/core/plugin/runtime"
 import { PluginUpdate } from "@opencode/core/plugin/update"
 import { SdkPlugins } from "@opencode/core/plugin/sdk"
 import { WellKnown } from "@opencode/core/wellknown"
@@ -60,6 +61,7 @@ const applicationServiceNodes = [
   Session.node,
   Instance.node,
   SessionTransfer.node,
+  PluginRuntime.providerNode,
   SdkPlugins.node,
   PluginUpdate.node,
   PermissionSaved.node,
@@ -110,6 +112,9 @@ function makeRoutes<AuthError, AuthServices>(
   overrides: LayerNode.Replacements,
   instances?: InstanceNode,
 ) {
+  // Each server build owns its plugin runtime cell so embedded and standalone
+  // servers in one process never share populated-cell lifetimes.
+  const pluginRuntimeCell = PluginRuntime.makeCell()
   const standard: LayerNode.Replacements = [
     Database.node.replace(Database.configured(options.database)),
     PersistentPty.node.replace(PersistentPty.configured(options.pty)),
@@ -136,6 +141,8 @@ function makeRoutes<AuthError, AuthServices>(
         },
       }),
     ),
+    PluginRuntime.node.replace(PluginRuntime.layerWithCell(pluginRuntimeCell)),
+    PluginRuntime.providerNode.replace(PluginRuntime.providerNodeWithCell(pluginRuntimeCell)),
   ]
   const build = (overrides: LayerNode.Replacements) => {
     const replacements: LayerNode.Replacements = [
