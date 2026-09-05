@@ -226,6 +226,115 @@ commands are in [review-fixes2](/.test-agent/bus-smart/review-fixes2/README.md),
 [baseline](/.test-agent/bus-smart/review-fixes2/snapshot-http.log) and
 [trailing canonical repair](/.test-agent/bus-smart/review-fixes2/trailing-http-final.log).
 
+## Final invariants and measurable bounds
+
+1. **Duty is separate from an attempt.** `repair` is persistent on the existing
+   observed transcript entry. Starting either scan leaves it intact. A version
+   mismatch or failed HTTP result does not fulfill it. Canonical publication at
+   an unchanged captured version fulfills all duties observed through that cut;
+   a later event can mark the entry dirty/due again. No new terminal-epoch object
+   or durable replay state is introduced: the existing mutation version fences
+   the read and the boolean records whether reconciliation remains owed.
+2. **Work ownership is bounded.** A live observation identity owns at most one
+   two-scan job **or** one trailing timer, and one automatic rejection observer.
+   Automatic terminal floods only update flags/versions; they do not retain
+   additional Promise callbacks. Explicit API callers may join a job normally.
+   Revoked HTTP requests can finish, but cannot publish or schedule replacement
+   work against a new observation identity.
+3. **The original caller does not chase quiescence.** Its job settles after at
+   most two scans, even when duty remains. No timer is awaited by that promise.
+   HTTP errors reject that job while the independently scheduled duty survives.
+4. **Automatic continuation has a positive rate bound.** For one uninterrupted
+   unsuccessful episode, delays after jobs are `10, 20, 40, 80, 160, 320, 640,
+   1000, 1000, ...` milliseconds, measured from job settlement. Thus the earliest
+   automatic starts are at cumulative delays `10, 30, 70, 150, 310, 630, 1270,
+   2270, ...`, plus actual request duration. After the cap, an interval of length
+   `T` permits at most `1 + floor(T / 1000)` starts, each at most two scans. New
+   events cannot reset/backdate that schedule. The initial gaps/flood bounds are
+   measured in tests; the 1,000 ms cap follows directly from the clamped delay.
+5. **A scan is not one request.** Existing historical-boundary repair can issue
+   up to `K` point lookups for `K` retained rows and enough bounded pages to reach
+   the surviving anchor (plus an empty page to confirm exhaustion). An abandoned
+   scan checks version/identity after each awaited lookup/page. No constant total
+   byte/request bound is claimed independent of retained history or offline growth.
+6. **Success and release matter.** Success resets delay and clears duty; otherwise
+   retry continues while the observation is owned and connected. Disconnect
+   cancels the timer but keeps duty; reconnect can resume it. Creation still gates
+   GETs until its POST settles. Evict/delete/dispose cancel pending timers and
+   revoke old request identity. Explicit reads and reconnects may pull work forward,
+   so the automatic rate bound is not a bound on arbitrary external callers.
+
+After relevant durable activity quiesces, the next successful scheduled/read job
+can reconcile without another event; at the cap its remaining scheduled wait is
+at most 1,000 ms **plus** HTTP/pagination time. Indefinite HTTP failures cannot yield
+canonical success, but no longer silently erase the duty. This is eventual
+canonical read repair, not a replay of missed streaming prefixes or a transaction
+across pages. Unlimited new facts, explicit reads, or large histories do not have
+a finite lifetime request bound.
+
+## Verification and carry record
+
+Commands ran from package directories:
+
+| Scope | Verification | Result |
+| --- | --- | --- |
+| Client | `bun run test` | **229 pass, 9 skip, 0 fail**, 17 files |
+| Client browser | `bun test --conditions=browser test/solid-transcript.test.ts test/solid-transcript-mutations.test.ts test/solid-controlled-event-feed.test.ts test/solid-connection.test.ts` | **84 pass, 0 skip, 0 fail**, 4 files |
+| Client | `bun typecheck` | Passed |
+| TUI | `bun run test` | **1,311 pass, 4 skip, 0 fail**, 143 files, 2 snapshots |
+| TUI focused | policy/binding/tabs, actual app lifecycle and data suites | **129 pass, 0 fail**, 5 files |
+| TUI | `bun typecheck` | Passed |
+| Preserved review1 + review2 scratch | independently rerun from Client, browser conditions | **5 pass, 0 fail**, originals untouched |
+| Real HTTP canonical fixture | ordinary + trailing/admit-only modes | Both passed; counts above |
+| Broader Client browser data | `bun test --conditions=browser test/solid-data.test.ts` | **22 pass, 2 fail**, same known baseline Solid-proxy assertions |
+
+Prettier checks passed on all four changed runtime/test files. The report check
+verified **80 local Markdown destinations across four documents** and confirmed
+that **all 43 Core updater event types** appear in both the audit and the Client
+classifier. The VCS diff confirms no changes to Core, Protocol, Server, Schema,
+SharedEvents or generated clients.
+
+The two broader browser failures remain `preserves assistant content replacement
+events across an active message read` and `projects background user shell metadata
+from durable shell data`. They were previously confirmed on the original baseline
+and are **not** claimed green here. TUI event-only fixtures without transcript HTTP
+endpoints log handled refresh errors; the new persistent duty retries them at the
+documented backoff while their roots remain alive. Tests still pass and teardown
+releases timers. Those logs are not successful authoritative reads.
+
+| Commit | Cohesive change |
+| --- | --- |
+| `322e7d52` | Pre-edit canonical event audit and obligation design |
+| `7f170abc` | Preserve duty through discarded scans and HTTP failure; trailing backoff |
+| `a572c653` | Exhaustive audited classifier, Skill/population repair and omitted direct fields |
+| `d06d098e` | Bound automatic Promise observers during held reads |
+| `75210e5c` | Keep known durable input delivery direct; unknown/optimistic delivery repairs |
+| `958b7a1c` | Make the existing TUI fixture serve actual post-revert canonical state |
+
+Runtime correction footprint is **one Client module**. The only extra per-entry
+state is a timer handle and capped next delay; existing `repair` and `version`
+retain their ownership roles. TUI production/adoption is unchanged (one fixture
+adjustment). Core, Protocol, Schema, Server/index, generated clients and SharedEvents
+are unchanged; no regeneration is needed. No registry, general framework, service
+watcher, reverse index, or replay implementation was added. Future durable event
+additions must pass the compiler's exhaustiveness guard and update this audit's
+test categories; that is an explicit, localized upstream carry responsibility.
+
+### Limits and handoff
+
+No new CPU benefit is claimed. Persistent obligations, formerly missing reads,
+and canonical point/page lookups have real cost. The prior delta-heavy benchmark
+does not measure that cost; representative mixed metadata/notification/repair
+CPU, many-observer overload and foreground-latency testing remain release gates.
+The earlier broader tool/reasoning/retention and real-model movement matrix remains
+incomplete. The experiment is still **off by default**. No live elected service,
+children, history rewrite, squash, reset or push was used. Parent owns the next
+independent spec recheck; these commits are a tested candidate, not acceptance.
+
+Correction base: `42ae8a07`; runtime/test tip: `958b7a1c`. The final report/navigation
+commit follows that tip. Earlier reports receive navigation links only; neither
+independent review nor either scratch reproduction suite was edited.
+
 ## Cross-references
 
 - [Spec recheck](/.design/bus-smart/code-review2-spec.gpt6a.md): two new reproductions.

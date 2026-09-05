@@ -258,6 +258,8 @@ default-off candidate, not a graduated performance/notification guarantee.
 
 ## Cross-references
 
+- [Second-review corrections](/.design/bus-smart/implementation-review-fixes2.gpt6a.md):
+  persistent repair obligations, complete mutation audit, and measured trailing-read costs.
 - [Independent-review corrections](/.design/bus-smart/implementation-review-fixes1.gpt6a.md):
   creation ownership, bounded repair jobs, retained history boundaries, reverted
   pending hydration, and centralized TUI adoption; supersedes this report's

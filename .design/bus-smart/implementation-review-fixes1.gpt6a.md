@@ -288,6 +288,9 @@ accepted or graduated experiment from this report's completed verification.
 
 ## Cross-references
 
+- [Second-review corrections](/.design/bus-smart/implementation-review-fixes2.gpt6a.md):
+  preserves unfulfilled terminal duty with bounded trailing scheduling and audits
+  every canonical mutation; supersedes this report's per-scan repair-flag claims.
 - [Standards review](/.design/bus-smart/code-review1-standards.gpt6a.md): optimistic
   creation ownership and duplicated TUI adoption sequence.
 - [Spec review](/.design/bus-smart/code-review1-spec.gpt6a.md): unbounded dirty reads,

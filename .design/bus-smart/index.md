@@ -7,6 +7,9 @@ execution report. The experiment is not graduated or verified against live-user 
 
 ## Current entry points
 
+- [Second-review corrections — Astra](/.design/bus-smart/implementation-review-fixes2.gpt6a.md)
+  — persistent terminal-repair duty, bounded trailing work, exhaustive canonical
+  mutation audit and regression verification; awaiting independent spec recheck.
 - [Independent-review corrections — Astra](/.design/bus-smart/implementation-review-fixes1.gpt6a.md)
   — four P2 repairs, one TUI adoption operation, exact read/pagination bounds,
   regression proofs and verification; awaiting reviewer recheck, still default off.
