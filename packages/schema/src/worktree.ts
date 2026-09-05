@@ -12,6 +12,7 @@ export const CreateInput = Schema.Struct({
   strategy: optional(StrategyID),
   from: optional(AbsolutePath),
   branch: optional(Schema.Trim.pipe(Schema.check(Schema.isNonEmpty()))),
+  base: optional(Schema.String),
   directory: optional(AbsolutePath).annotate({
     description:
       "Parent directory for the new worktree. Uses the location's configuration, then defaults to the server's data directory under worktree/<first six project ID characters>.",

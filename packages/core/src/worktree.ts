@@ -17,6 +17,7 @@ import { Worktree } from "@opencode-ai/schema/worktree"
 import { WorktreeTable } from "./worktree/sql.js"
 import { canonical, DirectoryUnavailableError } from "./worktree/directory.js"
 import { WorktreeGit } from "./worktree/git.js"
+import { WorktreeJj } from "./worktree/jj.js"
 import type { EffectDrizzleSqlite } from "./database/drizzle.js"
 import { ProjectTable } from "./project/sql.js"
 import { AppProcess } from "@opencode-ai/util/process"
@@ -88,10 +89,12 @@ export type Error =
 
 export interface Strategy {
   readonly id: StrategyID
+  readonly vcs?: ProjectSchema.Vcs["type"]
   readonly create: (input: {
     sourceDirectory: AbsolutePath
     directory: AbsolutePath
     branch?: string
+    base?: string
   }) => Effect.Effect<Info, unknown>
   readonly remove: (input: { directory: AbsolutePath; force: boolean }) => Effect.Effect<void, unknown>
   readonly list: (directory: AbsolutePath) => Effect.Effect<readonly ListEntry[], unknown>
@@ -139,11 +142,15 @@ const layer = Layer.effect(
       : Effect.void
 
     const gitStrategy = yield* WorktreeGit.make
+    const jjStrategy = yield* WorktreeJj.make
     const state = State.create({
       name: "worktree",
       initial: () => ({
         directory: AbsolutePath.make(path.join(global.data, "worktree", projectID.slice(0, 6))),
-        strategies: new Map<StrategyID, Strategy>([[gitStrategy.id, gitStrategy]]),
+        strategies: new Map<StrategyID, Strategy>([
+          [gitStrategy.id, gitStrategy],
+          [jjStrategy.id, jjStrategy],
+        ]),
         selected: gitStrategy.id,
       }),
       editor: (value): Editor => ({
@@ -233,7 +240,11 @@ const layer = Layer.effect(
     const create = Effect.fn("Worktree.create")(function* (input: CreateInput = {}) {
       yield* local
       const current = state.get()
-      const selected = yield* getStrategy(input.strategy ?? current.selected, current.strategies)
+      const strategy =
+        input.strategy ??
+        Array.from(current.strategies.values()).find((strategy) => strategy.vcs === location.vcs?.type)?.id ??
+        current.selected
+      const selected = yield* getStrategy(strategy, current.strategies)
       const directory = input.directory ?? current.directory
       const sourceDirectory = yield* source(input.from)
       yield* fs.makeDirectory(directory, { recursive: true }).pipe(Effect.orDie)
@@ -251,6 +262,7 @@ const layer = Layer.effect(
           directory: worktreeDirectory,
           sourceDirectory,
           branch: input.branch,
+          base: input.base,
         })
         .pipe(Effect.mapError((error) => operationError(selected.id, "create", error)))
       const result = { directory: yield* canonical(fs, created.directory) }

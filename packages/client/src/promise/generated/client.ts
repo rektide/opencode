@@ -1990,6 +1990,7 @@ export function make(options: ClientOptions) {
               strategy: input?.["strategy"],
               from: input?.["from"],
               branch: input?.["branch"],
+              base: input?.["base"],
               directory: input?.["directory"],
               name: input?.["name"],
             },

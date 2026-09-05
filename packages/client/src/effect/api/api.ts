@@ -1942,6 +1942,7 @@ export type WorktreeCreateInput = {
   readonly strategy?: Worktree.StrategyID | undefined
   readonly from?: AbsolutePath | undefined
   readonly branch?: string | undefined
+  readonly base?: string | undefined
   readonly directory?: AbsolutePath | undefined
   readonly name?: string | undefined
 }
