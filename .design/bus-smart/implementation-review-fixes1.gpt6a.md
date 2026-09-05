@@ -78,6 +78,14 @@ test outcomes are recorded below as each correction lands.
   latest repair flag; such events cannot join a completed promise and lose repair.
 - Browser-conditioned transcript suite **18 pass** and Client typecheck passed;
   commit `e3182f01`.
+- A separate settlement-overlap fixture sends `session.text.ended` during each
+  of the two initial scans, then holds the re-armed job's first response. The
+  original sync resolves while that later response is still held. A final failure
+  during the held response repairs canonically with no later event. This fails
+  against pre-budget `1f5b413e` (loaded in memory, production untouched) and passes
+  against the correction, directly distinguishing an event-rearmed job from an
+  original promise that spins until quiescence. The constant is **per job**, not
+  an assertion that continuous new terminal events have zero or constant cost.
 
 ### Spec P2: retained historical boundary
 

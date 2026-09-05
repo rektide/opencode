@@ -522,6 +522,36 @@ test("viewed metadata overlapping every GET does not drive transcript repair", a
     f.dispose()
   }
 })
+
+test("new terminal mutations coalesce without extending the original sync until quiescence", async () => {
+  const late = Promise.withResolvers<Response>()
+  let reads = 0
+  const canonical = assistant("", 3)
+  const f = fixture(() => {
+    reads++
+    if (reads === 2 || reads === 3) f.emit(ended)
+    if (reads === 4) return late.promise
+    return Response.json({ data: [reads === 5 ? canonical : assistant("captured")], cursor: {} })
+  })
+  try {
+    await f.data.session.message.sync("ses_test")
+    f.data.session.message.invalidate("ses_test")
+    const reading = f.data.session.message.sync("ses_test")
+    await until(() => reads === 4)
+    // The separately re-armed terminal job is held; the original two-scan job
+    // must settle anyway, rather than append another attempt to its promise.
+    expect(await Promise.race([reading.then(() => true), Bun.sleep(25).then(() => false)])).toBe(true)
+    expect(f.data.session.message.list("ses_test")).not.toEqual([assistant("captured")])
+    f.emit(failed)
+    late.resolve(Response.json({ data: [assistant("stale")], cursor: {} }))
+    await until(() => reads === 5)
+    await Bun.sleep(0)
+    expect(f.data.session.message.list("ses_test")).toEqual([canonical])
+  } finally {
+    late.resolve(Response.json({ data: [], cursor: {} }))
+    f.dispose()
+  }
+})
 ;(isServer ? test.skip : test)(
   "a terminal event between snapshot publication and promise cleanup still repairs",
   async () => {
