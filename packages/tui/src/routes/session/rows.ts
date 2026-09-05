@@ -101,7 +101,7 @@ export function createSessionRows(sessionID: Accessor<string>, onSynced?: (sessi
         .flush(adoption.signal)
         .then(() => {
           if (stale || sessionID() !== id) return
-          data.session.message.invalidate(id)
+          if (client.interest.mode() === "controlled") data.session.message.invalidate(id)
           return data.session.message.sync(id)
         })
         .then(

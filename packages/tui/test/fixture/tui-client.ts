@@ -23,18 +23,25 @@ export function createEventStream() {
     controllers: Set<ReadableStreamDefaultController<Uint8Array>>,
     queued: Uint8Array[],
     initial?: unknown,
+    signal?: AbortSignal,
   ) => {
     let current: ReadableStreamDefaultController<Uint8Array> | undefined
+    const cancel = () => {
+      if (current && controllers.delete(current)) current.close()
+      signal?.removeEventListener("abort", cancel)
+    }
     return new Response(
       new ReadableStream<Uint8Array>({
         start(controller) {
           current = controller
           controllers.add(controller)
+          signal?.addEventListener("abort", cancel, { once: true })
           if (initial) controller.enqueue(encoder.encode(`data: ${JSON.stringify(initial)}\n\n`))
           for (const chunk of queued.splice(0)) controller.enqueue(chunk)
         },
         cancel() {
           if (current) controllers.delete(current)
+          signal?.removeEventListener("abort", cancel)
         },
       }),
       { headers: { "content-type": "text/event-stream" } },
@@ -58,15 +65,23 @@ export function createEventStream() {
       send(v2, pending, event)
       if (controlledActive) send(controlled, controlledPending, event)
     },
-    v2() {
-      return response(v2, pending, { id: "evt_connected", type: "server.connected", data: {} })
+    v2(signal?: AbortSignal) {
+      return response(v2, pending, { id: "evt_connected", type: "server.connected", data: {} }, signal)
     },
-    controlled() {
+    controlled(signal?: AbortSignal) {
       controlledActive = false
-      return response(controlled, controlledPending, {
-        type: "event-feed.ready",
-        data: { subscriptionID: "evsub_00000000000000000000000000000001" },
-      })
+      return response(
+        controlled,
+        controlledPending,
+        {
+          type: "event-feed.ready",
+          data: {
+            subscriptionID: "evsub_00000000000000000000000000000001",
+            profiles: ["location", "session-streaming"],
+          },
+        },
+        signal,
+      )
     },
     activate() {
       if (controlledActive) return
@@ -98,7 +113,7 @@ export function createFetch(
     const overridden = await override?.(url, request)
     if (overridden) return overridden
     if (url.pathname === "/api/experimental/event") {
-      if (events && options?.controlled) return events.controlled()
+      if (events && options?.controlled) return events.controlled(request.signal)
       return new Response(null, { status: 404 })
     }
     if (
@@ -112,7 +127,7 @@ export function createFetch(
       events.activate()
       return new Response(null, { status: 204 })
     }
-    if (url.pathname === "/api/event" && events) return events.v2()
+    if (url.pathname === "/api/event" && events) return events.v2(request.signal)
 
     if (
       [

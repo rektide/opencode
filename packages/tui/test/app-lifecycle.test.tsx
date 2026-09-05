@@ -886,7 +886,12 @@ test("waits for optimistic session interest before first prompt", async () => {
   let promptRequests = 0
   await using setup = await createAppFixture({
     state: state.path,
-    config: { animations: false, tabs: { enabled: false }, keybinds: { "session.new": "f6" } },
+    config: {
+      animations: false,
+      tabs: { enabled: false },
+      keybinds: { "session.new": "f6" },
+      experimental: { session_streaming: true },
+    },
     controlled: async (interest) => {
       if (
         typeof interest !== "object" ||
@@ -945,7 +950,7 @@ test("waits for optimistic session interest before first prompt", async () => {
   const interest = await interestStarted.promise
   expect(await Promise.race([submitted.promise.then(() => true), Bun.sleep(25).then(() => false)])).toBeFalse()
   expect(promptRequests).toBe(0)
-  expect(interest).toEqual({ locations: [{ directory }], sessions: [sessionID] })
+  expect(interest).toEqual({ locations: [{ directory }], sessions: [sessionID], profile: "session-streaming" })
 
   releaseInterest.resolve()
   expect(
@@ -1642,6 +1647,7 @@ test.each([44, 100])(
     }
     const model = { id: "model", providerID: "provider" }
     const error = { type: "provider.transport" as const, message: "Provider unavailable" }
+    let interrupted = false
     await using setup = await createAppFixture({
       width,
       state: state.path,
@@ -1660,7 +1666,7 @@ test.each([44, 100])(
                 model,
                 content: [],
                 error,
-                retry: { attempt: 2, at: Date.now() + 2_500, error },
+                retry: interrupted ? undefined : { attempt: 2, at: Date.now() + 2_500, error },
                 time: { created: 1 },
               },
             ],
@@ -1707,6 +1713,7 @@ test.each([44, 100])(
     })
     await setup.waitForFrame((frame) => frame.includes("Retry due") && frame.includes("attempt 4"))
     expect(setup.captureCharFrame()).not.toContain("in -")
+    interrupted = true
     setup.events.emit({
       id: "evt_countdown_interrupted",
       created: 5,

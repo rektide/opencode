@@ -306,7 +306,7 @@ export const { use: useSessionTabs, provider: SessionTabsProvider } = createSimp
           await Promise.allSettled([
             client.interest.flush(adoption.signal).then(() => {
               if (stale || !state().tabs.some((tab) => tab.sessionID === sessionID)) return
-              data.session.message.invalidate(sessionID)
+              if (client.interest.mode() === "controlled") data.session.message.invalidate(sessionID)
               return data.session.message.sync(sessionID)
             }),
             data.session.pending.sync(sessionID),

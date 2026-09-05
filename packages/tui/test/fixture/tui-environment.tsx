@@ -8,6 +8,8 @@ import {
 import type { ParentProps } from "solid-js"
 import { LogProvider, type LogSink } from "../../src/context/log"
 import { ClipboardProvider, type ClipboardService } from "../../src/context/clipboard"
+import { ConfigProvider } from "../../src/config/index.tsx"
+import { createTuiResolvedConfig } from "./tui-runtime.ts"
 
 const clipboard: ClipboardService = {
   async read() {
@@ -38,7 +40,9 @@ export function TestTuiContexts(
       >
         <TuiTerminalEnvironmentProvider value={{ platform: "linux" }}>
           <TuiStartupProvider value={{ skipInitialLoading: false }}>
-            <ClipboardProvider value={props.clipboard ?? clipboard}>{props.children}</ClipboardProvider>
+            <ClipboardProvider value={props.clipboard ?? clipboard}>
+              <ConfigProvider config={createTuiResolvedConfig()}>{props.children}</ConfigProvider>
+            </ClipboardProvider>
           </TuiStartupProvider>
         </TuiTerminalEnvironmentProvider>
       </TuiPathsProvider>

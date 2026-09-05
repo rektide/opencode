@@ -18,6 +18,7 @@ import { createApi, createEventStream, createFetch, directory, json } from "../f
 import { TestTuiContexts } from "../fixture/tui-environment"
 import { tmpdir } from "../fixture/fixture"
 import { createTuiResolvedConfig } from "../fixture/tui-runtime"
+import { createSessionRows } from "../../src/routes/session/rows.ts"
 
 async function wait(fn: () => boolean | Promise<boolean>, timeout = 2_000, label = "condition") {
   const start = Date.now()
@@ -46,6 +47,9 @@ async function renderSessionTabs(
     experimental?: Record<string, boolean>
     preview?: boolean
     controlledInterests?: unknown[]
+    controlledGate?: Promise<void>
+    transcriptReads?: string[]
+    eventGets?: string[]
   },
 ) {
   const temporary = options?.state ? undefined : await tmpdir()
@@ -78,13 +82,18 @@ async function renderSessionTabs(
   const controlledInterests = options?.controlledInterests
   const controlled = controlledInterests
     ? {
-        controlled: (interest: unknown) => {
+        controlled: async (interest: unknown) => {
           controlledInterests.push(interest)
+          await options?.controlledGate
         },
       }
     : undefined
   const calls = createFetch(
     async (url, request) => {
+      if (url.pathname === "/api/event" || url.pathname === "/api/experimental/event")
+        options?.eventGets?.push(url.pathname)
+      const transcript = url.pathname.match(/^\/api\/session\/([^/]+)\/message$/)?.[1]
+      if (transcript) options?.transcriptReads?.push(transcript)
       if (url.pathname === "/api/location") {
         const requested = url.searchParams.get("location[directory]") ?? directory
         locations.push(requested)
@@ -162,6 +171,8 @@ async function renderSessionTabs(
     data = useData()
     storage = useStorage()
     config = useConfig()
+    if (options?.transcriptReads)
+      createSessionRows(() => (route.data.type === "session" ? route.data.sessionID : "dummy"))
     return <box />
   }
 
@@ -225,6 +236,11 @@ async function renderSessionTabs(
         draft.tabs ??= {}
         draft.tabs.enabled = enabled
       }),
+    setSessionStreaming: (enabled: boolean) =>
+      config.update((draft) => {
+        draft.experimental ??= {}
+        draft.experimental.session_streaming = enabled
+      }),
     async destroy() {
       app.renderer.destroy()
       await storage.flush()
@@ -241,18 +257,65 @@ test("declares launch and persisted tab family interests", async () => {
     persisted: ["first", "second"],
     sessionDirectories: { second: other },
     controlledInterests,
+    experimental: { session_streaming: true },
   })
 
   try {
     expect(controlledInterests[0]).toEqual({
       locations: [{ directory }],
       sessions: ["first", "second"],
+      profile: "session-streaming",
     })
     await wait(() => setup.client.interest.desired().locations.some((location) => location.directory === other))
     expect(setup.client.interest.desired()).toEqual({
       locations: [{ directory }, { directory: other }],
       sessions: ["first", "second"],
+      profile: "session-streaming",
     })
+  } finally {
+    await setup.destroy()
+  }
+})
+
+test("actual visible rows and hidden-tab transcript reads wait for focused installation", async () => {
+  const gate = Promise.withResolvers<void>()
+  const interests: unknown[] = []
+  const reads: string[] = []
+  const opening = renderSessionTabs("first", {
+    persisted: ["first", "second"],
+    controlledInterests: interests,
+    controlledGate: gate.promise,
+    transcriptReads: reads,
+    experimental: { session_streaming: true },
+  })
+  await wait(() => interests.length > 0)
+  expect(reads).toEqual([])
+  gate.resolve()
+  const setup = await opening
+  try {
+    await wait(() => reads.includes("first") && reads.includes("second"))
+    expect(interests[0]).toMatchObject({ sessions: ["first", "second"], profile: "session-streaming" })
+  } finally {
+    await setup.destroy()
+  }
+})
+
+test("experiment toggles replace only event attachments and retain the data provider", async () => {
+  const gets: string[] = []
+  const setup = await renderSessionTabs("first", { controlledInterests: [], eventGets: gets })
+  try {
+    const data = setup.data
+    const api = setup.client.api
+    expect(setup.client.interest.fallback()).toBe("disabled")
+    expect(gets).toEqual(["/api/event"])
+    await setup.setSessionStreaming(true)
+    await wait(() => setup.client.interest.mode() === "controlled")
+    expect(gets).toEqual(["/api/event", "/api/experimental/event"])
+    await setup.setSessionStreaming(false)
+    await wait(() => gets.length === 3 && setup.client.connection.status() === "connected")
+    expect(gets).toEqual(["/api/event", "/api/experimental/event", "/api/event"])
+    expect(setup.data).toBe(data)
+    expect(setup.client.api).toBe(api)
   } finally {
     await setup.destroy()
   }
