@@ -227,6 +227,8 @@ export function createData(config: CreateDataInput) {
     Object.values(store.session.info).toSorted((a, b) => b.time.updated - a.time.updated),
   )
   const messageIndex = new Map<string, Map<string, number>>()
+  // Only explicit transcript reads own repair state; metadata and foreign live rows do not.
+  const transcripts = new Map<string, { version: number; complete: boolean; pending?: Promise<void> }>()
   const sync = createSync()
   let activeUpdates: Map<string, DataSessionStatus | undefined> | undefined
 
@@ -411,6 +413,8 @@ export function createData(config: CreateDataInput) {
     // Streaming events target one assistant message and, within it, the latest part of a kind.
     // A missing target means the row was never loaded or was evicted; the event is dropped.
     editAssistant(sessionID: string, messageID: string, fn: (assistant: SessionMessageAssistant) => void) {
+      const position = messageIndex.get(sessionID)?.get(messageID)
+      if (position === undefined || store.session.message[sessionID]?.[position]?.type !== "assistant") return
       message.update(sessionID, (draft, index) => {
         const position = index.get(messageID)
         const item = position === undefined ? undefined : draft[position]
@@ -513,6 +517,7 @@ export function createData(config: CreateDataInput) {
 
   function evictSession(sessionID: string) {
     if (sessionOutbox.has(sessionID)) return
+    transcripts.delete(sessionID)
     sync.invalidate(`session.pending:${sessionID}`)
     sync.invalidate(`session.message:${sessionID}`)
     messageLoads.delete(sessionID)
@@ -535,6 +540,8 @@ export function createData(config: CreateDataInput) {
   }
 
   function removeSession(sessionID: string) {
+    transcripts.delete(sessionID)
+    messageLoads.delete(sessionID)
     activeUpdates?.set(sessionID, undefined)
     store.session.pending[sessionID]?.forEach((item) => outbox.delete(item.id))
     messageIndex.delete(sessionID)
@@ -567,6 +574,11 @@ export function createData(config: CreateDataInput) {
   function handleEvent(event: OpenCodeEvent) {
     switch (event.type) {
       case "server.connected": {
+        transcripts.forEach((entry, id) => {
+          entry.version++
+          entry.complete = false
+          refresh(() => result.session.message.sync(id))
+        })
         const updates = new Map<string, DataSessionStatus | undefined>()
         activeUpdates = updates
         refresh(() =>
@@ -810,9 +822,6 @@ export function createData(config: CreateDataInput) {
           message.editAssistant(event.data.sessionID, event.data.messageID, (assistant) => {
             assistant.content = [...event.data.content]
           })
-        if (!sync.pending(`session.message:${event.data.sessionID}`)) return
-        result.session.message.invalidate(event.data.sessionID)
-        refresh(() => result.session.message.sync(event.data.sessionID))
         return
       }
       case "session.step.started":
@@ -1547,25 +1556,55 @@ export function createData(config: CreateDataInput) {
           return position === undefined ? undefined : messages?.[position]
         },
         sync(sessionID: string) {
-          return sync.run(`session.message:${sessionID}`, async () => {
-            const response = await api().message.list({ sessionID, limit: messagePageLimit, order: "desc" })
-            const fetched = response.data.toReversed()
-            // Same protection as the pending sync: a re-fetch racing an
-            // admission must not wipe its local transcript row.
-            const ids = new Set(fetched.map((item) => item.id))
-            const admitted = new Set(
-              (store.session.pending[sessionID] ?? []).flatMap((item) =>
-                item.type === "user" || item.type === "synthetic" ? [item.id] : [],
-              ),
-            )
-            const local = (store.session.message[sessionID] ?? []).filter(
-              (item) => !ids.has(item.id) && (outbox.has(item.id) || admitted.has(item.id)),
-            )
-            const messages = local.length === 0 ? fetched : [...fetched, ...local]
-            messageIndex.set(sessionID, new Map(messages.map((message, index) => [message.id, index])))
-            setStore("session", "message", sessionID, reconcile(messages))
-            setStore("session", "messageCursor", sessionID, response.cursor.next ?? undefined)
-          })
+          const entry = transcripts.get(sessionID) ?? { version: 0, complete: false }
+          transcripts.set(sessionID, entry)
+          if (entry.pending) return entry.pending
+          if (entry.complete) return Promise.resolve()
+          // Defer once so adjacent terminal events coalesce before the authoritative GET.
+          const pending = Promise.resolve()
+            .then(async () => {
+              while (!disposed && transcripts.get(sessionID) === entry) {
+                const version = entry.version
+                const count = store.session.message[sessionID]?.length ?? 0
+                const rows: SessionMessageInfo[] = []
+                let cursor: string | undefined
+                do {
+                  const response = await api().message.list({
+                    sessionID,
+                    limit: messagePageLimit,
+                    order: "desc",
+                    ...(cursor ? { cursor } : {}),
+                  })
+                  if (disposed || transcripts.get(sessionID) !== entry) return
+                  rows.push(...response.data)
+                  cursor = response.cursor.next ?? undefined
+                } while (version === entry.version && cursor && rows.length < count)
+                if (version !== entry.version) continue
+                const fetched = rows.reverse()
+                // Same protection as the pending sync: a re-fetch racing an
+                // admission must not wipe its local transcript row.
+                const ids = new Set(fetched.map((item) => item.id))
+                const admitted = new Set(
+                  (store.session.pending[sessionID] ?? []).flatMap((item) =>
+                    item.type === "user" || item.type === "synthetic" ? [item.id] : [],
+                  ),
+                )
+                const local = (store.session.message[sessionID] ?? []).filter(
+                  (item) => !ids.has(item.id) && (outbox.has(item.id) || admitted.has(item.id)),
+                )
+                const messages = local.length === 0 ? fetched : [...fetched, ...local]
+                messageIndex.set(sessionID, new Map(messages.map((message, index) => [message.id, index])))
+                setStore("session", "message", sessionID, reconcile(messages))
+                setStore("session", "messageCursor", sessionID, cursor)
+                entry.complete = true
+                return
+              }
+            })
+            .finally(() => {
+              if (entry.pending === pending) entry.pending = undefined
+            })
+          entry.pending = pending
+          return pending
         },
         more(sessionID: string) {
           return store.session.messageCursor[sessionID] !== undefined
@@ -1601,6 +1640,8 @@ export function createData(config: CreateDataInput) {
           }
           const cursor = store.session.messageCursor[sessionID]
           if (!cursor || signal?.aborted) return
+          const observation = transcripts.get(sessionID)
+          const version = observation?.version
           setStore("session", "messageLoading", sessionID, true)
           const request = (async () => {
             const fetched: SessionMessageInfo[] = []
@@ -1614,7 +1655,13 @@ export function createData(config: CreateDataInput) {
                 },
                 { signal },
               )
-              if (signal?.aborted) return
+              if (
+                signal?.aborted ||
+                disposed ||
+                transcripts.get(sessionID) !== observation ||
+                observation?.version !== version
+              )
+                return
               fetched.push(...response.data)
               next = response.cursor.next ?? undefined
               if (!options?.all) break
@@ -1625,6 +1672,7 @@ export function createData(config: CreateDataInput) {
             const messages = [...fetched.reverse().filter((item) => !ids.has(item.id)), ...existing]
             batch(() => {
               options?.beforePublish?.()
+              if (observation) observation.version++
               messageIndex.set(sessionID, new Map(messages.map((item, position) => [item.id, position])))
               setStore("session", "message", sessionID, reconcile(messages))
               setStore("session", "messageCursor", sessionID, next)
@@ -1634,11 +1682,18 @@ export function createData(config: CreateDataInput) {
             .catch((error) => {
               if (!signal?.aborted) throw error
             })
-            .finally(() => setStore("session", "messageLoading", sessionID, false))
+            .finally(() => {
+              if (transcripts.get(sessionID) === observation) setStore("session", "messageLoading", sessionID, false)
+            })
           track(messageLoads, sessionID, request)
           await request
         },
         invalidate(sessionID: string) {
+          const entry = transcripts.get(sessionID)
+          if (entry) {
+            entry.version++
+            entry.complete = false
+          }
           sync.invalidate(`session.message:${sessionID}`)
         },
       },
@@ -1844,10 +1899,31 @@ export function createData(config: CreateDataInput) {
   createEffect(() => {
     if (config.connection?.status() === "connected") return
     sync.invalidate()
+    transcripts.forEach((entry) => {
+      entry.version++
+      entry.complete = false
+    })
   })
 
   onCleanup(
     config.event.listen(({ details }) => {
+      if ("durable" in details && details.durable && "sessionID" in details.data) {
+        const id = details.data.sessionID
+        const entry = transcripts.get(id)
+        if (entry) {
+          entry.version++
+          if (
+            details.type === "session.step.failed" ||
+            details.type === "session.compaction.failed" ||
+            details.type === "session.execution.succeeded" ||
+            details.type === "session.execution.failed" ||
+            details.type === "session.execution.interrupted"
+          ) {
+            entry.complete = false
+            refresh(() => result.session.message.sync(id))
+          }
+        }
+      }
       handleEvent(details)
     }),
   )
