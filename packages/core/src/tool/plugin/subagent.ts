@@ -39,7 +39,7 @@ export const Input = Schema.Struct({
   }),
   sessionID: Schema.optionalKey(SessionSchema.ID).annotate({
     description:
-      "Continue a specific previous subagent conversation by passing its sessionID. Calls without a sessionID start a new conversation.",
+      "Continue a specific previous subagent conversation by passing its sessionID. The session may belong to any parent, not only this session's children. Calls without a sessionID start a new conversation.",
   }),
   background: Schema.optionalKey(Schema.Boolean).annotate({
     description:
@@ -161,10 +161,8 @@ export const Plugin = {
                             new ToolFailure({ message: `Subagent session not found: ${input.sessionID}`, error }),
                         ),
                       )
-              if (existing !== undefined && existing.parentID !== context.sessionID)
-                return yield* new ToolFailure({
-                  message: `Session ${existing.id} is not a child of the current session`,
-                })
+              // Continuation accepts any session, not only direct children; the
+              // continued session keeps its own lineage rather than being adopted.
               const override = input.model === undefined ? undefined : yield* resolveModel(input.model)
               // Continuing with a different agent switches the child, mirroring create semantics
               // where an explicit model wins over the agent's configured model, which wins over the inherited one.
