@@ -97,7 +97,7 @@ export function FadeInText(props: Props) {
     <fade_in_text
       {...text}
       backdrop={local.backdrop}
-      enabled={(local.animate ?? true) && (config.animations ?? true)}
+      enabled={(local.animate ?? true) && config.animations !== false}
       sweepOffset={local.sweepOffset}
       sweepWidth={local.sweepWidth}
     />
