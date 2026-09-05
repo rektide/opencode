@@ -746,7 +746,7 @@ Recent work
       model,
     )
 
-    expect(messages.map((message) => message.role)).toEqual(["assistant", "tool"])
+    expect(messages.map((message) => message.role)).toEqual(["assistant", "tool", "tool", "tool"])
     expect(messages[0]?.content).toEqual([
       { type: "text", text: "Checking" },
       { type: "reasoning", text: "Think", providerMetadata: { provider: { signature: "sig_1" } } },
@@ -797,6 +797,42 @@ Recent work
     expect(messages[1]?.content).toEqual([
       {
         type: "tool-result",
+        id: "pending",
+        name: "read",
+        result: {
+          type: "error",
+          value: {
+            error: {
+              type: "unknown",
+              message:
+                "Tool execution was interrupted before a result was recorded. Its effects may or may not have been applied; verify state before re-running.",
+            },
+            content: [],
+          },
+        },
+      },
+    ])
+    expect(messages[2]?.content).toEqual([
+      {
+        type: "tool-result",
+        id: "running",
+        name: "read",
+        result: {
+          type: "error",
+          value: {
+            error: {
+              type: "unknown",
+              message:
+                "Tool execution was interrupted before a result was recorded. Its effects may or may not have been applied; verify state before re-running.",
+            },
+            content: [],
+          },
+        },
+      },
+    ])
+    expect(messages[3]?.content).toEqual([
+      {
+        type: "tool-result",
         id: "completed",
         name: "read",
         result: {
@@ -805,6 +841,57 @@ Recent work
             { type: "text", text: "Hello" },
             { type: "file", uri: "data:image/png;base64,aGVsbG8=", mime: "image/png", name: "hello.png" },
           ],
+        },
+      },
+    ])
+  })
+
+  test("never ships an unanswered tool call after a severed stream", () => {
+    const messages = toLLMMessages(
+      [
+        SessionMessage.Assistant.make({
+          id: id("assistant-severed"),
+          type: "assistant",
+          agent: build,
+          model: { id: Model.ID.make("model"), providerID: Provider.ID.make("provider") },
+          content: [
+            SessionMessage.AssistantTool.make({
+              type: "tool",
+              id: "call_severed",
+              name: "patch",
+              state: SessionMessage.ToolStateRunning.make({
+                status: "running",
+                input: { patchText: "*** Begin Patch" },
+                metadata: {},
+              }),
+              time: { created },
+            }),
+          ],
+          time: { created },
+        }),
+      ],
+      model,
+    )
+    // The assistant message carries the call...
+    expect(messages[0]?.content).toEqual([
+      { type: "tool-call", id: "call_severed", name: "patch", input: { patchText: "*** Begin Patch" } },
+    ])
+    // ...and a follow-up tool message answers it, so no provider can
+    // reject the request with "No tool output found for function call".
+    expect(messages[1]?.content).toEqual([
+      {
+        type: "tool-result",
+        id: "call_severed",
+        name: "patch",
+        result: {
+          type: "error",
+          value: {
+            error: {
+              type: "unknown",
+              message: expect.stringContaining("interrupted before a result was recorded"),
+            },
+            content: [],
+          },
         },
       },
     ])
