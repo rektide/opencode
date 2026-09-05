@@ -88,18 +88,17 @@ Move the metadata into our own table without ever touching `worktree`
 again. Phased, each step independently shippable:
 
 1. **Own table.** One guarded migration creates
-   `rektide_jj_worktree (id text PRIMARY KEY, metadata text)` — plain
+   `rektide_jj_worktree (id text PRIMARY KEY, metadata text NOT NULL)` — plain
    `CREATE TABLE IF NOT EXISTS` semantics via a pragma guard, idempotent by
    construction.
-2. **Backfill.** Same migration, guarded by
-   `pragma_table_info('worktree')`: if the legacy column exists,
-   `INSERT OR IGNORE INTO rektide_jj_worktree SELECT id, metadata FROM
-   worktree WHERE metadata IS NOT NULL`. Never errors on databases without
-   the column; no-ops when already backfilled.
-3. **Dual-read cutover.** Write path goes to `rektide_jj_worktree` only.
-   Read path prefers our table, falling back to the legacy column for rows
-   written by pre-cutover binaries (a row missing from our table but
-   non-NULL in the legacy column).
+2. **Empty cutover.** The migration creates the owned table and copies no
+   legacy rows. This avoids speculative metadata noise for stale or no-longer
+   discoverable worktrees.
+3. **On-demand discovery and dual-read.** Write path goes to
+   `rektide_jj_worktree` only. List-time discovery fills current workspace
+   rows. Read path prefers our table and may fall back to the legacy column
+   for an observed pre-cutover workspace, preserving its non-derivable base
+   before the normal list-time upsert.
 4. **Drop the fallback** after a settle period (a future compose, once no
    pre-cutover binary is plausible in the fleet).
 5. **Never drop the legacy column.** Dropping a column from `worktree` is
@@ -108,8 +107,9 @@ again. Phased, each step independently shippable:
    human-attended decision, not a migration.
 6. **Tests pin the three worlds**: a fresh bootstrap database, a database
    journaled with `20260902065751_*`, and one journaled with
-   `20260902185913_*` — the migration and both read paths must behave
-   identically across them.
+   `20260902185913_*`. The historical worlds retain their legacy source rows
+   and receive an empty owned table; a separate runtime test proves discovery
+   fills owned metadata on demand.
 
 Register the work in [`followups.glm53.md`](followups.glm53.md) when
 scheduled.
@@ -155,16 +155,16 @@ Even `rektide_*` migrations must assume hostile replay conditions, because
 composition regenerates timestamps and several binary generations share one
 database file:
 
-- Guard every DDL with a schema probe (`pragma_table_info`,
-  `sqlite_master`) — the statement must no-op when its effect already
-  exists.
+- Make every DDL idempotent through schema probes or native `IF NOT EXISTS`
+  semantics — the statement must no-op when its effect already exists.
 - Never infer prior state from journal ids; probe the schema.
 - Never mutate rows or tables the feature did not create.
 - Fresh databases bootstrap from `schema.up` without running migrations at
   all — a migration's only job is upgrading databases created by older
   binaries. Test against fresh, old-journal, and new-journal databases.
-- Prefer migrations whose entire content is "create my table if absent,
-  backfill my table if the legacy source still exists".
+- Prefer migrations whose entire content is "create my table if absent";
+  populate derived or discoverable state at the runtime boundary that
+  observes it.
 
 ## Cross-references
 

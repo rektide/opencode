@@ -99,11 +99,12 @@ re-check next time".
 ### 8. `worktree.metadata` migrate-away — resolved 2026-09-05
 
 The rebuild removed `metadata` from the declared core `worktree` schema and
-moved JJ state to `rektide_jj_worktree`. The guarded migration creates the
-owned table, backfills either historical migration lineage, and remains safe
-when replayed under another journal id. Runtime reads prefer the owned table
-and fall back to a late legacy-column write. The legacy column is deliberately
-left inert where it already exists. Detail:
+established `rektide_jj_worktree` as JJ-owned storage. The idempotent migration
+creates that table empty for either historical lineage and copies no metadata.
+Runtime discovery fills rows on demand, preferring owned data while retaining
+a guarded legacy read to preserve the creation base of an observed old
+workspace. The legacy column is deliberately left inert where it already
+exists. Detail:
 [`way-forward1.glm53.md`](way-forward1.glm53.md#outcome--implemented-2026-09-05)
 and [`table-ownership0.glm53max.md`](table-ownership0.glm53max.md).
 

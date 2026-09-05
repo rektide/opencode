@@ -313,7 +313,7 @@ above now map to an explicit 8-commit ladder — see
 The line is now rebuilt on `v2@origin` `21adcb4969f3`. Project copies remain,
 but their durable state no longer changes the upstream `worktree` table:
 `rektide_jj_worktree` is the sole write target, with an idempotent legacy
-backfill and dual-read settle path. The Worktree service is now
+table-creation migration and runtime-only, on-demand fill. The Worktree service is now
 Location-scoped like upstream, JJ is a built-in strategy selected through its
 `vcs: "jj"` capability tag, and discovery stays location-native. This lowers
 the carry surface materially without changing the ID-space stance in the
