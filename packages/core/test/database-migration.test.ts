@@ -36,6 +36,10 @@ const run = <A, E>(
   )
 
 const makeDb = EffectDrizzleSqlite.makeWithDefaults()
+const legacyJjMetadataMigrations = [
+  "20260902065751_jj-workspace-metadata",
+  "20260902185913_jj-workspace-metadata",
+] as const
 
 // A real in-memory SqlClient whose schema inspection signals `arrived` and then
 // waits on `gate`. Bootstrap inspects the schema as its first locked statement,
@@ -199,8 +203,8 @@ describe("DatabaseMigration", () => {
     )
   })
 
-  for (const legacy of ["20260902065751_jj-workspace-metadata", "20260902185913_jj-workspace-metadata"]) {
-    test(`backfills JJ metadata from the ${legacy} lineage without modifying worktree`, async () => {
+  legacyJjMetadataMigrations.forEach((legacy) => {
+    test(`creates empty JJ metadata storage for the ${legacy} lineage without modifying worktree`, async () => {
       await run(
         Effect.gen(function* () {
           const db = yield* makeDb
@@ -213,17 +217,13 @@ describe("DatabaseMigration", () => {
           `)
 
           yield* DatabaseMigration.applyOnly(db, [jjWorktreeMigration])
-          yield* db.run(sql`
-            UPDATE rektide_jj_worktree
-            SET metadata = '{"type":"jj_workspace","workspace":"copy","base":"preserved"}'
-            WHERE id = '/repo/copy'
-          `)
           yield* db.run(sql`DELETE FROM migration WHERE id = ${jjWorktreeMigration.id}`)
           yield* DatabaseMigration.applyOnly(db, [jjWorktreeMigration])
 
-          expect(yield* db.get(sql`SELECT id, metadata FROM rektide_jj_worktree`)).toEqual({
-            id: "/repo/copy",
-            metadata: '{"type":"jj_workspace","workspace":"copy","base":"preserved"}',
+          expect(yield* db.get(sql`SELECT count(*) AS count FROM rektide_jj_worktree`)).toEqual({ count: 0 })
+          expect(yield* db.get(sql`SELECT directory, metadata FROM worktree`)).toEqual({
+            directory: "/repo/copy",
+            metadata: '{"type":"jj_workspace","workspace":"copy","base":"abc"}',
           })
           expect((yield* db.all<{ name: string }>(sql`PRAGMA table_info(worktree)`)).map((column) => column.name)).toEqual([
             "directory",
@@ -232,7 +232,7 @@ describe("DatabaseMigration", () => {
         }),
       )
     })
-  }
+  })
 
   test("adds nullable attention state to existing sessions", async () => {
     await run(
