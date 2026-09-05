@@ -100,6 +100,24 @@ test outcomes are recorded below as each correction lands.
 - This remains a client-local repair, not a transaction across multiple HTTP
   reads. Observed mutations invalidate it; no new guarantee is made for a boundary
   concurrently deleted without its durable notification being observed.
+- Commit: `dd6fa0d9`.
+
+### Spec P2: committed-revert pending hydration
+
+- The review's promoted delayed-inbox fixture failed by restoring the reverted
+  input into both pending and transcript. Committed revert now dirties the active
+  pending read, just as inbox mutations and compaction consumption already do.
+- Exercising the supporting read loop also reproduced the same 11-GET continuation
+  problem under repeated real inbox delivery changes. A pending sync now makes at
+  most **two GETs**, discards both if superseded, and invalidates its `createSync`
+  completion key so a later explicit sync remains possible. There is no automatic
+  pending-read retry job or timer. Live inbox/revert handlers remain authoritative
+  for mutations observed during the read; stale snapshots never materialize rows.
+- The committed-revert case takes **two GETs** and leaves both collections empty.
+  The continued-mutation case takes two GETs, then a later explicit quiet sync takes
+  one. This completes the existing pending-fencing repair, not a claim that the
+  pre-existing revert race was introduced by this feature.
+- Browser-conditioned transcript suite **27 pass**; Client typecheck passed.
 
 ## Cross-references
 

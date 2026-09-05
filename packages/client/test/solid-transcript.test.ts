@@ -417,6 +417,70 @@ test.each(["evict", "delete", "delivery"])(
     }
   },
 )
+
+test("committed revert invalidates a captured pending input before it can materialize", async () => {
+  const late = Promise.withResolvers<Response>()
+  let reads = 0
+  const f = fixture(() => (++reads === 1 ? late.promise : Response.json({ data: [] })))
+  try {
+    const pending = f.data.session.pending.sync("ses_test")
+    f.emit({
+      type: "session.revert.committed",
+      id: "evt_reverted",
+      created: 5,
+      durable: { aggregateID: "ses_test", seq: 5, version: 1 },
+      data: { sessionID: "ses_test", to: "msg_002" },
+    })
+    late.resolve(
+      Response.json({
+        data: [
+          {
+            id: "msg_003",
+            sessionID: "ses_test",
+            type: "user",
+            timeCreated: 3,
+            delivery: "steer",
+            payload: { text: "reverted prompt" },
+          },
+        ],
+      }),
+    )
+    await pending
+    expect({
+      pending: f.data.session.pending.list("ses_test"),
+      messages: f.data.session.message.list("ses_test"),
+    }).toEqual({ pending: [], messages: [] })
+    expect(reads).toBe(2)
+  } finally {
+    f.dispose()
+  }
+})
+
+test("continued inbox mutation cannot turn one pending sync into an unbounded read loop", async () => {
+  let reads = 0
+  let mutate = true
+  const f = fixture(() => {
+    reads++
+    if (mutate && reads <= 10)
+      f.emit({
+        type: "session.inbox.delivery.changed",
+        id: `evt_delivery${reads}`,
+        created: reads,
+        durable: { aggregateID: "ses_test", seq: reads, version: 1 },
+        data: { sessionID: "ses_test", inboxID: "msg_003", delivery: reads % 2 === 0 ? "steer" : "queue" },
+      })
+    return Response.json({ data: [] })
+  })
+  try {
+    await f.data.session.pending.sync("ses_test")
+    expect(reads).toBe(2)
+    mutate = false
+    await f.data.session.pending.sync("ses_test")
+    expect(reads).toBe(3)
+  } finally {
+    f.dispose()
+  }
+})
 ;(isServer ? test.skip : test)("missing assistant edits do not allocate transcript state", () => {
   const f = fixture(() => {
     throw new Error("unexpected read")

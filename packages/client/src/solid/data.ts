@@ -1358,7 +1358,8 @@ export function createData(config: CreateDataInput) {
             const entry = { dirty: false }
             pendingReads.set(sessionID, entry)
             try {
-              while (!disposed && pendingReads.get(sessionID) === entry) {
+              for (let attempt = 0; attempt < 2; attempt++) {
+                if (disposed || pendingReads.get(sessionID) !== entry) return
                 entry.dirty = false
                 const pending = await api().session.inbox.list({ sessionID })
                 if (disposed || pendingReads.get(sessionID) !== entry) return
@@ -1381,6 +1382,9 @@ export function createData(config: CreateDataInput) {
                 })
                 return
               }
+              // Do not cache completion after both snapshots were superseded.
+              // Live inbox events remain applied; a later explicit sync can retry.
+              sync.invalidate(`session.pending:${sessionID}`)
             } finally {
               if (pendingReads.get(sessionID) === entry) pendingReads.delete(sessionID)
             }
@@ -1976,7 +1980,12 @@ export function createData(config: CreateDataInput) {
       if ("durable" in details && details.durable && "sessionID" in details.data) {
         const id = details.data.sessionID
         const pending = pendingReads.get(id)
-        if (pending && (details.type.startsWith("session.inbox.") || details.type === "session.compaction.started"))
+        if (
+          pending &&
+          (details.type.startsWith("session.inbox.") ||
+            details.type === "session.compaction.started" ||
+            details.type === "session.revert.committed")
+        )
           pending.dirty = true
         const entry = transcripts.get(id)
         const mutation = transcriptMutation(details)
