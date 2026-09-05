@@ -39,6 +39,14 @@ Read in this order; the lineage is causal, each plan a reaction to the last.
 | 5 | [`v2-readd2.gpt56solxh.md`](/.design/watchman/v2-readd/v2-readd2.gpt56solxh.md) | Carry-first revision: upstream substrate whole, two small upstream candidates (U1 generation-aware `onReady`, U2 Config-local invalidation), freshly re-authored exact-root backend, ownership-classified fork budget | Architecture decision — its corrected spike superseded by readd3's build-now directive |
 | 6 | [`v2-readd3.gpt56solxh.md`](/.design/watchman/v2-readd/v2-readd3.gpt56solxh.md) | **The work plan:** build now, no spike gate — W0-W10 commit graph with per-commit files, tests, and acceptance; plain `watch` exact roots, fresh clocks, no cursor/placement/`watch-project`; U1/U2 isolated at the bottom of the stack | Active — implementation follows this graph from W0 |
 | 7 | [`v2-flow0.glm53max.md`](/.design/watchman/v2-readd/v2-flow0.glm53max.md) | **Process (not a plan revision):** how scratch journals from the multi-agent build promote into their durable committed home in the carrier's `.design/watchman/v2-readd/` — triage classes, `v2-` prefixed name preservation, `log.md` build log, coordinator-owned promotion passes | Active convention — governs every file the build produces |
+| 8 | [`v2-readd6-draft0.glm53max.md`](/.design/watchman/v2-readd/v2-readd6-draft0.glm53max.md) | **Round 6 lean re-cut:** upstreamable design accepting readd5's common core but shrinking the fortress — immediate-return subscription with invalidate-on-install, generation-counter fencing, per-root attach serialization, heartbeat, pure mapping; Watchwoman concerns forked to the watchwoman-systemd repo; fortress defenses documented as non-goals with re-entry triggers | Active — implementation follows this cut in the carrier worktree atop W1; commit sequencing deferred to a post-build pass |
+
+**Lineage continues in the carrier.** `v2-readd4`, `v2-readd4-dirty`, and
+`v2-readd4-prompt0` were authored here but belong to the build era; the
+2026-09-05 promotion pass moved them (and the agent journals) to
+[`~/src/opencode-watchman-v2-readd/.design/watchman/v2-readd/`](file:///home/rektide/src/opencode-watchman-v2-readd/.design/watchman/v2-readd/README.md).
+This directory remains the frozen planning-era record: conflict map through
+readd3.
 
 The deciding thread across all five: both sides independently built the
 generic half (desired-state reconcile, readiness, recreation survival); the
