@@ -19,6 +19,11 @@ describe("Worktree.CreateInput", () => {
       input,
     )
   })
+
+  test("preserves an explicit Jujutsu base and omits an absent base", () => {
+    expect(Schema.encodeSync(Worktree.CreateInput)({ base: "@-" })).toEqual({ base: "@-" })
+    expect(Schema.encodeSync(Worktree.CreateInput)({ base: undefined })).toEqual({})
+  })
 })
 
 test("worktree mutation inputs do not require a project or explicit creation defaults", () => {
@@ -40,4 +45,23 @@ test("strategy failures can request force confirmation without Core or Git depen
   expect(
     Schema.encodeSync(Worktree.OperationError)(new Worktree.OperationError({ message: "Failed" })),
   ).not.toHaveProperty("forceRequired")
+})
+
+test("discovery entries preserve Jujutsu metadata without encoding absent fields", () => {
+  const entry = {
+    directory: "/repo/copy",
+    type: "worktree" as const,
+    metadata: {
+      type: "jj_workspace" as const,
+      workspace: "copy",
+      base: "abc",
+      changeID: undefined,
+      commitID: undefined,
+    },
+  }
+  expect(Schema.encodeSync(Worktree.ListEntry)(entry)).toEqual({
+    directory: "/repo/copy",
+    type: "worktree",
+    metadata: { type: "jj_workspace", workspace: "copy", base: "abc" },
+  })
 })

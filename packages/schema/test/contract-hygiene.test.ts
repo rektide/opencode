@@ -182,8 +182,13 @@ describe("contract hygiene", () => {
       Model.Capabilities,
       Model.Cost,
       Model.Variant,
+      Project.Vcs,
       Project.Current,
       Worktree.Directory,
+      Worktree.GitWorktreeMetadata,
+      Worktree.JjWorkspaceMetadata,
+      Worktree.Metadata,
+      Worktree.ListEntry,
       Worktree.List,
       Project.Icon,
       Project.Commands,
@@ -204,6 +209,7 @@ describe("contract hygiene", () => {
       SessionInbox.Move,
       SessionInbox.Info,
       Vcs.Branch,
+      Vcs.WorkingCopy,
       Vcs.Info,
     ].map((schema) => schema.ast.annotations?.identifier)
 
