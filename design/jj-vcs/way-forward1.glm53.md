@@ -68,7 +68,7 @@ dependency:
   metadata into `rektide_jj_worktree`, preserving a stored `base` when the
   workspace name matches (the one non-derivable field). Runs inside the
   discovery loop; a crash mid-pass heals on the next refresh. This also
-  fixes assessor 1's backfill wart by construction: a row registered by
+  fixes assessor 1's discovery-fill wart by construction: a row registered by
   `Project.persist` without metadata **acquires** metadata on first
   discovery, because the upsert keys on the strategy's own table, not on
   the worktree row's change-detection.
@@ -125,18 +125,18 @@ plugin work is already native (`plugin/vcs/jj.ts`, `ctx.vcs.transform`).
 Verify: typecheck core/schema/server; `bun test test/project.test.ts
 test/vcs-jj.test.ts` from `packages/core`.
 
-**Rung 2 — metadata migrate-away** (design change per the directive).
+**Rung 2 — metadata migrate-away** (design change per the directive, revised
+by operator decision 2026-09-05).
 `rektide_jj_worktree (id text PRIMARY KEY, metadata text NOT NULL)`, id =
 worktree directory. Declared in the drizzle schema (fresh DBs bootstrap it
-via `schema.up`) **plus** one hand-written guarded migration for legacy DBs:
-`sqlite_master` probe → `CREATE TABLE` if absent → backfill
-`INSERT OR IGNORE ... SELECT id, metadata FROM worktree WHERE metadata IS
-NOT NULL` guarded by `pragma_table_info('worktree')`. Dual-read: our table
-first, legacy column for pre-cutover rows. Never touch `worktree` again;
-never drop the legacy column. Verification: the directive's three-worlds
-matrix (fresh bootstrap; `20260902065751`-journaled;
-`20260902185913`-journaled) + a backfill-wart regression test
-(persist-registered row acquires metadata on discovery).
+via `schema.up`) **plus** one hand-written `CREATE TABLE IF NOT EXISTS`
+migration for legacy DBs. The migration creates an empty table and copies no
+rows. Dual-read remains runtime-only: our table first, legacy metadata when a
+workspace is actually observed, followed by the strategy's normal list-time
+upsert. Never touch `worktree` again; never drop the legacy column.
+Verification: the directive's three-worlds matrix (fresh bootstrap;
+`20260902065751`-journaled; `20260902185913`-journaled) proves an empty owned
+table after migration, plus a discovery regression proves on-demand fill.
 
 **Rung 3 — jj strategy as native initial-map strategy** (the refinement
 above). `feat(core): manage Jujutsu workspaces` re-derived: `worktree/jj.ts`
@@ -174,7 +174,7 @@ typecheck across core/schema/server/tui/app.
   110-test green run) modulo intentional adaptations; promote floating
   `jj-vcs-rektide`; re-carry `design/jj-vcs/` docs as trailing `docs(design)`
   commits; update [`followups.glm53.md`](followups.glm53.md) (add the
-  internal-project-pass option with its triggers; resolve the backfill wart
+  internal-project-pass option with its triggers; resolve the discovery-fill wart
   row); refresh [`jj-vcs2.glm53.md`](jj-vcs2.glm53.md) stance table;
   `~/ado/patches.md` note (base `23f3f8b6ca61`, five rungs).
 
@@ -219,14 +219,14 @@ The implementation keeps the intended layering:
 5. working-copy identity, bookmarks, labels, and the existing snapshot
    hardening.
 
-The migration is deliberately replay-safe. It probes `sqlite_master` before
-creating the owned table, probes `pragma_table_info('worktree')` before
-backfill, supports both historical migration journal lineages, and uses
-`INSERT OR IGNORE` so a later replay cannot overwrite newer owned metadata.
-Fresh bootstrap declares the owned table and the upstream `worktree` shape
-without `metadata`. Existing legacy columns are neither altered nor dropped.
-Runtime reads prefer the owned row and retain a guarded legacy fallback for
-rows written by an older binary after cutover.
+The migration is deliberately empty and replay-safe: `CREATE TABLE IF NOT
+EXISTS` establishes owned storage but never inspects or copies legacy rows.
+Fresh bootstrap declares the same owned table and the upstream `worktree`
+shape without `metadata`. Existing legacy columns and values are neither
+altered nor dropped. Runtime discovery fills owned rows only for workspaces
+that are actually observed; reads prefer the owned row and retain a guarded
+legacy fallback so an observed pre-cutover workspace can preserve its stored
+creation base.
 
 `Worktree.refresh()` retains upstream's location-native algorithm. The only
 shared-file changes are built-in JJ registration, strategy `vcs`/`base`
