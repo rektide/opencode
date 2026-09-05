@@ -152,17 +152,26 @@ export const make = Effect.gen(function* () {
     remove: Effect.fn("Worktree.Jj.remove")(function* (input) {
       const directory = yield* canonical(fs, input.directory)
       const expected = yield* read(directory)
-      const candidates = yield* db
-        .select({ directory: JjWorktreeTable.id })
-        .from(JjWorktreeTable)
-        .innerJoin(WorktreeTable, eq(WorktreeTable.directory, JjWorktreeTable.id))
-        .where(and(eq(WorktreeTable.project_id, projectID), ne(JjWorktreeTable.id, directory)))
-        .all()
-        .pipe(Effect.orDie)
-      const source = (yield* Effect.filter(candidates, (item) => fs.isDir(item.directory)))[0]
+      const direct = yield* list(directory).pipe(
+        Effect.catchTags({
+          "Worktree.DirectoryUnavailableError": () => Effect.succeed([]),
+          "Worktree.OperationError": () => Effect.succeed([]),
+        }),
+      )
+      const discovered = direct.find((item) => item.directory !== directory)?.directory
+      const candidates = discovered
+        ? []
+        : yield* db
+            .select({ directory: JjWorktreeTable.id })
+            .from(JjWorktreeTable)
+            .innerJoin(WorktreeTable, eq(WorktreeTable.directory, JjWorktreeTable.id))
+            .where(and(eq(WorktreeTable.project_id, projectID), ne(JjWorktreeTable.id, directory)))
+            .all()
+            .pipe(Effect.orDie)
+      const source = discovered ?? (yield* Effect.filter(candidates, (item) => fs.isDir(item.directory)))[0]?.directory
       if (!source)
         return yield* new Worktree.OperationError({ message: "Cannot forget the only registered JJ workspace" })
-      const entries = yield* list(source.directory)
+      const entries = direct.length ? direct : yield* list(source)
       const entry = entries.find((item) => item.directory === directory)
       if (entry?.metadata?.type !== "jj_workspace") {
         if (!expected) return yield* new Worktree.OperationError({ message: "JJ workspace is not registered" })
@@ -210,7 +219,7 @@ export const make = Effect.gen(function* () {
           })
       }
 
-      yield* run("remove", source.directory, ["workspace", "forget", entry.metadata.workspace])
+      yield* run("remove", source, ["workspace", "forget", entry.metadata.workspace])
       yield* fs.remove(directory, { recursive: true, force: true }).pipe(
         Effect.mapError(
           (cause) =>
