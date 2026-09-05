@@ -32,28 +32,7 @@ const it = testEffect(
       const bus = yield* Bus.Service
       return Layer.merge(
         Layer.succeed(Fixture, input),
-        AppNodeBuilder.build(
-          LayerNode.group([Worktree.node, Git.node, FSUtil.node, Location.node, Global.node]),
-          [
-            Database.node.replace(Layer.succeed(Database.Service, database)),
-            Bus.node.replace(Layer.succeed(Bus.Service, bus)),
-            Global.node.replace(Global.layerWith({ data: input.root.path })),
-            Location.node.replace(
-              Layer.succeed(
-                Location.Service,
-                Location.Service.of({
-                  directory: input.sourceDirectory,
-                  project: {
-                    id: input.projectID,
-                    directory: input.sourceDirectory,
-                    canonical: input.sourceDirectory,
-                  },
-                  vcs: { type: "jj", store: AbsolutePath.make(path.join(input.sourceDirectory, ".jj", "repo")) },
-                }),
-              ),
-            ),
-          ],
-        ).pipe(Layer.fresh),
+        worktreeLayer(input, database, bus, input.sourceDirectory),
       )
     }),
   ).pipe(Layer.provideMerge(infrastructure)),
@@ -61,6 +40,32 @@ const it = testEffect(
 
 function abs(input: string) {
   return AbsolutePath.make(input)
+}
+
+function worktreeLayer(
+  input: { readonly root: { readonly path: string }; readonly sourceDirectory: AbsolutePath; readonly projectID: Project.ID },
+  database: Database.Interface,
+  bus: Bus.Interface,
+  directory: AbsolutePath,
+) {
+  return AppNodeBuilder.build(
+    LayerNode.group([Worktree.node, Git.node, FSUtil.node, Location.node, Global.node]),
+    [
+      Database.node.replace(Layer.succeed(Database.Service, database)),
+      Bus.node.replace(Layer.succeed(Bus.Service, bus)),
+      Global.node.replace(Global.layerWith({ data: input.root.path })),
+      Location.node.replace(
+        Layer.succeed(
+          Location.Service,
+          Location.Service.of({
+            directory,
+            project: { id: input.projectID, directory, canonical: input.sourceDirectory },
+            vcs: { type: "jj", store: AbsolutePath.make(path.join(input.sourceDirectory, ".jj", "repo")) },
+          }),
+        ),
+      ),
+    ],
+  ).pipe(Layer.fresh)
 }
 
 function makeFixture() {
@@ -76,24 +81,24 @@ function makeFixture() {
     })
     const sourceDirectory = abs(yield* Effect.promise(() => fs.realpath(root.path)))
     const projectID = Project.ID.make(`jj-worktree-${crypto.randomUUID()}`)
-    const { db } = yield* Database.Service
-    yield* db
+    const database = yield* Database.Service
+    yield* database.db
       .insert(ProjectTable)
       .values({ id: projectID, worktree: sourceDirectory, vcs: "jj", sandboxes: [], time_created: 1, time_updated: 1 })
       .run()
       .pipe(Effect.orDie)
-    yield* db
+    yield* database.db
       .insert(WorktreeTable)
       .values({ project_id: projectID, directory: sourceDirectory })
       .run()
       .pipe(Effect.orDie)
-    return { root, sourceDirectory, projectID, db }
+    return { root, sourceDirectory, projectID, db: database.db }
   })
 }
 
 function metadata(directory: AbsolutePath) {
-  return Database.Service.use(({ db }) =>
-    db
+  return Database.Service.use((database) =>
+    database.db
       .select({ metadata: JjWorktreeTable.metadata })
       .from(JjWorktreeTable)
       .where(eq(JjWorktreeTable.id, directory))
@@ -147,12 +152,11 @@ describe("Worktree (jj)", () => {
   itJj.live("rejects a base that resolves to multiple commits", () =>
     Effect.gen(function* () {
       const input = yield* Fixture
+      const worktrees = yield* Worktree.Service
       const parent = abs(`${input.root.path}-jj-ambiguous`)
       yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(parent, { recursive: true, force: true })))
 
-      const error = yield* (yield* Worktree.Service)
-        .create({ directory: parent, name: "copy", base: "all()" })
-        .pipe(Effect.flip)
+      const error = yield* worktrees.create({ directory: parent, name: "copy", base: "all()" }).pipe(Effect.flip)
 
       expect(error).toBeInstanceOf(Worktree.OperationError)
       expect(yield* Effect.promise(() => Bun.file(path.join(parent, "copy")).exists())).toBe(false)
@@ -177,9 +181,70 @@ describe("Worktree (jj)", () => {
     }),
   )
 
-  itJj.live("preserves legacy metadata written after the owned-table migration", () =>
+  itJj.live("keeps the canonical workspace unowned when refreshing from a secondary workspace", () =>
     Effect.gen(function* () {
       const input = yield* Fixture
+      const target = abs(`${input.root.path}-jj-secondary`)
+      yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(target, { recursive: true, force: true })))
+      yield* Effect.promise(() => $`jj workspace add --name secondary -r @- ${target}`.cwd(input.root.path).quiet())
+      const directory = abs(yield* Effect.promise(() => fs.realpath(target)))
+      yield* input.db.insert(WorktreeTable).values({ project_id: input.projectID, directory }).run().pipe(Effect.orDie)
+      const database = yield* Database.Service
+      const bus = yield* Bus.Service
+      const context = yield* Layer.build(worktreeLayer(input, database, bus, directory))
+      const worktrees = Context.get(context, Worktree.Service)
+
+      yield* worktrees.refresh()
+
+      expect(
+        yield* input.db
+          .select({ directory: WorktreeTable.directory, strategy: WorktreeTable.strategy })
+          .from(WorktreeTable)
+          .where(eq(WorktreeTable.project_id, input.projectID))
+          .all()
+          .pipe(Effect.orDie),
+      ).toEqual(
+        expect.arrayContaining([
+          { directory: input.sourceDirectory, strategy: null },
+          { directory, strategy: "jj_workspace" },
+        ]),
+      )
+    }),
+  )
+
+  itJj.live("keeps a separate clone root unowned when its project canonical belongs to another repository", () =>
+    Effect.gen(function* () {
+      const input = yield* Fixture
+      const target = abs(`${input.root.path}-jj-clone`)
+      yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(target, { recursive: true, force: true })))
+      yield* Effect.promise(async () => {
+        await fs.mkdir(target)
+        await $`jj git init`.cwd(target).quiet()
+      })
+      const directory = abs(yield* Effect.promise(() => fs.realpath(target)))
+      yield* input.db.insert(WorktreeTable).values({ project_id: input.projectID, directory }).run().pipe(Effect.orDie)
+      const database = yield* Database.Service
+      const bus = yield* Bus.Service
+      const context = yield* Layer.build(worktreeLayer(input, database, bus, directory))
+      const worktrees = Context.get(context, Worktree.Service)
+
+      yield* worktrees.refresh()
+
+      expect(
+        yield* input.db
+          .select({ strategy: WorktreeTable.strategy })
+          .from(WorktreeTable)
+          .where(eq(WorktreeTable.directory, directory))
+          .get()
+          .pipe(Effect.orDie),
+      ).toEqual({ strategy: null })
+    }),
+  )
+
+  itJj.live("discovers legacy metadata into owned storage on demand", () =>
+    Effect.gen(function* () {
+      const input = yield* Fixture
+      const worktrees = yield* Worktree.Service
       const target = abs(`${input.root.path}-jj-legacy`)
       yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(target, { recursive: true, force: true })))
       const base = (yield* Effect.promise(() => $`jj log --no-graph -r @- -T commit_id`.cwd(input.root.path).text())).trim()
@@ -195,10 +260,10 @@ describe("Worktree (jj)", () => {
         })}, 1)
       `)
 
-      yield* (yield* Worktree.Service).refresh()
+      yield* worktrees.refresh()
 
       expect(yield* metadata(directory)).toMatchObject({ workspace: "legacy-copy", base })
-      yield* (yield* Worktree.Service).remove({ directory, force: false })
+      yield* worktrees.remove({ directory, force: false })
     }),
   )
 })
