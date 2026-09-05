@@ -146,6 +146,30 @@ Audit completed before classifier edits; the initial audit checkpoint is `322e7d
   It performs **ten GETs total** (initial + four two-scan jobs + final success).
 - Evict/delete/dispose revoke scheduled work. HTTP-failure retention and slow-read
   joining, plus disconnect/reconnect suspension, are separately exercised.
+- Commit `7f170abc`: Client browser transcript suite **38 pass** and typecheck
+  passed. The earlier audit checkpoint remains `322e7d52`.
+
+### Audit-derived classifier and direct projection correction
+
+- The first matrix run had **12 failing cases**, including both Skill timings,
+  population/delivery/selection/placement gaps, canonical revert ordering, omitted
+  terminal fields, and running compaction metadata. Its other ten cases passed.
+- `transcriptMutation` now accepts generated `SessionEventDurable` and ends with
+  a `satisfies never` exhaustiveness check. All 43 durable members have explicit
+  categories. The unrelated durable `worktree.resolved` event is excluded at the
+  boundary; it does not change the canonical transcript.
+- Added `repair` classification only for the audited authoritative cases; their
+  already-complete observed caches now rehydrate. Existing direct settlement and
+  ordinary update distinctions stay separate from metadata. No foreign event
+  allocates an observation entry.
+- Direct mirroring adds text provider state (including clearing it), Step-end
+  snapshot files, and compaction metadata. Those cases do not incur a new HTTP
+  read when already complete; a held stale snapshot is still superseded. Tests
+  never fabricate a later content-replacement event to make completion correct.
+- Canonical assertions use direct field equality, not the known failing Solid
+  proxy `toMatchObject` assertion shape. Final mutation matrix **24 pass**;
+  combined transcript/mutation suites **62 pass**, Client typecheck passed.
+- Both preserved reviewer scratch suites independently pass: **5 pass, 0 fail**.
 
 ## Cross-references
 

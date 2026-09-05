@@ -29,6 +29,7 @@ import type {
   SessionMessageAssistantText,
   SessionMessageAssistantTool,
   SessionInfo,
+  SessionEventDurable,
   SessionInboxInfo,
   SessionInboxCompaction,
   ShellInfo,
@@ -894,7 +895,8 @@ export function createData(config: CreateDataInput) {
           assistant.providerState = event.data.providerState
           assistant.cost = event.data.cost
           assistant.tokens = event.data.tokens
-          if (event.data.snapshot) assistant.snapshot = { ...assistant.snapshot, end: event.data.snapshot }
+          if (event.data.snapshot || event.data.files)
+            assistant.snapshot = { ...assistant.snapshot, end: event.data.snapshot, files: event.data.files }
         })
         return
       }
@@ -925,6 +927,7 @@ export function createData(config: CreateDataInput) {
       case "session.text.ended":
         message.editText(event.data.sessionID, event.data.assistantMessageID, (text) => {
           text.text = event.data.text
+          text.state = event.data.state
         })
         return
       case "session.tool.input.started":
@@ -1026,6 +1029,7 @@ export function createData(config: CreateDataInput) {
           id: event.data.inputID ?? messageIDFromEvent(event.id),
           type: "compaction",
           status: "running",
+          metadata: event.metadata,
           reason: event.data.reason,
           summary: "",
           recent: event.data.recent ?? "",
@@ -1102,6 +1106,7 @@ export function createData(config: CreateDataInput) {
             id: messageIDFromEvent(event.id),
             type: "compaction",
             status: "completed",
+            metadata: event.metadata,
             reason: event.data.reason,
             model: event.data.model,
             providerState: event.data.providerState,
@@ -2012,7 +2017,12 @@ export function createData(config: CreateDataInput) {
 
   onCleanup(
     config.event.listen(({ details }) => {
-      if ("durable" in details && details.durable && "sessionID" in details.data) {
+      if (
+        "durable" in details &&
+        details.durable &&
+        details.type !== "worktree.resolved" &&
+        "sessionID" in details.data
+      ) {
         const id = details.data.sessionID
         const pending = pendingReads.get(id)
         if (
@@ -2026,14 +2036,7 @@ export function createData(config: CreateDataInput) {
         const mutation = transcriptMutation(details)
         if (entry && mutation) {
           entry.version++
-          if (
-            (mutation === "settled" && (!entry.complete || entry.pending)) ||
-            details.type === "session.step.failed" ||
-            details.type === "session.compaction.failed" ||
-            details.type === "session.execution.succeeded" ||
-            details.type === "session.execution.failed" ||
-            details.type === "session.execution.interrupted"
-          ) {
+          if (mutation === "repair" || (mutation === "settled" && (!entry.complete || entry.pending))) {
             entry.complete = false
             entry.repair = true
             refreshTranscript(id)
@@ -2051,32 +2054,36 @@ export type Data = ReturnType<typeof createData>
 
 /** Transcript dirtiness is not Session metadata freshness. Ephemeral fragments
  * are deliberately excluded by the caller's durable-event boundary. */
-function transcriptMutation(event: OpenCodeEvent) {
+function transcriptMutation(event: SessionEventDurable) {
   switch (event.type) {
+    case "session.created":
+    case "session.forked":
+    case "session.skill.activated":
     case "session.agent.selected":
-    case "session.model.selected":
     case "session.moved":
+    case "session.inbox.delivered":
+    case "session.step.failed":
+    case "session.compaction.failed":
+    case "session.execution.succeeded":
+    case "session.execution.failed":
+    case "session.execution.interrupted":
+    case "session.revert.committed":
+      return "repair"
+    case "session.model.selected":
     case "session.synthetic":
     case "session.message.content.updated":
     case "session.shell.ended":
     case "session.step.ended":
-    case "session.step.failed":
     case "session.text.ended":
     case "session.reasoning.ended":
     case "session.tool.input.ended":
     case "session.tool.success":
     case "session.tool.failed":
     case "session.compaction.ended":
-    case "session.compaction.failed":
-    case "session.execution.succeeded":
-    case "session.execution.failed":
-    case "session.execution.interrupted":
-    case "session.revert.committed":
       return "settled"
     case "session.instructions.updated":
       return event.data.text === undefined ? undefined : "settled"
     case "session.inbox.enqueued":
-    case "session.inbox.delivered":
     case "session.inbox.cancelled":
     case "session.shell.started":
     case "session.step.started":
@@ -2088,5 +2095,16 @@ function transcriptMutation(event: OpenCodeEvent) {
     case "session.compaction.started":
     case "session.retry.scheduled":
       return "update"
+    case "session.deleted": // The handler revokes observation instead of reading.
+    case "session.viewed":
+    case "session.renamed":
+    case "session.usage.recorded":
+    case "session.inbox.delivery.changed":
+    case "session.execution.started":
+    case "session.revert.staged":
+    case "session.revert.cleared":
+      return
   }
+  // New upstream durable events must be audited, not silently treated as metadata.
+  return event satisfies never
 }
