@@ -57,7 +57,7 @@ function fixture(read: (url: URL) => Response | Promise<Response>) {
   }))
 }
 
-function historyFixture(total: number, strictCursor = false) {
+function historyFixture(total: number, strictCursor = false, lazyEnd = false) {
   const row = (n: number): SessionMessageInfo => ({
     id: `msg_${String(n).padStart(4, "0")}`,
     type: "user",
@@ -85,7 +85,7 @@ function historyFixture(total: number, strictCursor = false) {
     const start = Math.max(0, before - Number(url.searchParams.get("limit") ?? 20))
     return Response.json({
       data: rows.slice(start, before).toReversed(),
-      cursor: start > 0 ? { next: String(start) } : {},
+      cursor: start > 0 || (lazyEnd && before > start) ? { next: String(start) } : {},
     })
   })
   return {
@@ -100,23 +100,26 @@ function historyFixture(total: number, strictCursor = false) {
   }
 }
 
-test("repair retains 1–40 after 20 offline additions and keeps exhausted pagination", async () => {
-  const f = historyFixture(40)
-  try {
-    await f.data.session.message.sync("ses_test")
-    await f.data.session.message.loadMore("ses_test")
-    expect(f.data.session.message.list("ses_test")).toHaveLength(40)
-    expect(f.data.session.message.more("ses_test")).toBe(false)
-    f.replace(Array.from({ length: 60 }, (_, i) => f.row(i + 1)))
-    f.data.session.message.invalidate("ses_test")
-    await f.data.session.message.sync("ses_test")
-    expect(f.data.session.message.list("ses_test").map((row) => row.id)).toEqual(f.rows().map((row) => row.id))
-    expect(f.data.session.message.more("ses_test")).toBe(false)
-    expect(f.pages).toHaveLength(5)
-  } finally {
-    f.dispose()
-  }
-})
+test.each([false, true])(
+  "repair retains 1–40 after 20 offline additions and keeps exhausted pagination (empty-page end: %s)",
+  async (lazyEnd) => {
+    const f = historyFixture(40, false, lazyEnd)
+    try {
+      await f.data.session.message.sync("ses_test")
+      await f.data.session.message.loadMore("ses_test", { all: true })
+      expect(f.data.session.message.list("ses_test")).toHaveLength(40)
+      expect(f.data.session.message.more("ses_test")).toBe(false)
+      f.replace(Array.from({ length: 60 }, (_, i) => f.row(i + 1)))
+      f.data.session.message.invalidate("ses_test")
+      await f.data.session.message.sync("ses_test")
+      expect(f.data.session.message.list("ses_test").map((row) => row.id)).toEqual(f.rows().map((row) => row.id))
+      expect(f.data.session.message.more("ses_test")).toBe(false)
+      expect(f.pages).toHaveLength(lazyEnd ? 7 : 5)
+    } finally {
+      f.dispose()
+    }
+  },
+)
 
 test.each([false, true])(
   "bounded history stops at the surviving retained boundary (deleted oldest: %s)",

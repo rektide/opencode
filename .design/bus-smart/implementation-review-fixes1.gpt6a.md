@@ -86,6 +86,7 @@ test outcomes are recorded below as each correction lands.
   against the correction, directly distinguishing an event-rearmed job from an
   original promise that spins until quiescence. The constant is **per job**, not
   an assertion that continuous new terminal events have zero or constant cost.
+- Settlement-overlap regression commit: `189e9901`.
 
 ### Spec P2: retained historical boundary
 
@@ -109,10 +110,14 @@ test outcomes are recorded below as each correction lands.
   supplies no stale anchor. Eviction/deletion and observed durable mutations retain
   the existing request-identity/version fences during both probes and page reads.
 - Deterministic costs: 40 exhausted rows + 20 additions require **three repair
-  pages** and retain 1–60; a 20-row bounded window + 20 additions requires **one
+  nonempty pages** and retain 1–60; a 20-row bounded window + 20 additions requires **one
   probe + two pages**; deleting its oldest row requires **two probes + two pages**.
   Deleting all 20 bounded rows requires **20 probes + one page**, not a scan of the
   older 980 unobserved rows. This is an explicit correctness cost, not free repair.
+- The real Server emits `next` for every nonempty page, so confirming exhaustion
+  also takes a final **empty page**. Both early-end and empty-page-end cursor
+  fixtures are covered: the latter takes **four repair GETs**, not three. Both
+  fixtures fail the old count-preservation implementation loaded from `1f5b413e`.
 - Fixtures cover exhaustion, a deleted anchor, a deleted entire retained window,
   committed revert, continued load-more, and message IDs opposite to Server order.
   Browser-conditioned transcript suite **25 pass**; Client typecheck passed.
@@ -126,6 +131,7 @@ test outcomes are recorded below as each correction lands.
   exists, and retain the same-length index-shift oracle only when the fixture
   canonically removes that pair. Footer metrics and committed revert remain
   asserted in both cases. Both targeted renderer cases pass.
+- Renderer fixture commit: `b2405f26`.
 
 ### Spec P2: committed-revert pending hydration
 
