@@ -89,16 +89,29 @@ export function createSessionRows(sessionID: Accessor<string>, onSynced?: (sessi
   createEffect(
     on([sessionID, () => client.connection.status()], ([id, status]) => {
       if (status !== "connected") return
+      let stale = false
+      const adoption = new AbortController()
+      onCleanup(() => {
+        stale = true
+        adoption.abort()
+      })
       setRows(reconcile(reduce()))
       void data.session.pending.sync(id).catch(() => undefined)
-      void data.session.message.sync(id).then(
-        () => {
-          if (sessionID() !== id) return
-          setRows(reconcile(reduce()))
-          onSynced?.(id)
-        },
-        () => undefined,
-      )
+      void client.interest
+        .flush(adoption.signal)
+        .then(() => {
+          if (stale || sessionID() !== id) return
+          data.session.message.invalidate(id)
+          return data.session.message.sync(id)
+        })
+        .then(
+          () => {
+            if (stale || sessionID() !== id) return
+            setRows(reconcile(reduce()))
+            onSynced?.(id)
+          },
+          () => undefined,
+        )
     }),
   )
 

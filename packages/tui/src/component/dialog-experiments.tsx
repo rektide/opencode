@@ -13,7 +13,14 @@ type Experiment = {
 // In-flight features anyone can opt into. Each entry is temporary: an
 // experiment either graduates (delete the entry, make the behavior
 // unconditional) or dies (delete the entry and the branch it gated).
-export const experiments: Experiment[] = []
+export const experiments: Experiment[] = [
+  {
+    id: "session_streaming",
+    title: "Session-scoped streaming",
+    description:
+      "Stream fragments only for open Session families; keep notifications server-wide. Experimental, without live-prefix replay.",
+  },
+]
 
 export function DialogExperiments() {
   const config = useConfig()

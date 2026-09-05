@@ -17,7 +17,7 @@ test("holds launch, current, and explicit Home Locations with workspace identity
       family: () => [],
       sessionLocation: () => undefined,
     }),
-  ).toEqual({ locations: [launch, current, home], sessions: [] })
+  ).toEqual({ locations: [launch, current, home], sessions: [], profile: "session-streaming" })
 })
 
 test("follows visible and open-tab families with every known member Location", () => {
@@ -38,8 +38,9 @@ test("follows visible and open-tab families with every known member Location", (
   })
 
   expect(result).toEqual({
-    locations: [launch, locations.visible, locations["visible-child"], locations.tab, locations["tab-child"]],
-    sessions: ["visible", "visible-child", "tab", "tab-child", "unknown"],
+    locations: [launch, locations["visible-child"], locations.visible, locations.tab, locations["tab-child"]],
+    sessions: ["visible-child", "visible", "tab", "tab-child", "unknown"],
+    profile: "session-streaming",
   })
 })
 
@@ -55,7 +56,7 @@ test("deduplicates shared Locations and ignores the temporary dummy route", () =
       family: () => [],
       sessionLocation: () => shared,
     }),
-  ).toEqual({ locations: [shared], sessions: ["one", "two"] })
+  ).toEqual({ locations: [shared], sessions: ["one", "two"], profile: "session-streaming" })
 })
 
 test("includes an optimistic visible Session before family metadata resolves", () => {
@@ -69,5 +70,21 @@ test("includes an optimistic visible Session before family metadata resolves", (
       family: () => [],
       sessionLocation: (sessionID) => (sessionID === "ses_optimistic" ? optimistic : undefined),
     }),
-  ).toEqual({ locations: [launch, optimistic], sessions: ["ses_optimistic"] })
+  ).toEqual({ locations: [launch, optimistic], sessions: ["ses_optimistic"], profile: "session-streaming" })
+})
+
+test("keeps the directly selected child before family indexing, plus every hidden open family", () => {
+  const result = eventInterest({
+    launch,
+    route: { type: "session", sessionID: "new-child" },
+    tabs: Array.from({ length: 12 }, (_, i) => ({ sessionID: `tab${i}` })),
+    root: (id) => (id === "new-child" ? "root" : id),
+    family: (id) => (id === "root" ? [] : [id, `${id}-child`]),
+    sessionLocation: () => undefined,
+  })
+  expect(result.sessions).toEqual([
+    "new-child",
+    "root",
+    ...Array.from({ length: 12 }, (_, i) => [`tab${i}`, `tab${i}-child`]).flat(),
+  ])
 })

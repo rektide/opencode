@@ -980,6 +980,15 @@ function App(props: { pair?: DialogPairCredentials }) {
         },
         category: "System",
       },
+      {
+        name: "event.retry",
+        title: "Reconnect event stream",
+        run: () => {
+          dialog.clear()
+          client.connection.reconnectEvents()
+        },
+        category: "System",
+      },
       ...(client.restart
         ? [
             {

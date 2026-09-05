@@ -1,6 +1,6 @@
 import type { ControlledEventInterest } from "@opencode-ai/client/solid"
 import type { LocationRef } from "@opencode-ai/client"
-import { createEffect, type ParentProps } from "solid-js"
+import { createEffect, onCleanup, type ParentProps } from "solid-js"
 import { useClient } from "./client"
 import { locationKey, useData } from "./data"
 import { useLocation } from "./location"
@@ -14,18 +14,18 @@ export function EventInterestProvider(props: ParentProps<{ launch: LocationRef }
   const location = useLocation()
   const route = useRoute()
   const tabs = useSessionTabs()
-  const update = () =>
-    client.interest.setDesired(
-      eventInterest({
-        launch: props.launch,
-        current: location.ref,
-        route: route.data,
-        tabs: tabs.enabled() ? tabs.tabs() : [],
-        root: data.session.root,
-        family: data.session.family,
-        sessionLocation: (sessionID) => data.session.get(sessionID)?.location,
-      }),
-    )
+  const readDesired = () =>
+    eventInterest({
+      launch: props.launch,
+      current: location.ref,
+      route: route.data,
+      tabs: tabs.enabled() ? tabs.tabs() : [],
+      root: data.session.root,
+      family: data.session.family,
+      sessionLocation: (sessionID) => data.session.get(sessionID)?.location,
+    })
+  onCleanup(client.interest.bind(readDesired))
+  const update = () => client.interest.setDesired(readDesired())
 
   update()
   createEffect(update)
@@ -49,7 +49,7 @@ export function eventInterest(input: {
   const follow = (sessionID: string) => {
     if (sessionID === "dummy") return
     const root = input.root(sessionID)
-    const members = new Set([root, ...input.family(root)])
+    const members = new Set([sessionID, root, ...input.family(root)])
     members.forEach((member) => {
       sessions.add(member)
       hold(input.sessionLocation(member))
@@ -61,5 +61,5 @@ export function eventInterest(input: {
   if (input.route.type === "home") hold(input.route.location)
   if (input.route.type === "session") follow(input.route.sessionID)
   input.tabs.forEach((tab) => follow(tab.sessionID))
-  return { locations: Array.from(locations.values()), sessions: Array.from(sessions) }
+  return { locations: Array.from(locations.values()), sessions: Array.from(sessions), profile: "session-streaming" }
 }

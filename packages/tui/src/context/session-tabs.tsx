@@ -281,6 +281,7 @@ export const { use: useSessionTabs, provider: SessionTabsProvider } = createSimp
       if (signature === "") return
       const sessionIDs = signature.split("\n")
       let stale = false
+      const adoption = new AbortController()
       void (async () => {
         await Promise.allSettled(sessionIDs.map((sessionID) => data.session.sync(sessionID, { children: true })))
         if (stale) return
@@ -303,7 +304,11 @@ export const { use: useSessionTabs, provider: SessionTabsProvider } = createSimp
         for (const sessionID of sessions) {
           if (stale) return
           await Promise.allSettled([
-            data.session.message.sync(sessionID),
+            client.interest.flush(adoption.signal).then(() => {
+              if (stale || !state().tabs.some((tab) => tab.sessionID === sessionID)) return
+              data.session.message.invalidate(sessionID)
+              return data.session.message.sync(sessionID)
+            }),
             data.session.pending.sync(sessionID),
             data.session.permission.sync(sessionID),
             data.session.form.sync(sessionID),
@@ -312,6 +317,7 @@ export const { use: useSessionTabs, provider: SessionTabsProvider } = createSimp
       }, TAB_PREFETCH_DELAY)
       onCleanup(() => {
         stale = true
+        adoption.abort()
         clearTimeout(timer)
       })
     })

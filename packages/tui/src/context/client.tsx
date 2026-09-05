@@ -1,7 +1,9 @@
 import type { OpenCodeClient, OpenCodeEvent } from "@opencode-ai/client"
 import { createClientConnection, createControlledEventFeed, createPersistentPtyClient } from "@opencode-ai/client/solid"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
-import { onCleanup } from "solid-js"
+import { createEffect, onCleanup } from "solid-js"
+import { createEventInterestBinding } from "./event-interest-binding.ts"
+import { useConfig } from "../config/index.tsx"
 import { createSimpleContext } from "./helper"
 import { useLog } from "./log"
 
@@ -17,11 +19,14 @@ export const { use: useClient, provider: ClientProvider } = createSimpleContext(
   init: (props: { api: OpenCodeClient; url?: string; service?: ManagedService }) => {
     const log = useLog({ component: "client" })
     const service = props.service
+    const config = useConfig()
+    const focused = () => config.data.experimental?.session_streaming === true
     const events = createGlobalEmitter<ClientEventMap>()
     let api = props.api
     let url = props.url
     let persistentPty = url ? createPersistentPtyClient(api, { url }) : undefined
-    const interest = createControlledEventFeed({ log })
+    const feed = createControlledEventFeed({ log, onDesiredChange: () => connection.wakeEvents() })
+    const interest = createEventInterestBinding(feed, focused)
 
     const connection = createClientConnection(api, {
       reconnect: service
@@ -36,8 +41,17 @@ export const { use: useClient, provider: ClientProvider } = createSimpleContext(
       onEvent(event) {
         events.emit(event.type, event)
       },
-      subscribe: interest.subscribe,
+      subscribe: (api, signal) => (focused() ? feed.subscribe(api, signal) : api.event.subscribe({ signal })),
+      retry: feed.retry,
       log,
+    })
+    let previous = focused()
+    createEffect(() => {
+      const next = focused()
+      if (next === previous) return
+      previous = next
+      interest.changed()
+      connection.reconnectEvents()
     })
 
     onCleanup(() => {

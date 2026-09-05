@@ -175,6 +175,8 @@ export function DevToolsBar() {
       reconnectAttempt: client.connection.attempt(),
       eventFeed: {
         mode: client.interest.mode(),
+        fallback: client.interest.fallback(),
+        paused: client.connection.paused(),
         desired: client.interest.desired(),
         installed: client.interest.installed(),
         error: client.interest.error(),
@@ -302,6 +304,10 @@ export function DevToolsBar() {
             <PanelTitle>Server</PanelTitle>
             <Row label="Status" value={connected() ? "Connected" : client.connection.status()} />
             <Row label="Event feed" value={client.interest.mode()} />
+            <Show when={client.interest.fallback()}>{(reason) => <Row label="Feed fallback" value={reason()} />}</Show>
+            <Show when={client.connection.paused()}>
+              <Row label="Feed retry" value="paused: change interest or retry events" />
+            </Show>
             <Row label="Desired" value={interestSize(client.interest.desired())} />
             <Row label="Installed" value={interestSize(client.interest.installed())} />
             <ProcessStat label="Events" values={frontendSamples().map((sample) => sample.eventsPerSecond)} unit="/s" />
