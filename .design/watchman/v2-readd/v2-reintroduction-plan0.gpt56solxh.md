@@ -2,7 +2,7 @@
 type: Plan
 title: Reintroducing Watchman from v2@origin
 description: A source-grounded plan to rebuild the opt-in, root-scoped Watchman directory backend on current OpenCode v2 while preserving upstream watcher, config discovery, entries-watch, and readiness behavior.
-resource: /.design/watchman/v2-reintroduction-plan0.gpt56solxh.md
+resource: /.design/watchman/v2-readd/v2-reintroduction-plan0.gpt56solxh.md
 tags: [opencode, watchman, v2, filesystem, watcher, config, reintroduction, plan]
 status: draft
 generated: { by: model:openai/gpt-5.6-sol-xhigh, at: 2026-09-05 }
@@ -15,7 +15,7 @@ sources:
     author: anomalyco/opencode contributors
     last_modified: 2026-09-05
   - id: conflict-map
-    resource: /.design/watchman/v2-conflict0.glm53h.md
+    resource: /.design/watchman/v2-readd/v2-conflict0.glm53h.md
     title: Existing three-way conflict and divergence map
     author: model:glm-5.3-high
     last_modified: 2026-09-05
@@ -89,7 +89,7 @@ branch is `43d09b9d75ad`. The upstream seam has the following shape:
   owns discovery, loading, desired watch state, readiness-triggered rereads,
   and debouncing.
 
-[`v2-conflict0`](/.design/watchman/v2-conflict0.glm53h.md) accurately maps the
+[`v2-conflict0`](/.design/watchman/v2-readd/v2-conflict0.glm53h.md) accurately maps the
 five textual conflicts and the two architectures. Its option-B framing is now
 stale in one important respect: this feature branch has already landed static
 selection, one shared initial/replacement acquisition path, bounded acquisition,
@@ -701,7 +701,7 @@ files.
 
 ## Cross-references
 
-- [`v2-conflict0.glm53h.md`](/.design/watchman/v2-conflict0.glm53h.md) is the
+- [`v2-conflict0.glm53h.md`](/.design/watchman/v2-readd/v2-conflict0.glm53h.md) is the
   three-way conflict map. This plan accepts its upstream-preservation findings
   but chooses re-authoring instead of hunk resolution.
 - [`maintenance.glm53.md`](/.design/watchman/maintenance.glm53.md) records the

@@ -2,7 +2,7 @@
 type: Design
 title: The watchman branch against v2@origin
 description: Divergence geometry since the shared base, the concrete three-way merge conflict map, the two competing watcher architectures it exposes, and the paths forward from here.
-resource: /.design/watchman/v2-conflict0.glm53h.md
+resource: /.design/watchman/v2-readd/v2-conflict0.glm53h.md
 tags: [opencode, watchman, watcher, v2, rebase, merge-conflict, config-watch, orientation]
 status: draft
 generated: { by: model:glm-5.3-high, at: 2026-09-05 }

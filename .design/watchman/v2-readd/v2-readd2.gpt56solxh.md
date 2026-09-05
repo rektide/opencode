@@ -2,7 +2,7 @@
 type: Plan
 title: Carry-first Watchman rebuild on upstream v2
 description: A revision of the v2 Watchman re-add that retains the thin-adapter and fork-audit discipline, rejects synthetic invalidation and verbatim backend carry, and separates an upstream-shaped lifecycle shim from a freshly re-authored exact-root backend.
-resource: /.design/watchman/v2-readd2.gpt56solxh.md
+resource: /.design/watchman/v2-readd/v2-readd2.gpt56solxh.md
 tags: [opencode, watchman, v2, backend, carrier, upstream, readiness, invalidation, rebuild, plan]
 status: draft
 generated: { by: model:openai/gpt-5.6-sol-xhigh, at: 2026-09-05 }
@@ -10,17 +10,17 @@ verified: { by: unassigned, at: never }
 stale_after: 2026-10-05
 sources:
   - id: position-2
-    resource: /.design/watchman/v2-readd1.glm53max.md
+    resource: /.design/watchman/v2-readd/v2-readd1.glm53max.md
     title: Position-2 thin-adapter re-add plan
     author: model:glm-5.3-max
     last_modified: 2026-09-05
   - id: source-grounded-plan
-    resource: /.design/watchman/v2-reintroduction-plan0.gpt56solxh.md
+    resource: /.design/watchman/v2-readd/v2-reintroduction-plan0.gpt56solxh.md
     title: Source-grounded v2 reintroduction plan
     author: model:openai/gpt-5.6-sol-xhigh
     last_modified: 2026-09-05
   - id: conflict-map
-    resource: /.design/watchman/v2-conflict0.glm53h.md
+    resource: /.design/watchman/v2-readd/v2-conflict0.glm53h.md
     title: Watchman branch against v2 conflict map
     author: model:glm-5.3-high
     last_modified: 2026-09-05
@@ -87,9 +87,9 @@ carryable when:
 
 | Plan | Mechanical carry | Semantic carry | Verdict |
 | --- | --- | --- | --- |
-| [`v2-readd0`](/.design/watchman/v2-readd0.glm53max.md): merge the old line | Poor: the merge permanently composes 94 historical commits and contested owner code | Mixed: it can be made correct, but old and new ownership models remain entangled | Do not use |
-| [`v2-readd1`](/.design/watchman/v2-readd1.glm53max.md): verbatim backend + unmodified substrate | Looks excellent because most files are new | Fails at its bridge: no placement input, no route for its claimed terminal loudness, and pre-acquisition publications have no attached logical subscriber | Keep its discipline, not its literal architecture |
-| [`v2-reintroduction-plan0`](/.design/watchman/v2-reintroduction-plan0.gpt56solxh.md): broad clean re-authoring | Good new-line mechanics | Strong semantics, but too many downstream-owned API changes if all land in the fork at once | Use as the correctness source; narrow its seam |
+| [`v2-readd0`](/.design/watchman/v2-readd/v2-readd0.glm53max.md): merge the old line | Poor: the merge permanently composes 94 historical commits and contested owner code | Mixed: it can be made correct, but old and new ownership models remain entangled | Do not use |
+| [`v2-readd1`](/.design/watchman/v2-readd/v2-readd1.glm53max.md): verbatim backend + unmodified substrate | Looks excellent because most files are new | Fails at its bridge: no placement input, no route for its claimed terminal loudness, and pre-acquisition publications have no attached logical subscriber | Keep its discipline, not its literal architecture |
+| [`v2-reintroduction-plan0`](/.design/watchman/v2-readd/v2-reintroduction-plan0.gpt56solxh.md): broad clean re-authoring | Good new-line mechanics | Strong semantics, but too many downstream-owned API changes if all land in the fork at once | Use as the correctness source; narrow its seam |
 | **This revision**: upstream substrate + two proposal commits + new exact-root backend | High | High for reported loss and owner convergence; root consolidation remains explicitly deferred | Recommended |
 
 The “big nice rebuild” is therefore viable. Its size belongs **behind** the
@@ -98,7 +98,7 @@ recovery—not in a forked Config planner or replacement Watcher API.
 
 ## What `v2-readd1` contributes
 
-[`v2-readd1`](/.design/watchman/v2-readd1.glm53max.md) has several ideas worth
+[`v2-readd1`](/.design/watchman/v2-readd/v2-readd1.glm53max.md) has several ideas worth
 retaining.
 
 ### Keep outright
@@ -591,15 +591,15 @@ host telemetry—advance as upstream proposals or not at all.
 
 ## Cross-references
 
-- [`v2-readd1.glm53max.md`](/.design/watchman/v2-readd1.glm53max.md) contributes
+- [`v2-readd1.glm53max.md`](/.design/watchman/v2-readd/v2-readd1.glm53max.md) contributes
   Position 2, the thin-adapter objective, spike gate, carry table, unchanged
   upstream floor, and fork-surface audit. This revision supersedes its verbatim
   carry, synthetic invalidation, cursor, metrics, ignore, and placement claims.
-- [`v2-reintroduction-plan0.gpt56solxh.md`](/.design/watchman/v2-reintroduction-plan0.gpt56solxh.md)
+- [`v2-reintroduction-plan0.gpt56solxh.md`](/.design/watchman/v2-readd/v2-reintroduction-plan0.gpt56solxh.md)
   supplies the fresh-clock controller, explicit donor disposition, Config
   indirect-consumer analysis, and deterministic scenario set. This revision
   narrows its public subscription-options/error-channel changes to U1/U2.
-- [`v2-conflict0.glm53h.md`](/.design/watchman/v2-conflict0.glm53h.md) remains
+- [`v2-conflict0.glm53h.md`](/.design/watchman/v2-readd/v2-conflict0.glm53h.md) remains
   the measured collision map. Starting clean from upstream makes its textual
   merge rules historical while retaining its semantic warnings.
 - [`review-failure-paths0.gpt56s.md`](/.design/watchman/review-failure-paths0.gpt56s.md)

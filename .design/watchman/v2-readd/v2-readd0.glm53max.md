@@ -2,7 +2,7 @@
 type: Plan
 title: Re-adding Watchman support on v2@origin
 description: The decision and execution plan for landing the watchman line onto current v2@origin — merge mechanics, per-file resolution rules, the five forced decisions with recommendations, the adaptation stack, and the verification ladder.
-resource: /.design/watchman/v2-readd0.glm53max.md
+resource: /.design/watchman/v2-readd/v2-readd0.glm53max.md
 tags: [opencode, watchman, v2, freshen, merge, plan, execution]
 status: draft
 generated: { by: model:glm-5.3-max, at: 2026-09-05 }
@@ -10,7 +10,7 @@ verified: { by: none, at: never }
 stale_after: 2026-09-19
 sources:
   - id: conflict-map
-    resource: /.design/watchman/v2-conflict0.glm53h.md
+    resource: /.design/watchman/v2-readd/v2-conflict0.glm53h.md
     title: The watchman branch against v2@origin (conflict map and paths)
     author: model:glm-5.3-high
     last_modified: 2026-09-05
@@ -40,7 +40,7 @@ sources:
 
 ## What this is for
 
-[`v2-conflict0`](/.design/watchman/v2-conflict0.glm53h.md) mapped the
+[`v2-conflict0`](/.design/watchman/v2-readd/v2-conflict0.glm53h.md) mapped the
 divergence: our 94-commit watchman line and upstream `v2` both rewrote the
 watcher seam after the shared base `43d09b9d`, five files conflict in a
 three-way merge, and three strategies (A freshen now, B finish static
@@ -351,7 +351,7 @@ front is what keeps Phase 2 mechanical:
 
 ## Cross-references
 
-- [`v2-conflict0.glm53h.md`](/.design/watchman/v2-conflict0.glm53h.md) — the
+- [`v2-conflict0.glm53h.md`](/.design/watchman/v2-readd/v2-conflict0.glm53h.md) — the
   direct predecessor and source of the conflict map, per-file rules, and the
   A/B/C framing this plan decides between. This doc implements its "A and C
   compose" lean with concrete mechanics.

@@ -2,7 +2,7 @@
 type: Plan
 title: Re-adding Watchman as a backend on the v2 substrate
 description: The Position-2 plan — start a new line off v2@origin, carry the 1,659-line Watchman backend across unchanged, write one thin adapter against upstream's subscribe contract, and get failure loudness without forking the substrate. Includes the full carry table, the commit ladder, and the spike that gates it.
-resource: /.design/watchman/v2-readd1.glm53max.md
+resource: /.design/watchman/v2-readd/v2-readd1.glm53max.md
 tags: [opencode, watchman, v2, backend, adapter, re-add, plan, execution]
 status: draft
 generated: { by: model:glm-5.3-max, at: 2026-09-05 }
@@ -10,12 +10,12 @@ verified: { by: none, at: never }
 stale_after: 2026-09-19
 sources:
   - id: prior-plan
-    resource: /.design/watchman/v2-readd0.glm53max.md
+    resource: /.design/watchman/v2-readd/v2-readd0.glm53max.md
     title: Re-adding Watchman on v2@origin (Position 1, merge-based)
     author: model:glm-5.3-max
     last_modified: 2026-09-05
   - id: conflict-map
-    resource: /.design/watchman/v2-conflict0.glm53h.md
+    resource: /.design/watchman/v2-readd/v2-conflict0.glm53h.md
     title: The watchman branch against v2@origin (conflict map)
     author: model:glm-5.3-high
     last_modified: 2026-09-05
@@ -44,7 +44,7 @@ sources:
 
 ## What this is for
 
-[`v2-readd0`](/.design/watchman/v2-readd0.glm53max.md) recommended the
+[`v2-readd0`](/.design/watchman/v2-readd/v2-readd0.glm53max.md) recommended the
 merge-based freshen (Position 1: preserve our substrate contract, pay a
 standing fork tax). The human direction is **Position 2**: re-add Watchman
 *on* upstream's substrate — a new line off `v2@origin`, ambitious in shape,
@@ -337,11 +337,11 @@ are unchanged in substance and now live entirely inside the backend.
 
 ## Cross-references
 
-- [`v2-readd0.glm53max.md`](/.design/watchman/v2-readd0.glm53max.md) — the
+- [`v2-readd0.glm53max.md`](/.design/watchman/v2-readd/v2-readd0.glm53max.md) — the
   Position-1 plan this supersedes; its pre-flight, probe recipe, and
   verification discipline are inherited; its five forced decisions are
   resolved here by adoption-instead-of-merge.
-- [`v2-conflict0.glm53h.md`](/.design/watchman/v2-conflict0.glm53h.md) —
+- [`v2-conflict0.glm53h.md`](/.design/watchman/v2-readd/v2-conflict0.glm53h.md) —
   the conflict map; Position 2 makes most of its hunk-by-hunk resolution
   moot by taking the substrate whole, which is the point.
 - [`static-selection-handoff.unknown.md`](/.design/watchman/static-selection-handoff.unknown.md)
