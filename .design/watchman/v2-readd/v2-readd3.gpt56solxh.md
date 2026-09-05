@@ -10,12 +10,12 @@ verified: { by: unassigned, at: never }
 stale_after: 2026-10-05
 sources:
   - id: carry-first-revision
-    resource: /.design/watchman/v2-readd/v2-readd2.gpt56solxh.md
+    resource: file:///home/rektide/src/opencode-watchman-old/.design/watchman/v2-readd/v2-readd2.gpt56solxh.md
     title: Carry-first Watchman rebuild on upstream v2
     author: model:openai/gpt-5.6-sol-xhigh
     last_modified: 2026-09-05
   - id: position-2
-    resource: /.design/watchman/v2-readd/v2-readd1.glm53max.md
+    resource: file:///home/rektide/src/opencode-watchman-old/.design/watchman/v2-readd/v2-readd1.glm53max.md
     title: Position-2 backend re-add plan
     author: model:glm-5.3-max
     last_modified: 2026-09-05
@@ -25,17 +25,17 @@ sources:
     author: anomalyco/opencode contributors
     last_modified: 2026-09-05
   - id: implemented-donor
-    resource: /.design/watchman/maintenance.glm53.md
+    resource: file:///home/rektide/src/opencode-watchman-old/.design/watchman/maintenance.glm53.md
     title: Implemented root-scoped Watchman backend record
     author: model:gpt-5.6-terra
     last_modified: 2026-09-04
   - id: failure-audit
-    resource: /.design/watchman/review-failure-paths0.gpt56s.md
+    resource: file:///home/rektide/src/opencode-watchman-old/.design/watchman/review-failure-paths0.gpt56s.md
     title: Watchman failure-path and deterministic-test audit
     author: model:openai/gpt-5.6-sol
     last_modified: 2026-09-01
   - id: acquisition-spec
-    resource: /.design/watchman/shared-acquisition-spec0.gpt56solxh.md
+    resource: file:///home/rektide/src/opencode-watchman-old/.design/watchman/shared-acquisition-spec0.gpt56solxh.md
     title: Shared Watchman acquisition admission and circuit
     author: model:openai/gpt-5.6-sol-xhigh
     last_modified: 2026-09-04
@@ -51,7 +51,7 @@ generation-aware and proves it in the real watcher suite; the second closes
 owner convergence; the remaining commits build the Watchman backend directly.
 
 This work plan supersedes the “corrected spike” in
-[`v2-readd2`](/.design/watchman/v2-readd/v2-readd2.gpt56solxh.md#corrected-spike), while
+[`v2-readd2`](file:///home/rektide/src/opencode-watchman-old/.design/watchman/v2-readd/v2-readd2.gpt56solxh.md#corrected-spike), while
 retaining that revision's carrier architecture:
 
 1. adopt upstream's public `subscribe(input, onReady?)` API;
@@ -68,10 +68,10 @@ retaining that revision's carrier architecture:
 The old feature branch remains a donor for behavior and tests. No implementation
 commit is cherry-picked or merged from it. This follows the user's Position-2
 direction from
-[`v2-readd1`, lines 45-84](/.design/watchman/v2-readd/v2-readd1.glm53max.md#L45-L84),
+[`v2-readd1`, lines 45-84](file:///home/rektide/src/opencode-watchman-old/.design/watchman/v2-readd/v2-readd1.glm53max.md#L45-L84),
 but rejects that plan's synthetic-update and verbatim-carry mechanisms for the
 reasons established in
-[`v2-readd2`, lines 134-182](/.design/watchman/v2-readd/v2-readd2.gpt56solxh.md#L134-L182).
+[`v2-readd2`, lines 134-182](file:///home/rektide/src/opencode-watchman-old/.design/watchman/v2-readd/v2-readd2.gpt56solxh.md#L134-L182).
 
 ## Starting point and fixed scope
 
@@ -81,7 +81,7 @@ Before implementation, refresh `v2@origin` and substitute the new exact commit
 throughout the implementation record. The watcher/config seam has not changed
 since upstream's `#46925` rewrite; the current relevant history remains the
 discovery and `entries` work listed in
-[`v2-conflict0`, lines 153-176](/.design/watchman/v2-readd/v2-conflict0.glm53h.md#L153-L176).
+[`v2-conflict0`, lines 153-176](file:///home/rektide/src/opencode-watchman-old/.design/watchman/v2-readd/v2-conflict0.glm53h.md#L153-L176).
 
 ### Product delivered
 
@@ -102,7 +102,7 @@ discovery and `entries` work listed in
 - daemon-root pruning or `watch-del`.
 
 The scope separation follows
-[`rebuild-assessment0`, lines 69-87](/.design/watchman/rebuild-assessment0.gpt56solxh.md#L69-L87):
+[`rebuild-assessment0`, lines 69-87](file:///home/rektide/src/opencode-watchman-old/.design/watchman/rebuild-assessment0.gpt56solxh.md#L69-L87):
 the reliable backend is a product in its own right, while VCS, daemon expansion,
 Profile R, and the clean assurance program are separate decisions.
 
@@ -247,7 +247,7 @@ strategy.
 
 The old line is 94 commits beyond its base and conflicts in the owner/substrate
 files mapped by
-[`v2-conflict0`, lines 99-119](/.design/watchman/v2-readd/v2-conflict0.glm53h.md#L99-L119).
+[`v2-conflict0`, lines 99-119](file:///home/rektide/src/opencode-watchman-old/.design/watchman/v2-readd/v2-conflict0.glm53h.md#L99-L119).
 Starting clean prevents those historical ownership choices from entering the
 new carrier.
 
@@ -297,7 +297,7 @@ not need unrelated edits.
 This directly fixes the pre-attachment limitation verified by the failure audit:
 publishing ordinary values during `native.subscribe` loses them because Effect
 PubSub is not replay storage
-([`review-failure-paths0`, lines 180-200](/.design/watchman/review-failure-paths0.gpt56s.md#L180-L200)).
+([`review-failure-paths0`, lines 180-200](file:///home/rektide/src/opencode-watchman-old/.design/watchman/review-failure-paths0.gpt56s.md#L180-L200)).
 
 ### Tests
 
@@ -347,7 +347,7 @@ export type Change =
 
 For each Config plan entry, `onReady` publishes the invalidation and requests
 the existing debounced reload. This implements the recorded B2 boundary
-([`vision0`, lines 888-905](/.design/watchman/vision0.gpt56s.md#L888-L905))
+([`vision0`, lines 888-905](file:///home/rektide/src/opencode-watchman-old/.design/watchman/vision0.gpt56s.md#L888-L905))
 without promoting the control item into `Watcher.Update`.
 
 Agent and Command currently apply exact path predicates immediately
@@ -412,7 +412,7 @@ Create one raw-client test actor with named controls for:
 The donor tests cover many scenarios but use several live/fixed-delay
 boundaries; the durable requirement is deterministic synchronization, as called
 out by the donor assessment
-([`rebuild-assessment0`, lines 314-329](/.design/watchman/rebuild-assessment0.gpt56solxh.md#L314-L329)).
+([`rebuild-assessment0`, lines 314-329](file:///home/rektide/src/opencode-watchman-old/.design/watchman/rebuild-assessment0.gpt56solxh.md#L314-L329)).
 Use `Deferred`, `TestClock`, and explicit command queues rather than sleeps.
 
 ### Acceptance
@@ -460,7 +460,7 @@ Plain `watch` asks the daemon to observe exactly the supplied root
 ([Watchman `watch`](https://facebook.github.io/watchman/docs/cmd/watch)).
 Although stock Watchman recommends `watch-project`, the donor's live Watchwoman
 evidence found marker climbing could select and crawl `$HOME`
-([`watchwoman0`, lines 203-232](/.design/watchman/watchwoman0.unknown.md#L203-L232)).
+([`watchwoman0`, lines 203-232](file:///home/rektide/src/opencode-watchman-old/.design/watchman/watchwoman0.unknown.md#L203-L232)).
 The carrier therefore never asks the daemon to discover a root.
 Because it subscribes at the exact watched root, it does not require the
 `relative_root` capability used by the donor's project-root routing. Do not
@@ -475,7 +475,7 @@ authoritative reread. Exact delivery begins after readiness.
 The adapter delegates `file` and `entries` to the inherited upstream Native and
 routes only `directory` to this controller. This preserves the settled
 directory/file boundary from
-[`files-too0`, lines 401-425](/.design/watchman/files-too0.glm53.md#L401-L425).
+[`files-too0`, lines 401-425](file:///home/rektide/src/opencode-watchman-old/.design/watchman/files-too0.glm53.md#L401-L425).
 
 ### Tests
 
@@ -518,7 +518,7 @@ Released is final
 
 Initial and replacement attachment call the same function. This is the key
 simplification recommended by
-[`review-simplification0`, lines 98-136](/.design/watchman/review-simplification0.gpt56s.md#L98-L136):
+[`review-simplification0`, lines 98-136](file:///home/rektide/src/opencode-watchman-old/.design/watchman/review-simplification0.gpt56s.md#L98-L136):
 acknowledgement is a delivery milestone, not a policy boundary.
 
 On socket error/end, submitted command timeout, malformed response/PDU, or
@@ -534,10 +534,10 @@ cancellation:
 8. resume exact delivery.
 
 This implements the recorded fresh-clock/cursor-deletion decision
-([`vision0`, lines 907-929](/.design/watchman/vision0.gpt56s.md#L907-L929)).
+([`vision0`, lines 907-929](file:///home/rektide/src/opencode-watchman-old/.design/watchman/vision0.gpt56s.md#L907-L929)).
 It also avoids the donor defect where every subscribe response's clock and rows
 were stripped
-([`review-failure-paths0`, lines 76-91](/.design/watchman/review-failure-paths0.gpt56s.md#L76-L91)).
+([`review-failure-paths0`, lines 76-91](file:///home/rektide/src/opencode-watchman-old/.design/watchman/review-failure-paths0.gpt56s.md#L76-L91)).
 When a replacement subscribe response contains compatible rows, process them
 after invalidation; the owner reread remains authoritative.
 
@@ -587,7 +587,7 @@ Create one acquisition coordinator when the Watchman backend layer is built and
 share it across exact-root controllers. Its one operation admits client
 construction, capability negotiation, and `watch`; callers do not manipulate
 permits or circuit state. This is the deep interface specified at
-[`shared-acquisition-spec0`, lines 67-91](/.design/watchman/shared-acquisition-spec0.gpt56solxh.md#L67-L91).
+[`shared-acquisition-spec0`, lines 67-91](file:///home/rektide/src/opencode-watchman-old/.design/watchman/shared-acquisition-spec0.gpt56solxh.md#L67-L91).
 
 Retain the proven invariants:
 
@@ -601,7 +601,7 @@ Retain the proven invariants:
 - final demand cancellation cannot cause a later probe.
 
 These rules and their stale-epoch protection are detailed at
-[`shared-acquisition-spec0`, lines 93-146](/.design/watchman/shared-acquisition-spec0.gpt56solxh.md#L93-L146).
+[`shared-acquisition-spec0`, lines 93-146](file:///home/rektide/src/opencode-watchman-old/.design/watchman/shared-acquisition-spec0.gpt56solxh.md#L93-L146).
 
 ### Tests
 
@@ -660,7 +660,7 @@ client-side filter. Watchman documents that synchronization cookies are created
 inside watched roots or VCS directories
 ([Watchman query synchronization](https://facebook.github.io/watchman/docs/cookies)).
 The donor measured three cookie pathnames causing 74 Skill refreshes
-([`cookie-clash0`, lines 59-70](/.design/watchman/cookie-clash0.gpt56s.md#L59-L70));
+([`cookie-clash0`, lines 59-70](file:///home/rektide/src/opencode-watchman-old/.design/watchman/cookie-clash0.gpt56s.md#L59-L70));
 client-only suppression would prevent owner reloads but not protocol traffic.
 
 Do not replace the Config plan's current ignore list
@@ -727,7 +727,7 @@ daemon socket absence is handled asynchronously by W5/W6.
 
 Do not expose retry timing, metrics interval/mode, or Parcel acquisition timeout
 in this carrier. The donor's broader configuration is recorded at
-[`maintenance`, lines 104-121](/.design/watchman/maintenance.glm53.md#L104-L121),
+[`maintenance`, lines 104-121](file:///home/rektide/src/opencode-watchman-old/.design/watchman/maintenance.glm53.md#L104-L121),
 but only command timeout and acquisition pressure survive the rebuild.
 
 ### Tests
@@ -780,7 +780,7 @@ For each live run retain:
 
 Do not `watch-del` a pre-existing root. The client owns subscriptions; daemon
 root retention remains daemon policy, matching the donor's settled lifecycle
-([`draft2`, lines 515-530](/.design/watchman/draft2.gpt56t.md#L515-L530)).
+([`draft2`, lines 515-530](file:///home/rektide/src/opencode-watchman-old/.design/watchman/draft2.gpt56t.md#L515-L530)).
 
 ### Acceptance
 
@@ -812,7 +812,7 @@ The audit fails on unexplained edits or any modification to
 `WatchInput` metadata, cursor state, synthetic root updates, Watchman→Parcel
 edges, `watch-project`, `watch-del`, copied owner reconciliation, or
 Watchman-specific types in U1/U2. These are the carry hazards summarized in
-[`v2-readd2`, lines 412-444](/.design/watchman/v2-readd/v2-readd2.gpt56solxh.md#L412-L444).
+[`v2-readd2`, lines 412-444](file:///home/rektide/src/opencode-watchman-old/.design/watchman/v2-readd/v2-readd2.gpt56solxh.md#L412-L444).
 
 Write user-facing documentation for selection, daemon discovery, availability
 semantics, command timeout, acquisition limit, exact-root cost, logs, and live
@@ -912,26 +912,26 @@ For every later upstream refresh:
 7. prefer upstream naming and structure over preserving downstream spelling.
 
 This operationalizes the corpus's “chase, do not pin” convention
-([`position0`, lines 39-61](/.design/watchman/position0.glm53max.md#L39-L61)):
+([`position0`, lines 39-61](file:///home/rektide/src/opencode-watchman-old/.design/watchman/position0.glm53max.md#L39-L61)):
 citations record what was read, while the implementation follows current
 upstream rather than freezing an old API.
 
 ## Cross-references
 
-- [`v2-readd2.gpt56solxh.md`](/.design/watchman/v2-readd/v2-readd2.gpt56solxh.md) is the
+- [`v2-readd2.gpt56solxh.md`](file:///home/rektide/src/opencode-watchman-old/.design/watchman/v2-readd/v2-readd2.gpt56solxh.md) is the
   architecture decision this work plan executes. This revision removes its
   spike and conditional route-selection language.
-- [`v2-readd1.glm53max.md`](/.design/watchman/v2-readd/v2-readd1.glm53max.md) contributes
+- [`v2-readd1.glm53max.md`](file:///home/rektide/src/opencode-watchman-old/.design/watchman/v2-readd/v2-readd1.glm53max.md) contributes
   Position 2, the thin adapter, upstream test floor, carry table, and fork audit;
   its verbatim/synthetic mechanism remains superseded.
-- [`review-failure-paths0.gpt56s.md`](/.design/watchman/review-failure-paths0.gpt56s.md)
+- [`review-failure-paths0.gpt56s.md`](file:///home/rektide/src/opencode-watchman-old/.design/watchman/review-failure-paths0.gpt56s.md)
   supplies the pre-attachment loss proof and deterministic failure matrix.
-- [`review-simplification0.gpt56s.md`](/.design/watchman/review-simplification0.gpt56s.md)
+- [`review-simplification0.gpt56s.md`](file:///home/rektide/src/opencode-watchman-old/.design/watchman/review-simplification0.gpt56s.md)
   supplies static selection, retry-owned availability, and one acquisition
   state machine.
-- [`shared-acquisition-spec0.gpt56solxh.md`](/.design/watchman/shared-acquisition-spec0.gpt56solxh.md)
+- [`shared-acquisition-spec0.gpt56solxh.md`](file:///home/rektide/src/opencode-watchman-old/.design/watchman/shared-acquisition-spec0.gpt56solxh.md)
   supplies the admission/circuit invariants reused in W6.
-- [`vision0.gpt56s.md`](/.design/watchman/vision0.gpt56s.md) records B2,
+- [`vision0.gpt56s.md`](file:///home/rektide/src/opencode-watchman-old/.design/watchman/vision0.gpt56s.md) records B2,
   fresh-clock recovery, cursor deletion, and metrics/knob trimming.
-- [`maintenance.glm53.md`](/.design/watchman/maintenance.glm53.md) remains the
+- [`maintenance.glm53.md`](file:///home/rektide/src/opencode-watchman-old/.design/watchman/maintenance.glm53.md) remains the
   donor behavior and operational record, not the carrier's source layout.
