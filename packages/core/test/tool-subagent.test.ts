@@ -541,7 +541,7 @@ describe("SubagentTool", () => {
     ),
   )
 
-  it.live("rejects unrelated children and switches agents on continuation", () =>
+  it.live("continues sessions from other parents and switches agents on continuation", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
       (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
@@ -586,13 +586,12 @@ describe("SubagentTool", () => {
               message: `Subagent session not found: ${missing}`,
             },
           })
-          expect(yield* call(unrelated.id, "call-unrelated-child")).toEqual({
-            status: "error",
-            error: {
-              type: "tool.execution",
-              message: `Session ${unrelated.id} is not a child of the current session`,
-            },
+          expect(yield* call(unrelated.id, "call-unrelated-child")).toMatchObject({
+            status: "completed",
+            metadata: { sessionID: unrelated.id, status: "completed" },
           })
+          // Cross-parent continuation preserves the target's own lineage.
+          expect(yield* sessions.get(unrelated.id)).toMatchObject({ parentID: otherParent.id })
           expect(yield* call(switched.id, "call-switched-child")).toMatchObject({
             status: "completed",
             metadata: { sessionID: switched.id, status: "completed" },
