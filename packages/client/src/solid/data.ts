@@ -47,6 +47,7 @@ import {
   isFormNotFoundError,
   isPermissionNotFoundError,
   isMessageNotFoundError,
+  isSessionNotFoundError,
   type SessionPromptInput,
 } from "../promise"
 import { createStore, produce, reconcile } from "solid-js/store"
@@ -1696,6 +1697,15 @@ export function createData(config: CreateDataInput) {
                 setStore("session", "messageCursor", sessionID, cursor)
                 return
               }
+            })
+            .catch((error: unknown) => {
+              if (isSessionNotFoundError(error) && transcripts.get(sessionID) === entry) {
+                // Declared absence ends this automatic episode, not the cache's
+                // lifetime. Explicit adoption/reconnect may try the ID again.
+                entry.repair = false
+                entry.delay = undefined
+              }
+              throw error
             })
             .finally(() => {
               if (entry.pending !== pending) return

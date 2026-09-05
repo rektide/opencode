@@ -45,8 +45,26 @@ rewrite, or push. The experiment stays default off.
 
 ## Execution and verification
 
-Corrections pending. Each seam will be committed independently with red/green
-package tests. Both earlier scratch suites and review3's originals remain intact.
+Each seam is committed independently with red/green package tests. Earlier scratch
+suites and review3's originals remain intact.
+
+### Declared Session absence terminates one episode
+
+- The offline-deletion fixture failed before the correction at **five failed
+  requests in 180 ms**, both for a message-list GET and a retained-boundary probe.
+- The job's rejection handler uses generated `isSessionNotFoundError`, not status
+  codes or message text. It clears `repair` and resets backoff for that observation
+  identity before the scheduler runs, then **rethrows the original error**. It
+  does not complete the cache, delete rows, prune metadata, or retain a tombstone.
+- The fixed episode makes **one failed request**. A later explicit sync is allowed
+  and may fail once again; a later reconnect likewise starts a new episode. When
+  the endpoint becomes available, another explicit sync succeeds without replacing
+  the data provider or observation. Existing user-visible rows survive absence.
+- Arbitrary JSON HTTP 404 (no declared absence tag) and a transport error mentioning
+  404 retain the normal transient backoff and recover. `MessageNotFoundError` still
+  means a missing historical anchor, not an absent Session.
+- Browser transcript suite **43 pass**, Client typecheck passed. This is the
+  review3 standards regression correction; it does not reopen the broader scheduler.
 
 ## Cross-references
 

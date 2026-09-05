@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { createMemo, createRoot, createSignal } from "solid-js"
 import { isServer } from "solid-js/web"
-import { OpenCode, type OpenCodeEvent, type SessionMessageInfo } from "../src/promise/index.ts"
+import { OpenCode, isSessionNotFoundError, type OpenCodeEvent, type SessionMessageInfo } from "../src/promise/index.ts"
 import { createData, type CreateDataInput } from "../src/solid/data.ts"
 
 const assistant = (text: string, completed?: number): SessionMessageInfo => ({
@@ -529,6 +529,93 @@ test("viewed metadata overlapping every GET does not drive transcript repair", a
     f.dispose()
   }
 })
+;(isServer ? test.skip : test).each([false, true])(
+  "offline Session deletion ends one automatic episode, but explicit reads/reconnect can retry (probe: %s)",
+  async (probe) => {
+    const [status, setStatus] = createSignal("connected")
+    const absent = { _tag: "SessionNotFoundError", sessionID: "ses_test", message: "Session no longer exists" }
+    let missing = false
+    let failures = 0
+    const errors: unknown[] = []
+    const f = fixture(
+      (url) => {
+        if (!url.pathname.includes("/message")) return Response.json({ data: [], cursor: {} })
+        if (missing) {
+          failures++
+          return Response.json(absent, { status: 404 })
+        }
+        if (!url.pathname.endsWith("/message")) return Response.json({ data: assistant("kept") })
+        return Response.json({ data: [assistant("kept")], cursor: probe ? { next: "older" } : {} })
+      },
+      {
+        connection: { status },
+        onError: (error) => {
+          errors.push(error)
+        },
+      },
+    )
+    try {
+      f.emit({ type: "server.connected", id: "evt_connected", data: {} })
+      await f.data.session.message.sync("ses_test")
+      setStatus("disconnected")
+      missing = true // Deleted while offline: no deletion event will be replayed.
+      setStatus("connected")
+      f.emit({ type: "server.connected", id: "evt_reconnected", data: {} })
+      await until(() => failures >= 1)
+      await Bun.sleep(180)
+      expect(failures).toBe(1)
+      expect(errors.filter(isSessionNotFoundError)).toHaveLength(1)
+      expect(f.data.session.message.list("ses_test")).toEqual([assistant("kept")])
+      await expect(f.data.session.message.sync("ses_test")).rejects.toEqual(absent)
+      await Bun.sleep(25)
+      expect(failures).toBe(2)
+      f.emit({ type: "server.connected", id: "evt_reconnected_again", data: {} })
+      await until(() => failures >= 3)
+      await Bun.sleep(25)
+      expect(failures).toBe(3)
+      missing = false
+      await f.data.session.message.sync("ses_test")
+      expect(f.data.session.message.list("ses_test")).toEqual([assistant("kept")])
+    } finally {
+      f.dispose()
+    }
+  },
+)
+
+test.each(["arbitrary 404", "transport"])(
+  "%s is not decoded Session absence and retains transient repair",
+  async (kind) => {
+    let reads = 0
+    const errors: unknown[] = []
+    const f = fixture(
+      () => {
+        reads++
+        if (reads === 2) {
+          if (kind === "transport") throw new Error("upstream network failed with 404")
+          return Response.json({ message: "proxy route missing" }, { status: 404 })
+        }
+        return Response.json({ data: [assistant(reads === 1 ? "ephemeral" : "canonical")], cursor: {} })
+      },
+      {
+        onError: (error) => {
+          errors.push(error)
+        },
+      },
+    )
+    try {
+      await f.data.session.message.sync("ses_test")
+      f.emit(failed)
+      await until(() => reads === 3)
+      await Bun.sleep(0)
+      expect(f.data.session.message.list("ses_test")).toEqual([assistant("canonical")])
+      expect(errors).toHaveLength(1)
+      await Bun.sleep(25)
+      expect(reads).toBe(3)
+    } finally {
+      f.dispose()
+    }
+  },
+)
 
 test("terminal floods retain one automatic failure observer on a held repair", async () => {
   const captured = Promise.withResolvers<Response>()
