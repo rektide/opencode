@@ -142,7 +142,8 @@ describeJj("Vcs Jujutsu", () => {
           await fs.writeFile(path.join(directory, "file.txt"), "one\n")
           await $`jj bookmark create feature -r @`.cwd(directory).quiet()
         })
-        const info = yield* (yield* Vcs.Service).info()
+        const vcs = yield* Vcs.Service
+        const info = yield* vcs.info()
 
         expect(info.workingCopy?.bookmarks).toEqual(["feature"])
         expect(info.workingCopy?.label).toBe("feature")
