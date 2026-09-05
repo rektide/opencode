@@ -57,6 +57,168 @@ function fixture(read: (url: URL) => Response | Promise<Response>) {
   }))
 }
 
+function historyFixture(total: number, strictCursor = false) {
+  const row = (n: number): SessionMessageInfo => ({
+    id: `msg_${String(n).padStart(4, "0")}`,
+    type: "user",
+    text: String(n),
+    time: { created: n },
+  })
+  let rows = Array.from({ length: total }, (_, index) => row(index + 1))
+  const pages: URL[] = []
+  const probes: string[] = []
+  const f = fixture((url) => {
+    if (!url.pathname.endsWith("/message")) {
+      const id = url.pathname.split("/").at(-1) ?? ""
+      probes.push(id)
+      const data = rows.find((item) => item.id === id)
+      return data
+        ? Response.json({ data })
+        : Response.json(
+            { _tag: "MessageNotFoundError", sessionID: "ses_test", messageID: id, message: "missing" },
+            { status: 404 },
+          )
+    }
+    pages.push(url)
+    if (strictCursor) expect(url.searchParams.has("cursor") && url.searchParams.has("order")).toBe(false)
+    const before = Number(url.searchParams.get("cursor") ?? rows.length)
+    const start = Math.max(0, before - Number(url.searchParams.get("limit") ?? 20))
+    return Response.json({
+      data: rows.slice(start, before).toReversed(),
+      cursor: start > 0 ? { next: String(start) } : {},
+    })
+  })
+  return {
+    ...f,
+    pages,
+    probes,
+    row,
+    replace: (next: SessionMessageInfo[]) => {
+      rows = next
+    },
+    rows: () => rows,
+  }
+}
+
+test("repair retains 1–40 after 20 offline additions and keeps exhausted pagination", async () => {
+  const f = historyFixture(40)
+  try {
+    await f.data.session.message.sync("ses_test")
+    await f.data.session.message.loadMore("ses_test")
+    expect(f.data.session.message.list("ses_test")).toHaveLength(40)
+    expect(f.data.session.message.more("ses_test")).toBe(false)
+    f.replace(Array.from({ length: 60 }, (_, i) => f.row(i + 1)))
+    f.data.session.message.invalidate("ses_test")
+    await f.data.session.message.sync("ses_test")
+    expect(f.data.session.message.list("ses_test").map((row) => row.id)).toEqual(f.rows().map((row) => row.id))
+    expect(f.data.session.message.more("ses_test")).toBe(false)
+    expect(f.pages).toHaveLength(5)
+  } finally {
+    f.dispose()
+  }
+})
+
+test.each([false, true])(
+  "bounded history stops at the surviving retained boundary (deleted oldest: %s)",
+  async (removed) => {
+    const f = historyFixture(1000)
+    try {
+      await f.data.session.message.sync("ses_test")
+      f.replace(
+        Array.from({ length: 1020 }, (_, i) => f.row(i + 1)).filter((row) => !removed || row.id !== f.row(981).id),
+      )
+      f.data.session.message.invalidate("ses_test")
+      await f.data.session.message.sync("ses_test")
+      expect(f.data.session.message.list("ses_test")[0]?.id).toBe(f.row(removed ? 980 : 981).id)
+      expect(f.data.session.message.list("ses_test")).toHaveLength(40)
+      expect(f.data.session.message.more("ses_test")).toBe(true)
+      expect(f.pages).toHaveLength(3)
+      expect(f.probes).toEqual(removed ? [f.row(981).id, f.row(982).id] : [f.row(981).id])
+      await f.data.session.message.loadMore("ses_test")
+      expect(f.data.session.message.list("ses_test")).toHaveLength(60)
+    } finally {
+      f.dispose()
+    }
+  },
+)
+
+test("repair follows opaque cursors without combining cursor and order", async () => {
+  const f = historyFixture(40, true)
+  try {
+    await f.data.session.message.sync("ses_test")
+    await f.data.session.message.loadMore("ses_test")
+    f.data.session.message.invalidate("ses_test")
+    await f.data.session.message.sync("ses_test")
+    expect(f.data.session.message.list("ses_test")).toHaveLength(40)
+  } finally {
+    f.dispose()
+  }
+})
+
+test("an offline-deleted retained window does not scan older unobserved history", async () => {
+  const f = historyFixture(1000)
+  try {
+    await f.data.session.message.sync("ses_test")
+    f.replace([...f.rows().slice(0, 980), ...Array.from({ length: 20 }, (_, i) => f.row(1001 + i))])
+    f.data.session.message.invalidate("ses_test")
+    await f.data.session.message.sync("ses_test")
+    expect(f.data.session.message.list("ses_test").map((row) => row.id)).toEqual(
+      f
+        .rows()
+        .slice(-20)
+        .map((row) => row.id),
+    )
+    expect(f.pages).toHaveLength(2)
+    expect(f.probes).toHaveLength(20)
+  } finally {
+    f.dispose()
+  }
+})
+
+test("retained history uses server order rather than lexical message IDs", async () => {
+  const f = historyFixture(1000)
+  f.replace(f.rows().map((row, i) => ({ ...row, id: f.row(1000 - i).id })))
+  try {
+    await f.data.session.message.sync("ses_test")
+    const oldest = f.data.session.message.list("ses_test")[0]?.id
+    f.replace([...f.rows(), ...Array.from({ length: 20 }, (_, i) => f.row(1001 + i))])
+    f.data.session.message.invalidate("ses_test")
+    await f.data.session.message.sync("ses_test")
+    expect(f.data.session.message.list("ses_test")[0]?.id).toBe(oldest)
+    expect(f.data.session.message.list("ses_test")).toHaveLength(40)
+    expect(f.pages).toHaveLength(3)
+  } finally {
+    f.dispose()
+  }
+})
+
+test("repair after a committed revert does not chase a deleted retained suffix into old unobserved history", async () => {
+  const f = historyFixture(1000)
+  try {
+    await f.data.session.message.sync("ses_test")
+    f.replace(f.rows().filter((row) => row.id < f.row(981).id))
+    f.emit({
+      type: "session.revert.committed",
+      id: "evt_revert",
+      created: 1001,
+      durable: { aggregateID: "ses_test", seq: 1001, version: 1 },
+      data: { sessionID: "ses_test", to: f.row(981).id },
+    })
+    f.data.session.message.invalidate("ses_test")
+    await f.data.session.message.sync("ses_test")
+    expect(f.data.session.message.list("ses_test").map((row) => row.id)).toEqual(
+      f
+        .rows()
+        .slice(-20)
+        .map((row) => row.id),
+    )
+    expect(f.pages).toHaveLength(2)
+    expect(f.probes).toEqual([])
+  } finally {
+    f.dispose()
+  }
+})
+
 test.each(["terminal", "failure"])("rejects stale running GET after %s with no later event", async (mode) => {
   const stale = Promise.withResolvers<Response>()
   let reads = 0

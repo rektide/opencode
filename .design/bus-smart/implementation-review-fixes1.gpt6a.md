@@ -65,6 +65,41 @@ test outcomes are recorded below as each correction lands.
 - A further fixture reproduced a terminal event between store publication and
   promise cleanup. Successful jobs now relinquish ownership before checking the
   latest repair flag; such events cannot join a completed promise and lose repair.
+- Browser-conditioned transcript suite **18 pass** and Client typecheck passed;
+  commit `e3182f01`.
+
+### Spec P2: retained historical boundary
+
+- The promoted 1–40 plus 20-offline-additions repro failed with 21–60 retained.
+  Bounded-window fixtures also lost their old prefix. A strict cursor fixture
+  exposed a directly related existing error: repair combined `cursor` with `order`,
+  which the real Server rejects. All four failed before this correction.
+- The read owner now distinguishes a successfully loaded transcript from foreign
+  event-built rows. A new adoption still loads one default page. A repair retains
+  the **oldest surviving authoritative row**, excluding pending/outbox rows.
+- Server order uses a private sequence; public IDs are not sortable anchors.
+  For a bounded retained window, the existing single-message endpoint locates its
+  oldest surviving row (at most one probe per previously retained row; ordinarily
+  one probe). A previously exhausted window needs no probe and reads to exhaustion.
+  Pages are followed through the anchor, keeping the entire last page and its
+  opaque cursor; page-boundary overshoot is at most 19 rows. No cursor is decoded
+  or invented, and `order` is sent only on the first page.
+- If every bounded retained row was deleted, only the default latest page is
+  adopted; the code does not search all older unobserved history for a missing ID.
+  A live committed revert first truncates retained state, so an erased suffix
+  supplies no stale anchor. Eviction/deletion and observed durable mutations retain
+  the existing request-identity/version fences during both probes and page reads.
+- Deterministic costs: 40 exhausted rows + 20 additions require **three repair
+  pages** and retain 1–60; a 20-row bounded window + 20 additions requires **one
+  probe + two pages**; deleting its oldest row requires **two probes + two pages**.
+  Deleting all 20 bounded rows requires **20 probes + one page**, not a scan of the
+  older 980 unobserved rows. This is an explicit correctness cost, not free repair.
+- Fixtures cover exhaustion, a deleted anchor, a deleted entire retained window,
+  committed revert, continued load-more, and message IDs opposite to Server order.
+  Browser-conditioned transcript suite **25 pass**; Client typecheck passed.
+- This remains a client-local repair, not a transaction across multiple HTTP
+  reads. Observed mutations invalidate it; no new guarantee is made for a boundary
+  concurrently deleted without its durable notification being observed.
 
 ## Cross-references
 

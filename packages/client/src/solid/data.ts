@@ -45,6 +45,7 @@ import {
   isFormAlreadySettledError,
   isFormNotFoundError,
   isPermissionNotFoundError,
+  isMessageNotFoundError,
   type SessionPromptInput,
 } from "../promise"
 import { createStore, produce, reconcile } from "solid-js/store"
@@ -230,7 +231,7 @@ export function createData(config: CreateDataInput) {
   // Only explicit transcript reads own repair state; metadata and foreign live rows do not.
   const transcripts = new Map<
     string,
-    { version: number; complete: boolean; repair?: boolean; pending?: Promise<void> }
+    { version: number; complete: boolean; loaded?: boolean; repair?: boolean; pending?: Promise<void> }
   >()
   const pendingReads = new Map<string, { dirty: boolean }>()
   let connected = false
@@ -1587,20 +1588,51 @@ export function createData(config: CreateDataInput) {
                 if (disposed || transcripts.get(sessionID) !== entry) return
                 entry.repair = false
                 const version = entry.version
-                const count = store.session.message[sessionID]?.length ?? 0
+                const retained = entry.loaded
+                  ? (store.session.message[sessionID] ?? []).filter(
+                      (item) =>
+                        !outbox.has(item.id) &&
+                        !store.session.pending[sessionID]?.some((pending) => pending.id === item.id),
+                    )
+                  : []
+                const exhausted = retained.length > 0 && store.session.messageCursor[sessionID] === undefined
+                let boundary: string | undefined
+                // Public IDs do not encode the Server's ordering sequence. Locate
+                // the oldest surviving retained row rather than compare IDs or
+                // chase a deleted boundary through unobserved history.
+                if (!exhausted)
+                  for (const item of retained) {
+                    const exists = await api()
+                      .session.message({ sessionID, messageID: item.id })
+                      .then(
+                        () => true,
+                        (error: unknown) => {
+                          if (isMessageNotFoundError(error)) return false
+                          throw error
+                        },
+                      )
+                    if (disposed || transcripts.get(sessionID) !== entry) return
+                    if (version !== entry.version) break
+                    if (exists) {
+                      boundary = item.id
+                      break
+                    }
+                  }
+                if (version !== entry.version) continue
                 const rows: SessionMessageInfo[] = []
                 let cursor: string | undefined
+                let reached = false
                 do {
                   const response = await api().message.list({
                     sessionID,
                     limit: messagePageLimit,
-                    order: "desc",
-                    ...(cursor ? { cursor } : {}),
+                    ...(cursor ? { cursor } : { order: "desc" }),
                   })
                   if (disposed || transcripts.get(sessionID) !== entry) return
                   rows.push(...response.data)
+                  reached ||= response.data.some((row) => row.id === boundary)
                   cursor = response.cursor.next ?? undefined
-                } while (version === entry.version && cursor && rows.length < count)
+                } while (version === entry.version && cursor && (exhausted || (boundary !== undefined && !reached)))
                 if (version !== entry.version) continue
                 const fetched = rows.reverse()
                 // Same protection as the pending sync: a re-fetch racing an
@@ -1619,6 +1651,7 @@ export function createData(config: CreateDataInput) {
                 setStore("session", "message", sessionID, reconcile(messages))
                 setStore("session", "messageCursor", sessionID, cursor)
                 entry.complete = true
+                entry.loaded = true
                 return
               }
             })
