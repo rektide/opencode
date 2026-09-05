@@ -33,13 +33,22 @@ test outcomes are recorded below as each correction lands.
 
 - Two promoted held-POST fixtures failed before the fix: both issued **two message
   GETs while creation was unresolved**, including after explicit invalidation.
-- `message.sync` now consults the existing `creating` owner before allocating any
-  transcript entry. It returns without reading while a local creation is pending;
-  after success the next explicit read hydrates normally; failure leaves no row.
+- `message.sync` consults the existing `creating` owner and returns without a GET
+  while a local creation is pending. After success an explicit read can hydrate;
+  failure leaves no row. The final observation-registration refinement is below.
 - Removed the abandoned `session.message:*` completions/invalidations from
   `createSync`. Foreign `session.created` still does not register transcript repair.
 - Browser-conditioned transcript suite: **14 pass**; Client `bun typecheck` passed.
 - Commit: `1f5b413e`.
+- Self-review of the creation/repair composition then reproduced a related hole:
+  skipping the GET must not forget that this particular transcript was explicitly
+  observed. A failure after creation otherwise had no registered repair owner.
+  Explicit `message.sync` now registers its observation **before** consulting the
+  creation gate, whereas foreign creation still registers nothing. A failed create
+  deletes that entry. If a terminal arrives while the POST response is held, one
+  coalesced repair resumes after `creating` releases its gate. Tests exercise both
+  terminal-before-POST-settlement and terminal-after-settlement, with zero premature
+  GETs and one canonical repair. This remains the same cache-ownership correction.
 
 ### Spec P2: bounded transcript repair
 
@@ -118,6 +127,24 @@ test outcomes are recorded below as each correction lands.
   one. This completes the existing pending-fencing repair, not a claim that the
   pre-existing revert race was introduced by this feature.
 - Browser-conditioned transcript suite **27 pass**; Client typecheck passed.
+- Commit: `da99e4da`.
+
+### Standards P3: one TUI transcript-adoption operation
+
+- Added `adoptTranscript` to the existing TUI policy binding. It owns synchronous
+  pull-policy/flush, filtered-interest cache invalidation, and `message.sync`.
+  Visible rows and hidden-tab prefetch each supply their own current-membership
+  predicate and cancellation signal; their post-read stale checks remain intact.
+- Filtered adoption uses acknowledged installed interest, not a race with the
+  diagnostic mode update. Intentional legacy/fallback preserves its cache.
+- The facade test failed before the operation existed, then passed with real
+  Client data and the generated GET. It covers acknowledgment-before-read, stale
+  membership after the barrier, repeat filtered adoption, legacy cache reuse, and
+  cancellation while installation is pending. Actual visible/hidden reader and
+  event-toggle renderer fixtures remain green.
+- TUI policy/binding/tab suites **47 pass**; TUI typecheck passed. This adds a
+  small named operation but removes the transport-dependent read policy from both
+  high-churn callers. No registry, provider rearrangement or second policy owner.
 
 ## Cross-references
 

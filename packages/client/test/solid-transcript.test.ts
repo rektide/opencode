@@ -663,3 +663,42 @@ test("a foreign create does not enroll an unread transcript in terminal repair",
     f.dispose()
   }
 })
+
+test.each([false, true])(
+  "an explicitly observed optimistic transcript repairs even when the terminal precedes POST settlement (%s)",
+  async (before) => {
+    const creation = Promise.withResolvers<Response>()
+    let reads = 0
+    const canonical = assistant("", 3)
+    const f = fixture((url) => {
+      if (url.pathname === "/api/session") return creation.promise
+      reads++
+      return Response.json({ data: [canonical], cursor: {} })
+    })
+    try {
+      const created = f.data.session.create({ id: "ses_test" })
+      await f.data.session.message.sync(created.id)
+      expect(reads).toBe(0)
+      if (before) f.emit(failed)
+      creation.resolve(
+        Response.json({
+          data: {
+            id: created.id,
+            projectID: "project",
+            location: { directory: "/project" },
+            time: { created: 1, updated: 1 },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          },
+        }),
+      )
+      await created.request
+      if (!before) f.emit(failed)
+      await until(() => reads === 1)
+      await Bun.sleep(0)
+      expect(f.data.session.message.list(created.id)).toEqual([canonical])
+    } finally {
+      f.dispose()
+    }
+  },
+)

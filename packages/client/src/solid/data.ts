@@ -1446,7 +1446,15 @@ export function createData(config: CreateDataInput) {
             if (fresh && sessionOutbox.delete(id)) removeSession(id)
             throw error
           })
-        if (fresh) track(creating, id, request)
+        if (fresh) {
+          track(creating, id, request)
+          const resumeRepair = () => {
+            if (transcripts.get(id)?.repair) refresh(() => result.session.message.sync(id))
+          }
+          // Registered after track: a terminal observed while the create response
+          // was pending resumes only after the creation gate has been released.
+          void request.then(resumeRepair, resumeRepair)
+        }
         return { id, request }
       },
       compact(input: { sessionID: string; model?: ModelRef }) {
@@ -1577,11 +1585,11 @@ export function createData(config: CreateDataInput) {
           return position === undefined ? undefined : messages?.[position]
         },
         sync(sessionID: string) {
-          // Match prompt admission's creation owner without registering a cache
-          // entry for a Session that may still fail to be created.
-          if (creating.has(sessionID)) return Promise.resolve()
           const entry = transcripts.get(sessionID) ?? { version: 0, complete: false }
           transcripts.set(sessionID, entry)
+          // Record explicit observation, but the creation owner gates the GET.
+          // A failed create removes this entry; foreign creation never adds one.
+          if (creating.has(sessionID)) return Promise.resolve()
           if (entry.pending) return entry.pending
           if (entry.complete) return Promise.resolve()
           // Defer once so adjacent terminal events coalesce before the authoritative GET.
