@@ -81,3 +81,17 @@ Gates pass. Recommend operator acceptance. Open items, none blocking:
   directive rung 2 implements; migration conforms to its idempotency rules.
 - [`rewrite1.glm53.md`](rewrite1.glm53.md) — the precedent's gate pattern
   this re-runs.
+
+# Addendum — 2026-09-05 operator correction
+
+This review verified the earlier backfilling migration at `ed15965e`. The
+operator subsequently chose a cleaner transition: the migration now only
+executes `CREATE TABLE IF NOT EXISTS` and deliberately leaves
+`rektide_jj_worktree` empty. Runtime JJ discovery fills metadata on demand and
+retains the guarded legacy read only to preserve the creation base of a
+workspace that is actually observed.
+
+Accordingly, the migration row, old tip hashes, and 17-commit count above are
+historical verification results, not claims about the current tip. The revised
+three-world migration tests assert that both legacy source rows remain intact
+and the owned table remains empty after initial application and replay.
