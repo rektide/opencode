@@ -2035,7 +2035,12 @@ export function createData(config: CreateDataInput) {
         )
           pending.dirty = true
         const entry = transcripts.get(id)
-        const mutation = transcriptMutation(details)
+        const mutation = transcriptMutation(
+          details,
+          details.type === "session.inbox.delivered" &&
+            !outbox.has(details.data.inboxID) &&
+            messageIndex.get(id)?.has(details.data.inboxID),
+        )
         if (entry && mutation) {
           entry.version++
           if (mutation === "repair" || (mutation === "settled" && (!entry.complete || entry.pending))) {
@@ -2056,14 +2061,13 @@ export type Data = ReturnType<typeof createData>
 
 /** Transcript dirtiness is not Session metadata freshness. Ephemeral fragments
  * are deliberately excluded by the caller's durable-event boundary. */
-function transcriptMutation(event: SessionEventDurable) {
+function transcriptMutation(event: SessionEventDurable, knownDelivery = false) {
   switch (event.type) {
     case "session.created":
     case "session.forked":
     case "session.skill.activated":
     case "session.agent.selected":
     case "session.moved":
-    case "session.inbox.delivered":
     case "session.step.failed":
     case "session.compaction.failed":
     case "session.execution.succeeded":
@@ -2071,6 +2075,10 @@ function transcriptMutation(event: SessionEventDurable) {
     case "session.execution.interrupted":
     case "session.revert.committed":
       return "repair"
+    case "session.inbox.delivered":
+      // The live handler can promote a known durable input without reconstructing
+      // payload from an ID-only event. Unknown/optimistic inputs need a read.
+      return knownDelivery ? "settled" : "repair"
     case "session.model.selected":
     case "session.synthetic":
     case "session.message.content.updated":

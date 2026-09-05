@@ -172,6 +172,34 @@ test("committed revert repairs canonical order instead of depending on lexical m
   }
 })
 
+test("delivery of a known durable admission stays direct when the cache is complete", async () => {
+  let reads = 0
+  const f = fixture(() => {
+    reads++
+    return Response.json({ data: [], cursor: {} })
+  })
+  try {
+    await f.data.session.message.sync("ses_test")
+    f.emit({
+      ...envelope,
+      created: 1,
+      type: "session.inbox.enqueued",
+      data: {
+        sessionID: "ses_test",
+        inboxID: user.id,
+        item: { type: "user", delivery: "queue", payload: { text: user.text } },
+      },
+    })
+    f.emit({ ...envelope, type: "session.inbox.delivered", data: { sessionID: "ses_test", inboxID: user.id } })
+    await Bun.sleep(15)
+    expect(reads).toBe(1)
+    expect(f.data.session.message.list("ses_test")).toEqual([user])
+    expect(f.data.session.pending.list("ses_test")).toEqual([])
+  } finally {
+    f.dispose()
+  }
+})
+
 test("direct terminal fields project without another content update or authoritative GET", async () => {
   let reads = 0
   const f = fixture(() => {

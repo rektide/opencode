@@ -180,6 +180,20 @@ Automatic refresh now returns when an entry already owns a pending job as well a
 when it owns a timer. Events still set the persistent duty, but retain no additional
 Promise callbacks. Explicit callers may join the returned job normally. This
 closes the pending-work bound, not just the transport request-rate bound.
+Commit `d06d098e`; the flood/slow-read/backoff tests and Client typecheck pass.
+
+### Delivery category refinement after integration tests
+
+The initial audit correctly identified **unknown** delivery payloads as requiring
+canonical reads, but its unconditional delivery category also fetched known inputs
+whose direct promotion was already complete. A regression proved the extra GET;
+the existing TUI queued-promotion fixture exposed the same behavior. Delivery now
+uses **direct/settled for a known non-outbox row**, and **authoritative for unknown
+or still-optimistic input**. The classifier receives that single fact from the
+existing message index/outbox; no delivery cache or registry was added. Overlapping
+or already-incomplete direct promotion still establishes duty, and never clears
+an outstanding one. This refinement supersedes the audit table's unconditional
+delivery row. Mutation tests **25 pass** and Client typecheck passed.
 
 ## Cross-references
 
