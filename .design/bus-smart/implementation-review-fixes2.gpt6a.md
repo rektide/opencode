@@ -1,7 +1,7 @@
 ---
 type: ImplementationReport
-title: Bus-smart repair obligations and canonical mutation audit
-description: Second recheck corrections, complete Core-to-Client event audit, scheduling invariants, and verification.
+title: Bus-smart second-review corrections and transcript audit
+description: Persistent repair obligations, bounded trailing scheduling, and a Core-to-Client mutation audit.
 resource: /.design/bus-smart/implementation-review-fixes2.gpt6a.md
 status: draft
 generated: { by: "openai/gpt-6-astra#xhigh", at: 2026-09-05 }
@@ -15,139 +15,143 @@ sources:
   - resource: /packages/client/src/solid/data.ts
 ---
 
-# Second independent-recheck corrections
+# Second-review corrections
 
-## Baseline and scope
+## Baseline and reproduced failures
 
-Clean baseline `42ae8a07`, after standards recheck `f50acee2`. Both reviews and the
-new isolated reproductions were read in full. Independently running review2's
-scratch suite reproduced **two failures**: absent Skill row and retained ephemeral
-text after terminal-first/update-last hydration. The review already minimized and
-identified these causes; no speculative diagnosis or instrumentation is needed.
+Clean reviewer checkpoint `42ae8a07` (working change `ypkpqpkx / e22c4222`). Both
+review2 documents and their scratch reproductions read in full. No child agents,
+live-service operations, history rewriting, or experiment graduation authorized.
+The external server restart interrupted no edits: the working copy remained clean.
 
-No children or live elected service. Keep Core, Protocol, Server, SharedEvents,
-TUI adoption and the default-off gate unchanged. Changes stay in the existing
-Client read owner and direct event handlers, with package regressions. Earlier
-reviews/reports remain historical; parent owns the next independent recheck.
+From Client, `bun test --conditions=browser ../../.test-agent/bus-smart/spec-review2-gpt6a/reproduction.test.ts`
+reproduced **2 failures**: Skill activation leaves an empty complete transcript;
+terminal-first/enqueue-last leaves a completed failed assistant's ephemeral suffix.
+These already-minimized, source-diagnosed repros are the feedback loop; no additional
+speculative diagnosis or architectural investigation is needed.
 
-## Pre-edit canonical mutation audit
+## Canonical mutation audit — recorded before classifier edits
 
-This audit was written **before changing the classifier**. Sources below refer to
-the baseline. `SessionMessageUpdater.update` exhaustively handles the 43 durable
-Session event types; the projector also performs inbox delivery, fork and revert
-mutations outside that updater. Import writes rows alongside `session.created`.
+Audit boundary: all **43** members of generated `SessionEventDurable`, the exhaustive
+[Core message updater](/packages/core/src/session/message-updater.ts#L63-L453), the
+[projector registrations](/packages/core/src/session/projector.ts#L433-L768), and
+[Client handlers](/packages/client/src/solid/data.ts#L580-L1136) at the checkpoint.
+Line references in this audit describe that baseline. Classification is about
+**explicitly observed** transcripts; discovery alone must not register ownership.
 
-- [Updater](/packages/core/src/session/message-updater.ts#L63-L453): every durable
-  branch, including terminal snapshot fields at [22–28](/packages/core/src/session/message-updater.ts#L22-L28).
-- [Projector](/packages/core/src/session/projector.ts#L433-L756): actual registered
-  handlers; [fork](/packages/core/src/session/projector.ts#L106-L225),
-  [delivery](/packages/core/src/session/projector.ts#L591-L621), and
-  [revert](/packages/core/src/session/projector.ts#L721-L755) bypass the updater.
-- [Import](/packages/core/src/session/transfer.ts#L89-L125): inserts messages in
-  the Created publication transaction, not as later message-content events.
-- [Client handlers](/packages/client/src/solid/data.ts#L580-L1121): current live
-  projections. [Session.skill](/packages/core/src/session/session.ts#L232-L253)
-  allows `resume: false`; [message-content replacement](/packages/core/src/session/session.ts#L76)
-  is an explicit operation, **not** an automatic event at every completion.
+Categories:
 
-### Categories and complete event table
+- **None**: no canonical transcript mutation; no transcript version/repair work.
+- **Direct/update**: live projection plus version fence for an overlapping GET;
+  does not create an independent authoritative duty just for ongoing activity.
+- **Direct/settled**: live projection plus version fence; if a read is incomplete
+  or overlapping, retain an authoritative duty until a successful reconciliation.
+- **Authoritative**: live handling is absent, cannot reconstruct irreducible state,
+  or failure can retain ephemeral content. Always oblige a canonical read for an
+  explicitly observed cache, including an already-complete one.
+- **Revoke**: discard read ownership rather than refetch deleted state.
 
-**None** means no canonical message mutation (pending/metadata can still change).
-**Direct** means update already-loaded live state and fence overlapping GETs; a
-superseded read cannot overwrite that update. **Repair** means an explicitly
-observed cache needs an authoritative read even if previously complete. Foreign
-events never create an observation owner. A direct settlement received during an
-incomplete read also establishes an outstanding repair obligation. A deletion
-instead revokes ownership and cancels scheduled work.
-
-All names below have the `session.` prefix. `U` denotes updater line references;
-`P` projector; `C` Client baseline handlers. Grouping is exhaustive, not a wildcard
-that marks every durable event dirty.
-
-| Event(s) | Canonical effect and current Client evidence | Needed category / decision |
+| Durable events (all `session.`) | Core / projector effect | Client baseline and required category |
 | --- | --- | --- |
-| `created` | U66 no row; import transaction can insert rows; C626 discovery only | Repair **only for an already observed ID**, gated by local creation; no foreign enrollment |
-| `forked` | U120 no-op but P106–225 copies settled rows into the new aggregate; no C row handler | Repair for an already observed fork target, never the parent |
-| `deleted` | P541 deletes aggregate/cascades; C634 removes cache | Lifecycle revocation, not a GET |
-| `viewed`, `renamed`, `usage.recorded` | U67/74/118 no-op; P566–589 metadata only | None |
-| `revert.staged`, `revert.cleared` | U450–451 no-op; P699–719 only view boundary | None; UI still responds to its metadata |
-| `execution.started` | U125 no-op; C1003 busy status | None |
-| `inbox.delivery.changed` | U124 no-op; P646 pending mode only; C755 updates pending | None for transcript; pending-read fence remains |
-| `inbox.enqueued`, `inbox.cancelled` | P623–645 pending only; C758–778 admits/retracts local transcript overlays | Direct overlay fence, no new canonical-repair duty alone |
-| `inbox.delivered` | P591–621 inserts canonical user/synthetic row; C739 can only reorder an already known admission | Repair; delivery can be last activity and the admission may not be cached |
-| `agent.selected` | U75–88 appends previous-agent/metadata; C644 guesses previous, omits metadata | Repair rather than trust a metadata-dependent guess |
-| `model.selected` | U89–102 appends previous-model/metadata; C657 does a canonical point lookup | Direct settlement plus existing point lookup; overlap still needs transcript repair |
-| `moved` | U103–117 appends previous placement/metadata; C692 requires cached Session info | Repair; missing metadata must not suppress a canonical row |
-| `instructions.updated` | U129–141 and C779–792 append System only if `data.text` exists | Direct settlement when text exists; None otherwise |
-| `synthetic` | U142–153 and C793–802 append the event-derived row | Direct settlement |
-| `skill.activated` | U154–166 appends Skill; no C handler/classification | Repair, including idle `resume: false` activation |
-| `shell.started` | U167–180 / C803–815 append shell including background metadata | Direct mutation |
-| `shell.ended` | U181–194 / C816–825 update loaded shell output/status | Direct settlement |
-| `step.started`, `step.streamed` | U195–241 / C833–871 append/reset assistant and streamed time | Direct mutation |
-| `step.ended` | U242–252 + U22–28 set terminal fields including snapshot files; C872 omits files | Direct settlement **after mirroring the missing snapshot fields** |
-| `step.failed` | U253–267 completes error but no durable ephemeral suffix; C884 retains live fragments | Repair regardless of prior completeness |
-| `text.started` | U268–272 / C898–902 append empty part | Direct mutation |
-| `text.ended` | U273–281 sets text **and provider state**; C908 omits state | Direct settlement **after mirroring provider state** |
-| `reasoning.started`, `reasoning.ended` | U359–382 / C976–997 mirror text/state/times | Direct mutation / settlement respectively |
-| `tool.input.started`, `tool.called` | U282–296,303–319 / C913–923,934–941 update loaded tool | Direct mutation |
-| `tool.input.ended`, `tool.success`, `tool.failed` | U297–302,320–358 / C929–933,947–975 self-contained loaded-tool terminal projection | Direct settlement; no progress-history inference |
-| `retry.scheduled` | U383–391 / C998–1002 sets retry state | Direct mutation |
-| `execution.succeeded`, `execution.failed`, `execution.interrupted` | U126–128 clear retry; C1019–1032 likewise, but cannot remove uncommitted fragments | Repair, including shutdown interruption |
-| `compaction.started` | U392–404 appends running row and P consumes control; C1006 omits event metadata | Direct mutation **after mirroring metadata**; pending fence remains |
-| `compaction.ended` | U405–434 completes or appends row; C1069 omits metadata on append | Direct settlement **after mirroring append metadata** |
-| `compaction.failed` | U435–449 canonical failure replaces partial running summary; C1097 mirrors failure | Repair, including absent input/partial-summary recovery |
-| `revert.committed` | P721–755 deletes by private sequence plus pending suffix; C1046 truncates local IDs | Repair for authoritative history; retain direct immediate view update and pending fence |
+| `created` | Normally empty; [import commit inserts rows](/packages/core/src/session/transfer.ts#L89-L114) with this event | Metadata-only handler. **Authoritative** for already-observed IDs; never register foreign creates. Creation POST gate still applies. |
+| `forked` | [Copies settled canonical history](/packages/core/src/session/projector.ts#L182-L220) into a new aggregate | No live transcript handler. **Authoritative** only if target explicitly observed; normal first adoption still reads once. |
+| `deleted` | [Deletes Session/cascaded rows](/packages/core/src/session/projector.ts#L541-L543) | `removeSession`; **revoke** and cancel scheduled work. |
+| `viewed`, `renamed`, `usage.recorded` | Updater no-op; projector changes Session metadata/totals only | **None**; existing metadata hydration remains separate. |
+| `execution.started` | Updater no-op | Status-only; **none**. |
+| `revert.staged`, `revert.cleared` | [Changes boundary metadata, not stored messages](/packages/core/src/session/projector.ts#L699-L720) | Read-model visibility only; **none**. |
+| `inbox.delivery.changed` | Pending delivery policy only | Direct pending edit; **none** for canonical transcript, still dirties pending GET. |
+| `agent.selected` | [Append selection with previous agent and metadata](/packages/core/src/session/message-updater.ts#L75-L88) | Live row uses cached previous agent and omits metadata. **Authoritative**; selection is infrequent and canonical previous may be unavailable locally. |
+| `model.selected` | [Append selection with previous model and metadata](/packages/core/src/session/message-updater.ts#L89-L102) | Existing live placeholder + canonical point GET. **Direct/settled**, keeping that upstream point-read behavior; overlapping initial snapshot is fenced. |
+| `moved` | [Append previous/destination Location row](/packages/core/src/session/message-updater.ts#L103-L117) | Only inserts when Session info exists, omits metadata. **Authoritative** for observed transcript, including metadata-not-hydrated case. |
+| `instructions.updated` | [Append System row iff `text !== undefined`](/packages/core/src/session/message-updater.ts#L129-L141) | Matching live insertion. **Direct/settled** with text (including empty text), **none** without text. |
+| `synthetic` | [Append full synthetic row](/packages/core/src/session/message-updater.ts#L142-L153) | Matching live insertion; **direct/settled**. |
+| `skill.activated` | [Append full Skill row](/packages/core/src/session/message-updater.ts#L154-L166) | Missing handler/classifier. **Authoritative**; [resume:false permits no later terminal](/packages/core/src/session/session.ts#L232-L253). |
+| `inbox.enqueued`, `inbox.cancelled` | Pending rows only, not canonical messages | Local visible admission/retraction changes snapshot merge state. **Direct/update** fence preserves pending/outbox; must not consume an outstanding terminal obligation. |
+| `inbox.delivered` | [Consumes inbox and inserts user/synthetic message atomically](/packages/core/src/session/projector.ts#L591-L622) | Reorders only an already-known local input; cannot reconstruct unknown input payload. **Authoritative** for observed transcript. Move/compaction deliveries may add no row; event lacks item type, so no speculative cache is added to distinguish them. |
+| `shell.started` | [Append shell row with metadata](/packages/core/src/session/message-updater.ts#L167-L180) | Matching live insertion; **direct/update**. |
+| `shell.ended` | [Set status, exit, output, completion](/packages/core/src/session/message-updater.ts#L181-L194) | Matching live update; **direct/settled**. |
+| `step.started` | [Create/reset owned assistant; complete previous active row](/packages/core/src/session/message-updater.ts#L195-L236) | Matching live update; **direct/update**. |
+| `step.streamed`, `retry.scheduled` | Set streamed time / retry state | Matching live edits; **direct/update**. |
+| `step.ended` | [Completion, usage, provider state and terminal snapshot/files](/packages/core/src/session/message-updater.ts#L242-L252) | Live handler omits `snapshot.files`. **Direct/settled**, with a targeted snapshot-field mirror correction; do not wait for `message.content.updated`. |
+| `step.failed` | [Failure fields and terminal snapshot/files](/packages/core/src/session/message-updater.ts#L253-L267) | Live suffix can remain non-durable. **Authoritative**, preserving duty across later ordinary updates and unsuccessful reads. |
+| `text.started`, `reasoning.started`, `tool.input.started`, `tool.called` | Append/reset part or tool state | Matching live edits on loaded assistants; **direct/update**. Missing old off-window targets do not justify eagerly loading all history. |
+| `text.ended` | [Replace text **and state**](/packages/core/src/session/message-updater.ts#L273-L281) | Live handler omits state. **Direct/settled**, with targeted state mirror correction. |
+| `reasoning.ended`, `tool.input.ended`, `tool.success`, `tool.failed` | [Self-contained part/tool settlement](/packages/core/src/session/message-updater.ts#L297-L381) | Live edits carry settlement fields; **direct/settled**. No assumption of a later content-replacement event. |
+| `message.content.updated` | [Replace owned assistant content](/packages/core/src/session/message-updater.ts#L68-L73) | Matching live replacement; **direct/settled**. [Explicit update API](/packages/core/src/session/session.ts#L66-L85), not an unconditional completion notification. |
+| `compaction.started` | [Append running row; projector also consumes pending control](/packages/core/src/session/message-updater.ts#L392-L404) | Live row omits metadata; add the direct metadata field. **Direct/update** plus existing pending fencing. |
+| `compaction.ended` | [Update running row or append completed fallback row](/packages/core/src/session/message-updater.ts#L405-L434) | Live fallback omits metadata; add direct field. **Direct/settled**; existing running-row metadata retained. |
+| `compaction.failed` | [Replace failed row, without ephemeral summary](/packages/core/src/session/message-updater.ts#L435-L449) | **Authoritative**, even if live failure status looks complete. |
+| `execution.succeeded`, `execution.failed`, `execution.interrupted` | [Clear active retry; projector updates idle metadata](/packages/core/src/session/projector.ts#L402-L431) | **Authoritative** terminal recovery for incomplete histories/ephemeral residues; shutdown does not discard outstanding duty. |
+| `revert.committed` | [Delete canonical suffix and affected pending inbox rows](/packages/core/src/session/projector.ts#L721-L755) | Existing immediate truncation uses public IDs, not Core sequence. **Authoritative** for final observed transcript; retain pending dirty fence. No new public cursor or reverse index. |
 
-Non-durable text/reasoning/tool-input/compaction deltas and tool progress mutate
-only live projections, not the canonical transcript; they neither fence snapshots
-nor create repair duties. UsageUpdated, Worktree.Resolved, permission/form, RPC and
-Location/catalog events do not change canonical messages. Reconnect is a separate
-explicit invalidation, not an invented durable event. Retention/import database
-operations are not exposed as a generic replay feed.
+Non-durable text/reasoning/tool-input/compaction deltas and tool progress are live
+only and remain outside durable version/repair classification. `usage.updated`,
+permissions/forms, worktree resolution and catalogs do not mutate canonical
+transcripts. Import/migration initialization is not arbitrary snapshot replay;
+only the existing observed-Session read path is used.
 
-### Audit-derived regression matrix
+### Derived test matrix / carry guard
 
-1. Compile-time exhaustiveness against generated `SessionEventDurable`: a newly
-   added durable event must be categorized instead of silently falling through.
-2. Repair-only rows: pending GET and already-complete observed cache, no later
-   terminal; Skill is the reproduced mandatory case. Cover uncached admission
-   delivery and lifecycle population (import/fork) without enrolling foreign IDs.
-3. Direct handler omissions: assert actual provider state, snapshot files and
-   compaction metadata, not merely visible text; pair with a held stale GET.
-4. Metadata controls: viewed/renamed/usage and textless instruction changes do
-   not trigger transcript reads or invalidate a held canonical response.
-5. Obligation: terminal in scan one, ordinary admission in scan two, no later
-   event; sustained started/enqueued/settlement mutations; failed HTTP; explicit
-   eviction/delete/disposal and reconnect suspension. Original sync settles after
-   its budget even while trailing repair remains due.
+1. Promote terminal-first/update-last and Skill-during-GET reproductions. Also
+   activate Skill after a complete read, with no execution terminal.
+2. Exhaustively type the classifier over generated `SessionEventDurable`; an
+   upstream durable union addition must fail Client typecheck until categorized.
+   No runtime Core/Protocol dependency or generic event registry is needed.
+3. Exercise the newly authoritative groups in pending and complete observed
+   caches, plus a foreign event with no read owner. Unknown delivered input,
+   imported/forked rows and Location without hydrated metadata use canonical HTTP.
+4. For direct handlers with demonstrated omitted fields, compare event-built row
+   fields against the canonical fixture **without emitting content replacement or
+   another terminal**: text state, Step snapshot files, compaction metadata.
+5. Keep metadata/no-text instructions excluded and existing direct projection,
+   pagination/outbox, creation and eviction/deletion tests green.
 
 ## Obligation and scheduling design
 
-Keep the existing boolean duty and version fence: a GET **attempt** never clears
-the duty. Only a successful authoritative reconciliation at its unchanged captured
-version fulfills it. Mutations during an attempt supersede the result, not the
-duty. No durable replay/epoch framework or separate service is needed.
+An issued GET is not reconciliation. Retain the existing `repair` flag until a
+scan with the current mutation version successfully publishes canonical state,
+or ownership is revoked. Keep two scans per caller job. After an unsuccessful
+job with an outstanding duty, schedule one trailing timer per observed Session:
+initial 10 ms, doubling after each unsuccessful job up to 1,000 ms. New events
+coalesce without resetting or bypassing that timer. HTTP failure retains duty and
+backs off too. Explicit user reads can preempt the timer; automatic event traffic
+cannot. At most one repair job or one timer is owned per Session.
 
-Keep at most two scans per original job and one active job per observed Session.
-An unsatisfied duty after completion/error gets one trailing timer, initially
-10 ms, doubling to a 1,000 ms cap. New events coalesce without resetting/backdating
-the timer or bypassing it. Slow requests have no timer racing them. A successful
-reconciliation resets the delay. Explicit user reads may pull scheduled work
-forward; event-driven refreshes cannot. Disconnect suspends timers but retains
-duties; reconnect/creation-gate release can resume them. Evict/delete/dispose cancel
-timers and revoke old request identity. This is positive-delay backoff, not an
-immediate recursive chain of two-scan jobs or a debounce that never fires while
-events keep arriving.
+This small local timer is needed by the reproduced terminal-first/update-last
+case: there may be **no subsequent event** to start another read. It is not a
+service watcher, replay framework or provider restart. Quiescent successful reads
+clear duty and reset backoff; continued activity/failures have bounded rate, not a
+false lifetime request bound. Disconnect suspends timers but retains duty for
+reconnect; creation still gates GETs. Evict/delete/dispose cancel timers and fence
+late responses. Exact executed bounds and costs will be recorded with results.
 
-Implementation, exact executed bounds/costs, and finding-to-commit mapping follow
-in subsequent sections as corrections are verified.
+## Implementation and verification record
+
+Audit completed before classifier edits; the initial audit checkpoint is `322e7d52`.
+
+### Obligation correction execution
+
+- Promoted the terminal-first/update-last fixture into Client tests: it failed
+  waiting for the fourth read; a flood fixture also showed the old event path
+  bypassing backoff (five reads instead of three before the first delay).
+- Persistent `repair` now clears only at unchanged-version publication. One
+  `timer` and one `delay` on the existing entry replace immediate follow-up jobs;
+  `refreshTranscript` prevents automatic refreshes from bypassing a scheduled job.
+- The original job still stops after two scans. The admission repro takes
+  **four GETs total**: initial, two superseded, one trailing canonical read. The
+  pending admit-only input remains in the local overlay.
+- A sustained real-inbox mutation fixture plus 50 terminal notifications verifies
+  two scans per job and trailing gaps of at least 10/20/40 ms (2 ms assertion
+  tolerance), then quiet-state reconciliation at the next 80 ms opportunity.
+  It performs **ten GETs total** (initial + four two-scan jobs + final success).
+- Evict/delete/dispose revoke scheduled work. HTTP-failure retention and slow-read
+  joining, plus disconnect/reconnect suspension, are separately exercised.
 
 ## Cross-references
 
-- [Spec recheck](/.design/bus-smart/code-review2-spec.gpt6a.md): the two reproduced
-  blockers and original canonical-state oracles.
-- [Standards recheck](/.design/bus-smart/code-review2-standards.gpt6a.md): closed
-  creation/adoption findings and the classifier's upstream maintenance obligation.
-- [Previous correction report](/.design/bus-smart/implementation-review-fixes1.gpt6a.md):
-  history-boundary behavior and old scheduling claims; this report supersedes
-  attempt-start consumption of repair obligations, not its measured history costs.
+- [Spec recheck](/.design/bus-smart/code-review2-spec.gpt6a.md): two new reproductions.
+- [Standards recheck](/.design/bus-smart/code-review2-standards.gpt6a.md): creation
+  and TUI adoption closed; classifier maintenance identified as a carry obligation.
+- [First correction report](/.design/bus-smart/implementation-review-fixes1.gpt6a.md):
+  retained history contract and prior verification. This round corrects its claim
+  that a consumed per-scan flag preserves every terminal obligation.

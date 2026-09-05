@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { createMemo, createRoot } from "solid-js"
+import { createMemo, createRoot, createSignal } from "solid-js"
 import { isServer } from "solid-js/web"
 import { OpenCode, type OpenCodeEvent, type SessionMessageInfo } from "../src/promise/index.ts"
 import { createData, type CreateDataInput } from "../src/solid/data.ts"
@@ -31,7 +31,10 @@ const failed: OpenCodeEvent = {
   },
 }
 
-function fixture(read: (url: URL) => Response | Promise<Response>) {
+function fixture(
+  read: (url: URL) => Response | Promise<Response>,
+  options: Partial<Pick<CreateDataInput, "connection" | "onError">> = {},
+) {
   const listeners = new Set<Parameters<CreateDataInput["event"]["listen"]>[0]>()
   const api = OpenCode.make({
     baseUrl: "http://test",
@@ -42,6 +45,7 @@ function fixture(read: (url: URL) => Response | Promise<Response>) {
   })
   return createRoot((dispose) => ({
     data: createData({
+      ...options,
       api: () => api,
       directory: "/project",
       event: {
@@ -525,6 +529,209 @@ test("viewed metadata overlapping every GET does not drive transcript repair", a
     f.dispose()
   }
 })
+
+test("terminal repair survives ordinary admit-only input superseding its last scan", async () => {
+  let reads = 0
+  const canonical = {
+    ...assistant("", 3),
+    finish: "error",
+    error: { type: "unknown", message: "failure" },
+  } satisfies SessionMessageInfo
+  const f = fixture(() => {
+    reads++
+    if (reads === 2) f.emit({ ...failed, data: { ...failed.data, error: { type: "unknown", message: "failure" } } })
+    if (reads === 3)
+      f.emit({
+        type: "session.inbox.enqueued",
+        id: "evt_input",
+        created: 4,
+        durable: { aggregateID: "ses_test", seq: 5, version: 1 },
+        data: {
+          sessionID: "ses_test",
+          inboxID: "msg_input",
+          item: { type: "user", delivery: "queue", payload: { text: "admit only" } },
+        },
+      })
+    return Response.json({ data: [reads >= 3 ? canonical : assistant("")], cursor: {} })
+  })
+  try {
+    await f.data.session.message.sync("ses_test")
+    f.emit({
+      type: "session.text.delta",
+      id: "evt_delta",
+      created: 2,
+      data: { sessionID: "ses_test", assistantMessageID: "msg_assistant", ordinal: 0, delta: "ephemeral suffix" },
+    })
+    f.data.session.message.invalidate("ses_test")
+    await f.data.session.message.sync("ses_test")
+    expect(reads).toBe(3)
+    await until(() => f.data.session.message.get("ses_test", "msg_assistant")?.type === "assistant" && reads === 4)
+    await Bun.sleep(0)
+    expect(f.data.session.message.get("ses_test", "msg_assistant")).toEqual(canonical)
+    expect(f.data.session.pending.list("ses_test").map((item) => item.id)).toEqual(["msg_input"])
+  } finally {
+    f.dispose()
+  }
+})
+
+test("outstanding repair backs off under sustained mutations and terminal floods, then reconciles quietly", async () => {
+  let mutate = false
+  const times: number[] = []
+  const canonical = assistant("", 3)
+  const f = fixture(() => {
+    times.push(performance.now())
+    if (mutate)
+      f.emit({
+        type: "session.inbox.enqueued",
+        id: `evt_input${times.length}`,
+        created: times.length,
+        durable: { aggregateID: "ses_test", seq: times.length, version: 1 },
+        data: {
+          sessionID: "ses_test",
+          inboxID: "msg_input",
+          item: { type: "user", delivery: "queue", payload: { text: "admit only" } },
+        },
+      })
+    return Response.json({ data: [times.length === 1 ? assistant("ephemeral") : canonical], cursor: {} })
+  })
+  try {
+    await f.data.session.message.sync("ses_test")
+    mutate = true
+    f.emit(failed)
+    await f.data.session.message.sync("ses_test")
+    expect(times).toHaveLength(3)
+    for (let i = 0; i < 50; i++) f.emit(failed)
+    await Bun.sleep(2)
+    expect(times).toHaveLength(3)
+    await until(() => times.length >= 9)
+    expect(times).toHaveLength(9)
+    expect(times[3]! - times[2]!).toBeGreaterThanOrEqual(8)
+    expect(times[5]! - times[4]!).toBeGreaterThanOrEqual(18)
+    expect(times[7]! - times[6]!).toBeGreaterThanOrEqual(38)
+    mutate = false
+    await until(() => times.length === 10)
+    await Bun.sleep(0)
+    expect(f.data.session.message.get("ses_test", "msg_assistant")).toEqual(canonical)
+    await Bun.sleep(30)
+    expect(times).toHaveLength(10)
+  } finally {
+    f.dispose()
+  }
+})
+
+test.each(["evict", "delete", "dispose"])("outstanding scheduled repair is revoked by %s", async (action) => {
+  let reads = 0
+  const f = fixture(() => {
+    reads++
+    if (reads > 1)
+      f.emit({
+        ...ended,
+        type: "session.text.started",
+        data: { sessionID: "ses_test", assistantMessageID: "msg_assistant", ordinal: reads },
+      })
+    return Response.json({ data: [assistant("")], cursor: {} })
+  })
+  try {
+    await f.data.session.message.sync("ses_test")
+    f.emit(failed)
+    await f.data.session.message.sync("ses_test")
+    expect(reads).toBe(3)
+    if (action === "evict") f.data.session.evict("ses_test")
+    if (action === "delete")
+      f.emit({
+        type: "session.deleted",
+        id: "evt_delete",
+        created: 4,
+        durable: { aggregateID: "ses_test", seq: 4, version: 1 },
+        data: { sessionID: "ses_test" },
+      })
+    if (action === "dispose") f.dispose()
+    await Bun.sleep(35)
+    expect(reads).toBe(3)
+  } finally {
+    f.dispose()
+  }
+})
+
+test("HTTP failure retains repair duty and a slow retry owns no overlapping timer", async () => {
+  const late = Promise.withResolvers<Response>()
+  let reads = 0
+  const errors: unknown[] = []
+  const canonical = assistant("", 3)
+  const f = fixture(
+    () => {
+      reads++
+      if (reads === 2) return Response.json({ message: "unavailable" }, { status: 503 })
+      if (reads === 3) return late.promise
+      return Response.json({ data: [reads === 1 ? assistant("ephemeral") : canonical], cursor: {} })
+    },
+    {
+      onError: (error) => {
+        errors.push(error)
+      },
+    },
+  )
+  try {
+    await f.data.session.message.sync("ses_test")
+    f.emit(failed)
+    await expect(f.data.session.message.sync("ses_test")).rejects.toBeDefined()
+    await until(() => reads === 3)
+    for (let i = 0; i < 50; i++) f.emit(failed)
+    await Bun.sleep(45)
+    expect(reads).toBe(3)
+    late.resolve(Response.json({ data: [assistant("stale")], cursor: {} }))
+    await until(() => reads === 4)
+    await Bun.sleep(0)
+    expect(f.data.session.message.get("ses_test", "msg_assistant")).toEqual(canonical)
+    expect(errors).toHaveLength(1)
+    await Bun.sleep(30)
+    expect(reads).toBe(4)
+  } finally {
+    late.resolve(Response.json({ data: [], cursor: {} }))
+    f.dispose()
+  }
+})
+;(isServer ? test.skip : test)(
+  "disconnect suspends outstanding duty until reconnect, without forgetting it",
+  async () => {
+    const [status, setStatus] = createSignal("connected")
+    let reads = 0
+    let mutate = true
+    const canonical = assistant("", 3)
+    const f = fixture(
+      (url) => {
+        if (!url.pathname.endsWith("/message")) return Response.json({ data: [], cursor: {} })
+        reads++
+        if (mutate && reads > 1)
+          f.emit({
+            ...ended,
+            type: "session.text.started",
+            data: { sessionID: "ses_test", assistantMessageID: "msg_assistant", ordinal: reads },
+          })
+        return Response.json({ data: [reads === 1 ? assistant("ephemeral") : canonical], cursor: {} })
+      },
+      { connection: { status }, onError: () => {} },
+    )
+    try {
+      f.emit({ type: "server.connected", id: "evt_connected", data: {} })
+      await f.data.session.message.sync("ses_test")
+      f.emit(failed)
+      await f.data.session.message.sync("ses_test")
+      expect(reads).toBe(3)
+      setStatus("disconnected")
+      await Bun.sleep(35)
+      expect(reads).toBe(3)
+      mutate = false
+      setStatus("connected")
+      f.emit({ type: "server.connected", id: "evt_reconnected", data: {} })
+      await until(() => reads === 4)
+      await Bun.sleep(0)
+      expect(f.data.session.message.list("ses_test")).toEqual([canonical])
+    } finally {
+      f.dispose()
+    }
+  },
+)
 
 test("new terminal mutations coalesce without extending the original sync until quiescence", async () => {
   const late = Promise.withResolvers<Response>()

@@ -231,8 +231,23 @@ export function createData(config: CreateDataInput) {
   // Only explicit transcript reads own repair state; metadata and foreign live rows do not.
   const transcripts = new Map<
     string,
-    { version: number; complete: boolean; loaded?: boolean; repair?: boolean; pending?: Promise<void> }
+    {
+      version: number
+      complete: boolean
+      loaded?: boolean
+      repair?: boolean
+      pending?: Promise<void>
+      timer?: ReturnType<typeof setTimeout>
+      delay?: number
+    }
   >()
+  onCleanup(() => transcripts.forEach((entry) => clearTimeout(entry.timer)))
+
+  function refreshTranscript(sessionID: string) {
+    // Event traffic joins active work but cannot bypass its trailing backoff.
+    if (transcripts.get(sessionID)?.timer) return
+    refresh(() => result.session.message.sync(sessionID))
+  }
   const pendingReads = new Map<string, { dirty: boolean }>()
   let connected = false
   const sync = createSync()
@@ -523,6 +538,7 @@ export function createData(config: CreateDataInput) {
 
   function evictSession(sessionID: string) {
     if (sessionOutbox.has(sessionID)) return
+    clearTimeout(transcripts.get(sessionID)?.timer)
     transcripts.delete(sessionID)
     pendingReads.delete(sessionID)
     sync.invalidate(`session.pending:${sessionID}`)
@@ -546,6 +562,7 @@ export function createData(config: CreateDataInput) {
   }
 
   function removeSession(sessionID: string) {
+    clearTimeout(transcripts.get(sessionID)?.timer)
     transcripts.delete(sessionID)
     pendingReads.delete(sessionID)
     messageLoads.delete(sessionID)
@@ -585,7 +602,7 @@ export function createData(config: CreateDataInput) {
             entry.version++
             entry.complete = false
             entry.repair = true
-            refresh(() => result.session.message.sync(id))
+            refreshTranscript(id)
           })
         connected = true
         const updates = new Map<string, DataSessionStatus | undefined>()
@@ -1449,7 +1466,7 @@ export function createData(config: CreateDataInput) {
         if (fresh) {
           track(creating, id, request)
           const resumeRepair = () => {
-            if (transcripts.get(id)?.repair) refresh(() => result.session.message.sync(id))
+            if (transcripts.get(id)?.repair) refreshTranscript(id)
           }
           // Registered after track: a terminal observed while the create response
           // was pending resumes only after the creation gate has been released.
@@ -1591,6 +1608,9 @@ export function createData(config: CreateDataInput) {
           // A failed create removes this entry; foreign creation never adds one.
           if (creating.has(sessionID)) return Promise.resolve()
           if (entry.pending) return entry.pending
+          // An explicit read may pull a scheduled repair forward.
+          clearTimeout(entry.timer)
+          entry.timer = undefined
           if (entry.complete) return Promise.resolve()
           // Defer once so adjacent terminal events coalesce before the authoritative GET.
           const pending = Promise.resolve()
@@ -1598,7 +1618,6 @@ export function createData(config: CreateDataInput) {
               // One initial scan and one repair, never a loop seeking a quiet snapshot.
               for (let attempt = 0; attempt < 2; attempt++) {
                 if (disposed || transcripts.get(sessionID) !== entry) return
-                entry.repair = false
                 const version = entry.version
                 const retained = entry.loaded
                   ? (store.session.message[sessionID] ?? []).filter(
@@ -1659,25 +1678,31 @@ export function createData(config: CreateDataInput) {
                   (item) => !ids.has(item.id) && (outbox.has(item.id) || admitted.has(item.id)),
                 )
                 const messages = local.length === 0 ? fetched : [...fetched, ...local]
+                // Issuing a GET never fulfills the duty. Only this unchanged-
+                // version publication does; later events can establish a new one.
+                entry.repair = false
+                entry.delay = undefined
+                entry.complete = true
+                entry.loaded = true
                 messageIndex.set(sessionID, new Map(messages.map((message, index) => [message.id, index])))
                 setStore("session", "message", sessionID, reconcile(messages))
                 setStore("session", "messageCursor", sessionID, cursor)
-                entry.complete = true
-                entry.loaded = true
                 return
               }
             })
-            .then(() => {
-              // Settle ownership before checking the coalesced settlement flag:
-              // events after this cut can start their own read rather than join
-              // a completed promise. Read failures do not automatically retry.
+            .finally(() => {
               if (entry.pending !== pending) return
               entry.pending = undefined
-              if (entry.repair && transcripts.get(sessionID) === entry)
-                refresh(() => result.session.message.sync(sessionID))
-            })
-            .finally(() => {
-              if (entry.pending === pending) entry.pending = undefined
+              if (disposed || transcripts.get(sessionID) !== entry || !entry.repair) return
+              if (config.connection && config.connection.status() !== "connected") return
+              // One positive-delay job, even after HTTP failure. New facts do
+              // not reset the delay; continuous mutations cannot make us spin.
+              const delay = entry.delay ?? 10
+              entry.delay = Math.min(delay * 2, 1000)
+              entry.timer = setTimeout(() => {
+                entry.timer = undefined
+                if (transcripts.get(sessionID) === entry) refreshTranscript(sessionID)
+              }, delay)
             })
           entry.pending = pending
           return pending
@@ -1977,6 +2002,8 @@ export function createData(config: CreateDataInput) {
     transcripts.forEach((entry) => {
       entry.version++
       entry.complete = false
+      clearTimeout(entry.timer)
+      entry.timer = undefined
     })
     pendingReads.forEach((entry) => {
       entry.dirty = true
@@ -2009,7 +2036,7 @@ export function createData(config: CreateDataInput) {
           ) {
             entry.complete = false
             entry.repair = true
-            refresh(() => result.session.message.sync(id))
+            refreshTranscript(id)
           }
         }
       }
