@@ -2,7 +2,7 @@ import { describe, expect } from "bun:test"
 import { $ } from "bun"
 import fs from "fs/promises"
 import path from "path"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/util/effect/layer-node"
@@ -174,6 +174,31 @@ describe("Worktree (jj)", () => {
       expect(yield* metadata(input.sourceDirectory)).toMatchObject({ type: "jj_workspace", workspace: "default" })
       expect(yield* metadata(discovered)).toMatchObject({ type: "jj_workspace", workspace: "external-copy" })
       yield* worktrees.remove({ directory: discovered, force: true })
+    }),
+  )
+
+  itJj.live("preserves legacy metadata written after the owned-table migration", () =>
+    Effect.gen(function* () {
+      const input = yield* Fixture
+      const target = abs(`${input.root.path}-jj-legacy`)
+      yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(target, { recursive: true, force: true })))
+      const base = (yield* Effect.promise(() => $`jj log --no-graph -r @- -T commit_id`.cwd(input.root.path).text())).trim()
+      yield* Effect.promise(() => $`jj workspace add --name legacy-copy -r @- ${target}`.cwd(input.root.path).quiet())
+      const directory = abs(yield* Effect.promise(() => fs.realpath(target)))
+      yield* input.db.run(sql`ALTER TABLE worktree ADD metadata text`)
+      yield* input.db.run(sql`
+        INSERT INTO worktree (project_id, directory, strategy, metadata, time_created)
+        VALUES (${input.projectID}, ${directory}, 'jj_workspace', ${JSON.stringify({
+          type: "jj_workspace",
+          workspace: "legacy-copy",
+          base,
+        })}, 1)
+      `)
+
+      yield* (yield* Worktree.Service).refresh()
+
+      expect(yield* metadata(directory)).toMatchObject({ workspace: "legacy-copy", base })
+      yield* (yield* Worktree.Service).remove({ directory, force: false })
     }),
   )
 })
