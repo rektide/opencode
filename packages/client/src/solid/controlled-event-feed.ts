@@ -15,7 +15,7 @@ export type ControlledEventInterest = Omit<EventControlledReplaceInterestsInput,
 export interface ControlledEventFeed {
   readonly subscribe: EventStreamAdapter
   readonly setDesired: (interest: ControlledEventInterest) => void
-  readonly flush: () => Promise<void>
+  readonly flush: (signal?: AbortSignal) => Promise<void>
   readonly desired: Accessor<ControlledEventInterest>
   readonly installed: Accessor<ControlledEventInterest | undefined>
   readonly mode: Accessor<ControlledEventFeedMode>
@@ -314,19 +314,20 @@ export function createControlledEventFeed(options: ControlledEventFeedOptions = 
     next.sessions.forEach((sessionID) => heldSessions.delete(sessionID))
     desired = next
     target = transportTarget()
-    rejected = undefined
     setState("desired", toInterest(next))
     scheduleRemovals()
-    options.onDesiredChange?.()
     if (equal(before, target)) {
       settle()
       return
     }
+    rejected = undefined
+    options.onDesiredChange?.()
     if (active?.subscriptionID) void update(active).catch(() => {})
   }
 
-  function flush() {
+  function flush(signal?: AbortSignal) {
     if (disposed) return Promise.reject(new Error("Controlled event feed disposed"))
+    if (signal?.aborted) return Promise.reject(signal.reason)
     if (rejected && equal(rejected.target, target)) return Promise.reject(rejected.error)
     if (
       active &&
@@ -335,7 +336,25 @@ export function createControlledEventFeed(options: ControlledEventFeedOptions = 
     ) {
       return Promise.resolve()
     }
-    return new Promise<void>((resolve, reject) => waiters.add({ resolve, reject }))
+    return new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        waiters.delete(waiter)
+        signal?.removeEventListener("abort", cancel)
+      }
+      const waiter = {
+        resolve: () => {
+          cleanup()
+          resolve()
+        },
+        reject: (error: unknown) => {
+          cleanup()
+          reject(error)
+        },
+      }
+      const cancel = () => waiter.reject(signal?.reason)
+      waiters.add(waiter)
+      signal?.addEventListener("abort", cancel, { once: true })
+    })
   }
 
   onCleanup(() => {

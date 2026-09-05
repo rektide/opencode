@@ -530,3 +530,55 @@ test("preserves a midstream PUT rejection through generated SSE abort and reject
   expect(fixture.feed.retry(error)).toBe("retry")
   fixture.dispose()
 })
+
+test("fallback shares the upstream pool, replays only connected, and cancellation leaves its other reader alive", async () => {
+  let legacy = 0
+  let closed = 0
+  const stream = Promise.withResolvers<ReadableStreamDefaultController<Uint8Array>>()
+  const api = OpenCode.make({
+    baseUrl: "http://test",
+    fetch: async (input, init) => {
+      const next = request(input, init)
+      if (new URL(next.url).pathname === "/api/experimental/event") return new Response(null, { status: 404 })
+      legacy++
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            stream.resolve(controller)
+          },
+          cancel() {
+            closed++
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      )
+    },
+  })
+  const publicReader = api.event.subscribe()[Symbol.asyncIterator]()
+  const opening = publicReader.next()
+  const source = await stream.promise
+  const send = (event: unknown) => source.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`))
+  send(connected)
+  await opening
+  send(updated)
+  await publicReader.next()
+  const fixture = setup()
+  const abort = new AbortController()
+  const fallback = fixture.feed.subscribe(api, abort.signal)[Symbol.asyncIterator]()
+  expect(await fallback.next()).toEqual({ done: false, value: connected })
+  const pending = fallback.next()
+  const next = { ...updated, id: "evt_next" }
+  send(next)
+  expect(await pending).toEqual({ done: false, value: next })
+  expect(await publicReader.next()).toEqual({ done: false, value: next })
+  const cancelled = fallback.next()
+  abort.abort()
+  expect(await cancelled).toMatchObject({ done: true })
+  expect(closed).toBe(0)
+  send(updated)
+  expect(await publicReader.next()).toEqual({ done: false, value: updated })
+  await publicReader.return?.()
+  expect(legacy).toBe(1)
+  expect(closed).toBe(1)
+  fixture.dispose()
+})
