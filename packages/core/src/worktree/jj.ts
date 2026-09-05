@@ -25,9 +25,6 @@ export const make = Effect.gen(function* () {
   const proc = yield* AppProcess.Service
   const db = (yield* Database.Service).db
   const projectID = (yield* Location.Service).project.id
-  const hasLegacyMetadata = (
-    yield* db.all<{ name: string }>(sql`PRAGMA table_info(worktree)`).pipe(Effect.orDie)
-  ).some((column) => column.name === "metadata")
 
   const run = Effect.fnUntraced(function* (operation: string, directory: AbsolutePath, args: string[]) {
     const result = yield* proc
@@ -58,6 +55,9 @@ export const make = Effect.gen(function* () {
       .get()
       .pipe(Effect.orDie)
     if (owned) return Option.getOrUndefined(decodeMetadata(owned.metadata))
+    const hasLegacyMetadata = (
+      yield* db.all<{ name: string }>(sql`PRAGMA table_info(worktree)`).pipe(Effect.orDie)
+    ).some((column) => column.name === "metadata")
     if (!hasLegacyMetadata) return undefined
     const legacy = yield* db
       .get<{ metadata: string | null }>(sql`SELECT metadata FROM worktree WHERE directory = ${directory}`)
