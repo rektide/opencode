@@ -1,383 +1,406 @@
 ---
 type: Research
-title: TUI interest policy and attention consumers — same-project scoping for draft1
-description: Inventory the shipped EventInterestProvider policy, every TUI/CLI/app consumer that depends on or keeps alive the event firehose, the same-project concurrent-sessions overdelivery, and the viable coarse-summary vs session-detail cuts; recommend draft1 scope and an explicit notification product choice with a safe default.
+title: TUI interest policy, consumers, and attention scope for draft1
+description: Enumerate what the implemented EventInterestProvider covers, which consumers keep or need which event classes, why same-project concurrent sessions remain the dominant overdelivery, and what coarse-vs-detail distinctions the schema and consumers actually support; recommend draft1 scope and a notification default.
 resource: /design/bus-smart/research1-interest-policy
-tags: [tui, events, interest, notifications, attention, projection, same-project, draft1]
+tags: [tui, events, interest, notifications, attention, projection, same-project]
 status: draft
 generated: { by: "agent:glm-5.3#max", at: 2026-09-05 }
 verified: { by: unassigned, at: never }
 stale_after: 2026-12-05
 sources:
-  - id: directional-design
+  - id: draft0
     resource: /design/bus-smart/draft0
     title: Controlled event feed directional draft
-  - id: tui-interest-research
+  - id: tui-interest0
     resource: /design/bus-smart/research-tui-interest0
     title: TUI interest policy for the controlled SSE
-  - id: downstream-review
+  - id: review0
     resource: /design/bus-smart/review0
     title: bus-smart downstream-patch assessment
-  - id: verification
+  - id: verification0
     resource: /design/bus-smart/verification0
     title: Controlled event feed verification
   - id: event-interest
     resource: /packages/tui/src/context/event-interest.tsx
-    title: EventInterestProvider desired-set policy
+    title: Implemented TUI desired-interest policy
   - id: controlled-feed-client
     resource: /packages/client/src/solid/controlled-event-feed.ts
-    title: Controlled feed controller (grace, fallback, generations)
+    title: Controlled feed client controller
   - id: shared-events
     resource: /packages/client/src/shared-events.ts
-    title: Refcounted shared legacy event connection
-  - id: solid-data
-    resource: /packages/client/src/solid/data.ts
-    title: Solid projection event handlers
+    title: Refcounted legacy shared event connection
+  - id: tui-notifications
+    resource: /packages/tui/src/feature-plugins/system/notifications.ts
+    title: TUI attention notifications plugin
   - id: session-tabs
     resource: /packages/tui/src/context/session-tabs.tsx
-    title: Tab model, family status, retention
-  - id: notifications-plugin
-    resource: /packages/tui/src/feature-plugins/system/notifications.ts
-    title: TUI attention notifications
+    title: TUI tabs, family status, retention
+  - id: data-projection
+    resource: /packages/client/src/solid/data.ts
+    title: Solid event projection
   - id: session-event-schema
     resource: /packages/schema/src/session-event.ts
-    title: Session event manifest (detail vs summary classes)
+    title: Session event manifest
 ---
 
-# TUI interest policy and attention consumers — same-project scoping for draft1
+# TUI interest policy, consumers, and attention scope for draft1
 
 ## Situation
 
-The controlled event feed is implemented and ported to `v2@origin`
-([verification0](/.design/bus-smart/verification0.gpt56s.md)): the TUI declares a
-desired interest set, the server admits global events plus requested/derived
-Locations and exact Sessions, and two release gates remain — the notification
-scope decision and a live before/after record. Meanwhile the motivating user
-runs many clients and many activities, frequently **in the same project**, so
-Location-scoped admission still admits every foreign same-project session's
-full token stream. This document owns the TUI policy and consumer side of
-draft1: what the shipped policy includes, which consumers depend on which event
-classes, what keeps firehoses alive, and which coarse-summary versus
-session-detail cuts the actual schema and consumers support. Server admission
-mechanics, SharedEvents/transport cost internals, and move execution detail are
-owned by other draft1 threads and only referenced here as boundaries.
+The controlled feed is implemented and verified
+([`verification0`](/.design/bus-smart/verification0.gpt56s.md)): the V2 TUI
+declares a desired interest set, the server admits by Location audience plus
+exact Session, moves are followed server-side, and legacy consumers are
+untouched. Two release gates remain open: the **notification scope product
+decision** and a live before/after record. Separately, the motivating user runs
+many clients whose activities are frequently in the **same project**, so
+Location scoping alone may leave most of the event volume in place. draft1
+needs to know what the policy currently buys, what it cannot buy, and where
+the TUI's own consumers set the floor.
 
-Everything below marked **Fact** was verified against this worktree
-(`opencode-bus-smart`, post-port). Recommendations are explicitly separated.
+This document owns the TUI policy/consumer side. SharedEvents mechanics beyond
+their role as firehose keepers, server cost internals, and move execution
+detail belong to sibling research.
 
-## Facts: the shipped interest policy
+Scope of claims: everything under "Facts" was verified in this worktree at the
+cited lines on 2026-09-05 (base: v2@origin port, see verification0 §"Port to
+v2@origin"). "Analysis" and "Recommendations" are labeled as such. Unverified
+items are listed in [Open questions](#open-questions).
 
-`EventInterestProvider` sits inside `SessionTabsProvider`
-([app.tsx:385-386](/packages/tui/src/app.tsx#L385-L386)) and computes one
-declarative set
-([event-interest.tsx:17-31](/packages/tui/src/context/event-interest.tsx#L17-L31)):
+## Facts: the implemented policy
 
-| Held fact | Locations | Sessions |
+[`eventInterest`](/packages/tui/src/context/event-interest.tsx#L35-L65)
+computes one complete set and `setDesired`s it synchronously at provider init
+and reactively thereafter
+([L17-L31](/packages/tui/src/context/event-interest.tsx#L17-L31)):
+
+| Fact | Locations held | Sessions followed |
 | --- | --- | --- |
-| Launch Location (`props.launch`, resolved pre-render in `Tui.run`) | always | — |
-| Current Location context (`location.ref`) | while set | — |
-| Home route target (`route.location`) | while on home | — |
-| Session route root + family | every member's resolved Location | root + all family members |
-| Every open tab root + family (active scope) | every member's resolved Location | root + all family members |
+| Full resolved launch Ref | always (permanent) | none |
+| Current Location context (`/cd` slot) | while set | none |
+| Home route explicit target | while Home is the route | none |
+| Visible session route | root + every family member's known Location | root + family members |
+| Every open tab (active scope) | root + every family member's known Location | root + family members |
 
-`follow()` at
-[event-interest.tsx:49-57](/packages/tui/src/context/event-interest.tsx#L49-L57)
-expands any root to its whole family and holds each member's Location the
-moment it resolves in the store; `"dummy"` is skipped. Removals are never
-synchronous: the controller wraps removals in a 3-second grace
-(`removalGrace` at
-[controlled-event-feed.ts:60](/packages/client/src/solid/controlled-event-feed.ts#L60),
-`heldLocations`/`heldSessions` plus `scheduleRemovals`), and the launch
-Location is effectively permanent because Home falls back to it. The provider
-runs once synchronously at init and then reactively
-([event-interest.tsx:30-31](/packages/tui/src/context/event-interest.tsx#L30-L31));
-persisted tabs load synchronously before the stream opens, and first execution
-waits for the optimistic-session interest PUT
-([verification0](/.design/bus-smart/verification0.gpt56s.md) closeout items 1–2).
+`follow()` expands a root through `data.session.root()` + `family()` and holds
+each member's session ID plus its resolved Location
+([L49-L57](/packages/tui/src/context/event-interest.tsx#L49-L57)). `"dummy"`
+is skipped (L50). `EventInterestProvider` sits inside `SessionTabsProvider`
+and wraps `SessionTerminalsProvider`
+([app.tsx:386-432](/packages/tui/src/app.tsx#L386-L432)), receiving the launch
+Ref resolved before render.
 
-What the policy therefore achieves today: hidden/background tabs keep full
-state (family + Locations held), subagents of tabbed or routed sessions keep
-full state (family expansion), and cross-Location noise — other projects'
-sessions — is excluded. What it cannot achieve: excluding **other sessions at
-held Locations** (see [Same-project](#facts-the-same-project-concurrent-sessions-issue)).
+The client controller
+([`controlled-event-feed.ts`](/packages/client/src/solid/controlled-event-feed.ts))
+coalesces to the latest transport target, keeps removals for a 3 s grace
+(L60), keeps one PUT in flight (L90-L146), installs the initial target at the
+ready frame before activation (L157-L182), and falls back to legacy only on a
+pre-ready 404 (L162-L174). The TUI connection is wired to it unconditionally
+([client.tsx:24-41](/packages/tui/src/context/client.tsx#L24-L41),
+`subscribe: interest.subscribe`), so **the TUI already runs Location-scope
+attention as implemented behavior** — cross-project notifications are already
+suppressed in this stack's TUI; the open gate is sign-off, not code.
 
-## Facts: consumer inventory and event classes
+## Facts: what each TUI consumer actually needs
 
-The Session event manifest
-([session-event.ts:623-672](/packages/schema/src/session-event.ts#L623-L672))
-splits cleanly by rate and by who needs it:
+Every consumer reads the Solid global emitter
+([client.tsx:36-38](/packages/tui/src/context/client.tsx#L36-L38)) or the
+projected store; nothing in the TUI process opens its own stream (see
+[Firehose keepers](#facts-firehose-keepers)).
 
-- **Detail (transcript) class** — ephemeral, high-rate, only useful when a
-  transcript is loaded: `step.started/streamed/ended/failed`,
-  `text.started/delta/ended`, `reasoning.started/delta/ended`,
-  `tool.input.started/delta/ended`, `tool.called/progress/success/failed`,
-  `compaction.started/delta/ended/failed`, `message.content.updated`,
-  `retry.scheduled`.
-- **Summary (lifecycle) class** — low-rate: `created/deleted/renamed/forked/
-  moved/viewed`, `usage.updated`, `agent/model.selected`, `execution.*`,
-  `inbox.*`, `instructions.updated`, `synthetic`, `skill.activated`,
-  `shell.started/ended`, `revert.*`.
-- **Location-routed attention** (not SessionEvents, so exact-Session interest
-  can never admit them): `permission.asked/replied`
-  ([permission.ts:44-53](/packages/schema/src/permission.ts#L44-L53)),
-  `form.created/replied/cancelled`
-  ([form.ts:160-163](/packages/schema/src/form.ts#L160-L163)), `shell.*`.
-- **Bus-global residuals**: `persistent-pty.added/removed` (published without
-  Location; core
-  [persistent-pty/index.ts:152-174](/packages/core/src/persistent-pty/index.ts#L152-L174)),
-  `tui.prompt.append`/`tui.command.execute`, config/catalog/agent/credential/
-  plugin/project/vcs/mcp/websearch families.
+### Attention consumers (low-rate, cross-session)
 
-Which consumer needs which class:
+- **Notifications plugin**
+  ([notifications.ts:44-75](/packages/tui/src/feature-plugins/system/notifications.ts#L44-L75))
+  fires on exactly: `form.created`, `permission.asked`,
+  `session.execution.started` (bookkeeping), and
+  `session.execution.succeeded|interrupted|failed`. Subagents are detected via
+  `session.parentID` from the store (L11-12) and get sound only, no OS
+  notification (L16). Titles come from `data.session.get(sessionID)` — a store
+  lookup, undefined for never-synced sessions.
+- **Tab badges** ([session-tabs.tsx:155-175](/packages/tui/src/context/session-tabs.tsx#L155-L175)):
+  `attention` reads `permission.list`/`form.list` for **every family member**;
+  `busy` reads `status()` (`store.session.active`, fed by
+  `session.execution.*` → `setSessionActive`,
+  [data.ts:988-1007](/packages/client/src/solid/data.ts#L988-L1007)) and
+  `pending.list` (fed by `session.inbox.*`, data.ts:721-760). `unread` reads
+  root `info.time.idle/viewed` (info refreshed on execution end for tracked
+  sessions, data.ts:1014-1016).
+- **Session terminals**
+  ([session-terminals.tsx:50-59](/packages/tui/src/context/session-terminals.tsx#L50-L59)):
+  `persistent-pty.added|removed` (Bus-global per draft0's residual-overdelivery
+  note) plus `server.connected`; refresh is gated on the session already having
+  terminals locally, so foreign PTY events are dropped here.
+- **Home** ([home.tsx:36-38](/packages/tui/src/routes/home.tsx#L36-L38)):
+  global MCP elicitations (`form.*` with `sessionID: "global"`) for the
+  current Location.
+- **Location/plugin sync**: `server.connected`
+  ([location.tsx:48](/packages/tui/src/context/location.tsx#L48),
+  [plugin/context.tsx:510-511](/packages/tui/src/plugin/context.tsx#L510-L511)),
+  `plugin.updated`.
 
-| Consumer | Needs | Code |
-| --- | --- | --- |
-| Notifications plugin | summary `execution.*`; location-routed `permission.asked`, `form.created` (plus replied/cancelled for dedup sets) | [notifications.ts:44-75](/packages/tui/src/feature-plugins/system/notifications.ts#L44-L75) |
-| Tab badges (busy/attention/unread) | summary `execution.*`, `inbox.*`; location-routed permission/form per **family member** of every open tab | [session-tabs.tsx:155-175](/packages/tui/src/context/session-tabs.tsx#L155-L175) |
-| Solid projection | everything for tracked sessions; detail class only for sessions with loaded transcripts | [data.ts:567-1235](/packages/client/src/solid/data.ts#L567-L1235) |
-| Session terminals | Bus-global `persistent-pty.*` (gated on already-tracked sessions), `server.connected` | [session-terminals.tsx:50-67](/packages/tui/src/context/session-terminals.tsx#L50-L67) |
-| Home | global MCP forms (`form.created`, sessionID `"global"`) at the current Location | [home.tsx:36-38](/packages/tui/src/routes/home.tsx#L36-L38) |
-| Open dialog | HTTP `session.list`; wildcard `event.listen` used only as a deleted/moved race guard while the list is in flight | [dialog-open.tsx:47-71](/packages/tui/src/component/dialog-open.tsx#L47-L71) |
-| Plugin context | `plugin.updated`, `server.connected` via the TUI emitter | [plugin/context.tsx:510-511](/packages/tui/src/plugin/context.tsx#L510-L511) |
+### Detail consumers (high-rate, session-scoped)
 
-Two structural facts follow. First, **no TUI consumer needs the detail class
-for a session whose transcript is not loaded** — and transcript retention is
-tiny: `createSessionRetention` keeps the current session plus open tab roots,
-limit 3
-([session-tabs.tsx:142-148](/packages/tui/src/context/session-tabs.tsx#L142-L148)).
-Second, the notifications plugin and the dialog race guard ride the **TUI
-emitter** (`client.event.on/listen`, fed by the controlled connection at
-[client.tsx:36-41](/packages/tui/src/context/client.tsx#L36-L41)), while the
-Solid projection subscribes through `config.event.listen`
-([data.ts:1850-1851](/packages/client/src/solid/data.ts#L1850-L1851)). A
-projection-side guard therefore cannot silence notifications; the two surfaces
-are independently policy-able.
+- The **session transcript** projection: `session.step.*`, `session.text.*`,
+  `session.reasoning.*`, `session.tool.*`, `session.compaction.*`,
+  `session.message.content.updated`, `session.retry.scheduled`
+  (data.ts:818-1105). Streaming edits drop when the target message was never
+  loaded — `editAssistant`/`editText`/`editTool` no-op on index miss by design
+  ([data.ts:411-419](/packages/client/src/solid/data.ts#L411-L419)) — but every
+  one still enters `message.update` → `setStore(...produce(...))`
+  ([data.ts:394-401](/packages/client/src/solid/data.ts#L394-L401)), and
+  `session.step.started` materializes `draft[sessionID] ??= []` for unknown
+  sessions (L819, L399).
+- **Transcript retention is tiny**:
+  `createSessionRetention` keeps only the current session plus open-tab roots,
+  limit 3 ([session-tabs.tsx:142-148](/packages/tui/src/context/session-tabs.tsx#L142-L148)).
+  Detail-class events are semantically load-bearing for at most ~4 sessions;
+  for every other admitted session they are dead weight that the projection
+  already mostly drops after paying the store-write overhead.
+
+### Discovery/lifecycle consumers
+
+- `session.created` → unconditional `session.sync` HTTP read + tracking
+  ([data.ts:605-615](/packages/client/src/solid/data.ts#L605-L615));
+  `session.renamed` → same (L661-672). This fires for **every** admitted
+  foreign session create/rename — under Location scope, every new session any
+  other client starts in the same project.
+- `permission.asked` materializes `store.session.permission[sessionID]` for any
+  arriving session with **no info guard** (L1107-1113); `form.created` the same
+  (L1182-1188). For foreign sessions these store entries have no reader other
+  than the notifications plugin's title/parentID lookup.
+- `session.active` is hydrated **globally across Locations** by HTTP on
+  `server.connected` ([data.ts:569-589](/packages/client/src/solid/data.ts#L569-L589)),
+  so dialog running badges
+  ([dialog-open.tsx:123-124](/packages/tui/src/component/dialog-open.tsx#L123-L124),
+  [dialog-session-list.tsx:176-177](/packages/tui/src/component/dialog-session-list.tsx#L176-L177))
+  bootstrap for all projects but only update live for admitted sessions.
 
 ## Facts: firehose keepers
 
-**Inside the TUI process (controlled mode): none today.**
-`SharedEvents` ([shared-events.ts](/packages/client/src/shared-events.ts)) is a
-lazily-connected, refcounted legacy `GET /api/event` connection; the promise
-client wraps `event.subscribe` with it
-([promise/client.ts:12-16](/packages/client/src/promise/client.ts#L12-L16)).
-In the TUI, the only subscriber is the controlled feed's legacy fallback path
-([controlled-event-feed.ts:167-173](/packages/client/src/solid/controlled-event-feed.ts#L167-L173)),
-taken only when the server 404s the controlled endpoint. TUI plugins ride the
-Solid emitter, not the promise stream
-([plugin/context.tsx](/packages/tui/src/plugin/context.tsx)); the persistent
-terminal client uses HTTP token + socket, not the event feed
-([solid/pty.ts:43-46](/packages/client/src/solid/pty.ts#L43-L46)); the RPC
-event streams that do ride SharedEvents
-([promise/rpc.ts:70](/packages/client/src/promise/rpc.ts#L70)) have no TUI
-caller. The residual risk is silent: any future `api.event.subscribe` or
-`api.rpc(...).events.on` call in the TUI process opens a second, **global**
-SSE with no warning.
+Who still runs or could run the global feed:
 
-**Sibling clients that remain firehose consumers:**
+1. **TUI process, controlled mode: nobody.** No TUI source calls
+   `api.event.subscribe`; plugins use the TUI emitter, session-terminals uses
+   HTTP + emitter, the persistent-PTY client uses HTTP token + websocket
+   ([pty.ts:43-46](/packages/client/src/solid/pty.ts#L43-L46)). The promise
+   client's `SharedEvents` connection is lazy — it opens only on the first
+   iterator pull ([shared-events.ts:93-104](/packages/client/src/shared-events.ts#L93-L104))
+   and stops when the last subscriber leaves (L63).
+2. **TUI legacy fallback**: the controlled controller's 404 path subscribes to
+   `api.event.subscribe` ([controlled-event-feed.ts:173](/packages/client/src/solid/controlled-event-feed.ts#L173)),
+   which is the SharedEvents-wrapped legacy feed
+   ([promise/client.ts:10-17](/packages/client/src/promise/client.ts#L10-L17)).
+   Intended, but it means fallback mode is a full firehose plus SharedEvents
+   refcounting.
+3. **Latent risk**: any future TUI call to `api.event.subscribe` **or**
+   `api.rpc(def).events.on` (rpc event streams iterate the same SharedEvents
+   connection, [rpc.ts:68-82](/packages/client/src/promise/rpc.ts#L68-L82))
+   silently re-opens the global feed in-process. Nothing guards against this
+   today.
+4. **CLI**: noninteractive run mode and the ACP adapter subscribe globally
+   (line refs from [`review0`](/.design/bus-smart/review0.gpt56s.md) §2:
+   noninteractive.ts:70-73, acp/event.ts:85-90 — not re-verified this session).
+5. **mini transport**: `client.event.subscribe` directly
+   ([stream-v2.transport.ts:1426](/packages/tui/src/mini/stream-v2.transport.ts#L1426))
+   — always global, separate process.
+6. **App/desktop**: default adapter, no `subscribe` option
+   ([app/runtime/server/client.tsx:80-93](/packages/app/src/runtime/server/client.tsx#L80-L93));
+   app notifications listen on the SDK stream
+   ([notification.tsx:273](/packages/app/src/shell/notifications/notification.tsx#L273)).
+   Global by design; converting app is a draft0 non-goal.
+7. **Upstream comparison**: the local archive
+   (`~/archive/anomalyco/opencode`) predates both the upstream SharedEvents
+   wrapper and this stack (no `promise/client.ts`, no `event-interest.tsx`),
+   so parity facts come from verification0's port section: the wrapper arrived
+   from upstream during the rebase and this stack overrides only `subscribe`.
 
-- mini transport: unconditional global stream
-  ([stream-v2.transport.ts:1426](/packages/tui/src/mini/stream-v2.transport.ts#L1426));
-- CLI noninteractive and ACP: global by design
-  ([noninteractive.ts:70-73](/packages/cli/src/run/noninteractive.ts#L70-L73),
-  [acp/event.ts:85-90](/packages/cli/src/acp/event.ts#L85-L90));
-- app/desktop: default adapter, no controlled feed
-  ([client.tsx:80-93](/packages/app/src/runtime/server/client.tsx#L80-L93)); its
-  notification surface listens on the SDK stream
-  ([notification.tsx:273](/packages/app/src/shell/notifications/notification.tsx#L273)),
-  so the app retains server-wide attention today.
+## Facts: the same-project concurrent sessions issue
 
-The upstream archive checkout (`~/archive/anomalyco/opencode`) predates both
-SharedEvents and this stack (no `promise/client.ts`, no `event-interest.tsx`),
-so the port notes in
-[verification0](/.design/bus-smart/verification0.gpt56s.md#L83-L108) remain the
-authoritative upstream comparison: SharedEvents arrived from upstream during
-the rebase; `EventInterestProvider` is this stack's addition.
+This is the central remaining gap for the motivating workload:
 
-## Facts: the same-project concurrent-sessions issue
+- The launch Location is held **permanently**
+  ([event-interest.tsx:59](/packages/tui/src/context/event-interest.tsx#L59)),
+  and the admission predicate is Location-audience-based (draft0 §2). Every
+  event Bus routes to that directory — **every token of every session of every
+  client working in the same project**, including other TUIs' sessions and
+  their subagent families — is admitted.
+- The policy's Session dimension only *adds* recipients; it never narrows the
+  Location dimension. Holding the project is not optional, either:
+  `permission.asked`/`form.created` are **not** `SessionEvent.All` — they are
+  Location-routed ephemerals (absent from
+  [session-event.ts:623-672](/packages/schema/src/session-event.ts#L623-L672);
+  published from the Location-scoped permission service). Exact-Session
+  interest does not admit them. Dropping the Location hold would break this
+  TUI's own background-tab permission/form badges and notifications.
+- What the TUI pays per foreign same-project session under the current
+  projection:
+  - every `session.step.started` materializes an empty message array
+    (Solid store write, [data.ts:399](/packages/client/src/solid/data.ts#L399));
+  - every `session.text.delta`/`tool.input.delta`/`reasoning.delta` enters
+    `setStore(produce(...))` and drops at index miss;
+  - `session.created`/`renamed` trigger a full `session.sync` HTTP round trip
+    and store tracking, then retention eviction churn;
+  - `permission.asked`/`form.created`/`execution.*` materialize store entries
+    whose only reader is the notification title lookup.
+- Cross-Location (other-project) noise is already eliminated; **same-project
+  noise is bounded only by how much work happens in the launch project**. For
+  a user with many clients concentrated in few projects, this plausibly
+  remains the dominant TUI CPU path — this is analysis, not a measurement;
+  the live before/after gate (verification0) has not produced numbers.
 
-This is the dominant residual cost for a many-clients user, and it is
-structural: **the Location dimension cannot exclude foreign sessions, and the
-Location dimension cannot be dropped.**
+## Facts: viable coarse-vs-detail distinctions from schema and consumers
 
-1. Permission and form events are Location-routed, never `SessionEvent.All`
-   ([session-event.ts Definitions](/packages/schema/src/session-event.ts#L623-L672)
-   excludes them). Exact-Session interest alone cannot admit a followed
-   session's own `permission.asked`. So every followed session's Location must
-   be held — the policy holds it — and holding a Location admits **every**
-   session Bus routes there.
-2. With several clients working in one repo, each TUI therefore receives every
-   other client's full stream. Projection consequences, all unguarded:
-   - foreign `session.created` and `session.renamed` trigger HTTP `session.sync`
-     and store tracking
-     ([data.ts:605-615](/packages/client/src/solid/data.ts#L605-L615),
-     [data.ts:661-672](/packages/client/src/solid/data.ts#L661-L672));
-   - `session.step.started` calls `message.update`, which materializes an empty
-     message array for the unknown session
-     ([data.ts:818-850](/packages/client/src/solid/data.ts#L818-L850);
-     `draft[sessionID] ??= []` at
-     [data.ts:399](/packages/client/src/solid/data.ts#L399));
-   - every text/tool/reasoning/compaction delta then enters a Solid
-     `setStore(...produce(...))` even though `editAssistant`/`editText`/`editTool`
-     drop the write because the target row was never loaded
-     ([data.ts:411-419](/packages/client/src/solid/data.ts#L411-L419));
-   - foreign `permission.asked`/`form.created` materialize permission/form store
-     entries with no tracking guard
-     ([data.ts:1107-1113](/packages/client/src/solid/data.ts#L1107-L1113),
-     [data.ts:1182-1188](/packages/client/src/solid/data.ts#L1182-L1188));
-   - foreign `execution.*` update the global active map
-     ([data.ts:988-990](/packages/client/src/solid/data.ts#L988-L990)).
-3. [review0](/.design/bus-smart/review0.gpt56s.md) finding 5 predicted exactly
-   this ("foreign deltas are not merely cheap no-ops") and recommended a
-   tracked-session projection guard as the **first** patch. That guard was
-   never implemented: `handleEvent` today has no interest/tracking predicate
-   (verified — no guard exists in
-   [data.ts](/packages/client/src/solid/data.ts)); the stack went straight to
-   transport scoping, which fixes cross-project volume but leaves same-project
-   projection work intact.
+The event manifest supports a clean split because **no cross-session consumer
+reads the detail class**:
 
-So today's matrix: cross-project noise — gone at the transport; same-project
-noise — fully present on the wire **and** in the projection.
+| Class | Members (from session-event.ts Definitions + data.ts consumers) | Consumers |
+| --- | --- | --- |
+| Detail (streaming) | `session.step.*`, `session.text.*`, `session.reasoning.*`, `session.tool.*`, `session.compaction.*`, `session.message.content.updated`, `session.retry.scheduled` | transcript projection only; load-bearing only for visible/retained sessions (≤ current + 3 tab roots) |
+| Summary (lifecycle) | `session.created/deleted/renamed/forked/moved/viewed`, `session.usage.updated`, `session.agent.selected`, `session.model.selected`, `session.execution.*`, `session.inbox.*`, `session.instructions.updated`, `session.synthetic`, `session.skill.activated`, `session.shell.started/ended`, `session.revert.*` | notifications, tab badges, dialogs, store tracking |
+| Attention (Location-routed, not SessionEvents) | `permission.asked/replied`, `form.created/replied/cancelled` | notifications, tab badges, Home global forms, prompt |
+| Location/config | `shell.*`, `persistent-pty.*`, project/config/catalog/agent/command/skill/integration/credential/plugin/reference/vcs/mcp/websearch/filesystem/tui/installation/server/worktree/workspace events | various scoped UIs; mostly low-rate |
 
-## Facts: coarse summary vs session detail — what is viable
+Three implementable shapes follow:
 
-Given the schema split and the consumer table, three cuts are real:
+- **(a) Client-side projection guard** (no wire change): drop detail-class
+  handlers for sessions that are not tracked (not in `store.session.info`,
+  outbox, route, tabs, or retention-kept). `editAssistant` already drops the
+  payloads; the guard removes the per-event `produce()` cost and empty-array
+  materialization. Notifications are unaffected (they consume the emitter and
+  the summary/attention classes). This is review0's recommended first patch,
+  and it is **still unimplemented** — verified by reading the handlers; no
+  tracking guard exists in data.ts.
+- **(b) Per-session fidelity tiers in admission**: extend `EventInterest`
+  sessions to carry `{ id, fidelity: "detail" | "summary" }`; the server
+  admits summary-tier sessions' events from the summary class only. This is
+  an event-type filter scoped per followed session — draft0 made event-type
+  filters a non-goal for *authorization*, but same-project load may justify
+  reopening it as a *volume* mechanism. Kills foreign same-project streaming
+  at the wire, not just the projection. Requires Protocol/Server change
+  (sibling agent's ownership) with the TUI declaring tiers.
+- **(c) Server-side attention aggregate** (draft0's server-wide option): a new
+  low-rate event summarizing running/idle/attention across the server.
+  Out of TUI scope; noted for completeness.
 
-- **(a) Client-side projection guard** (no wire change). Drop detail-class
-  handling for sessions without a loaded transcript or tracked info, and gate
-  the unguarded HTTP revalidations (`session.created`/`renamed` sync, with the
-  review0 caveat about keeping optimistic and explicitly-synced sessions
-  working). Removes store writes and HTTP churn for foreign same-project
-  sessions; events still cross the wire, so parse and emitter fan-out cost
-  remains. This is review0's first patch, still missing.
-- **(b) Tiered session fidelity in `EventInterest`** (wire change; reopens
-  draft0's "no event-type filters" non-goal deliberately). The interest's
-  `sessions` dimension gains a fidelity tier — full for route/tab families,
-  summary for everything else at held Locations. The server admits only the
-  summary class for summary-tier sessions. Permission/form are unaffected
-  (Location-routed). This is the only option that removes same-project token
-  volume from the wire while keeping background notifications and badges
-  intact, because the summary class is exactly what those consumers read.
-- **(c) Server aggregate attention event.** A new low-rate event (for example
-  a per-session attention state change) that replaces even the summary stream
-  for unfollowed sessions; draft0 already names this as the mechanism if
-  machine-wide attention is ever required. Largest change, server-owned, out
-  of TUI scope.
+## Analysis: blind spots in the current policy
 
-A "coarse summary" that keeps per-token deltas for followed sessions and none
-for foreign same-project sessions is precisely (b); (a) is its projection-side
-subset and needs no protocol work.
-
-## Blind spots (enumerated)
-
-1. **Same-project detail flood** — the central gap; see above.
-2. **Foreign created/renamed HTTP churn** — every new session another client
-   creates in a held Location costs this TUI a full `session.sync` read.
-3. **Foreign attention ambiguity** — another client's `permission.asked` /
-   `form.created` / `execution.*` in the same project fires this TUI's
-   notification (sound always; OS notification unless the session is a
-   subagent — [notifications.ts:11-18](/packages/tui/src/feature-plugins/system/notifications.ts#L11-L18)).
-   Nobody chose this; it fell out of Location scoping.
-4. **Notification metadata dependency** — `notify()` reads `data.session.get`
-   for title and `parentID`; a projection guard that stops tracking foreign
-   sessions entirely would degrade foreign notifications to title-less pings.
-   The guard must keep summary-class tracking for held-Location sessions.
-5. **Stale dialog badges cross-project** — the open dialog's running check
-   reads the store's active map
-   ([dialog-open.tsx:123-124](/packages/tui/src/component/dialog-open.tsx#L123-L124),
-   [dialog-session-list.tsx:176-177](/packages/tui/src/component/dialog-session-list.tsx#L176-L177));
-   the map is hydrated globally at `server.connected` via `session.active()`
-   ([data.ts:573-585](/packages/client/src/solid/data.ts#L573-L585)) but live
-   foreign execution events no longer arrive, so a foreign session's state can
-   go stale between reconnects while the dialog is open.
-6. **Dialog race guard scope** — the deleted/moved guard
-   ([dialog-open.tsx:50-53](/packages/tui/src/component/dialog-open.tsx#L50-L53))
-   now misses foreign-project deletions; worst case is a stale row until the
-   dialog reopens.
-7. **Bus-global residuals** — `persistent-pty.*` for every session, `tui.*`,
-   and the config/catalog families still reach every subscriber regardless of
-   interest (session-terminals ignores foreign PTYs; nobody else chokes on
-   them, but they are unscoped volume).
-8. **Silent SharedEvents reopen** — any future in-process `api.event.subscribe`
-   or RPC-events subscriber reopens the global firehose with no diagnostic.
-9. **Legacy fallback is a behavior cliff** — on an older elected server the
-   TUI silently returns to the full firehose (mode-visible, but a real
-   performance regression for this user's server fleet during rollout).
-10. **`tabs.scope: "global"` widens correctly** — restored tabs across projects
-    hold all their Locations (intended per
-    [research-tui-interest0](/.design/bus-smart/research-tui-interest0.glm53.md));
-    worth stating in draft1 so it is not mistaken for a leak.
+1. **Same-project overdelivery** (above) — the policy has no lever for it.
+2. **Foreign `session.created`/`renamed` HTTP sync churn** — unconditional,
+   includes sessions this TUI will never display outside a dialog.
+3. **Foreign permission/form store materialization** — write-only state whose
+   only reader is the notification title; if (a) is implemented, decide
+   deliberately whether foreign-session notifications carry titles (keep sync)
+   or go titleless (drop sync for untracked sessions).
+4. **Residual global events**: `persistent-pty.added/removed` for every server
+   session (handler drops foreign ones, but wire + parse remain),
+   `tui.prompt.append`/`tui.command.execute` (client-injected, always global),
+   plus the config/catalog family. Low rate; acceptable.
+5. **Dialog running-badge staleness**: `store.session.active` hydrates
+   globally at `server.connected` but updates live only for admitted sessions,
+   so a foreign-project session's badge can go stale while its dialog is open.
+   Pre-existing controlled-mode behavior; worth a release note, not a fix.
+6. **Legacy fallback is the firehose**: on old servers the TUI silently
+   returns to global delivery (mode is observable — `interest.mode()` — but
+   nothing in the UI surfaces it).
+7. **Nothing prevents a future in-process `api.event.subscribe`/rpc-events
+   call from silently reopening the global feed** (SharedEvents is lazy and
+   refcounted, not interest-aware).
+8. **Hidden tabs and subagents are correctly covered**: every open tab's
+   root+family is followed regardless of visibility, so hidden-tab badges,
+   subagent sounds (`subagent_done`), and pending-inbox badges keep working —
+   verified policy shape, exercised by the interest tests per verification0.
+   Tightening attention to "visible only" would break these; any tighter
+   predicate must retain the family-of-open-tabs dimension.
 
 ## Recommendations for draft1
 
-- **R1 — In scope (client/TUI): implement the tracked-session projection
-  guard.** Review0's first patch, still missing. Guard the detail-class
-  handlers and the unguarded created/renamed revalidations on "transcript
-  materialized or session tracked (info present, outbox, sync in flight)",
-  keep summary-class handling unguarded so notifications, titles, and badges
-  keep working, and add review0's flood regression test. This is the
-  same-project CPU fix that needs no protocol change.
-- **R2 — In scope (TUI): make the attention predicate explicit in the
-  notifications plugin.** Default preserves today's behavior exactly (fire on
-  everything admitted). Ship a tighter "tracked families only" predicate as an
-  opt-in experiment via the TUI experiments registry
-  (`dialog-experiments.tsx`, gated by `config.experimental`), not as a
-  default. This converts draft0's open notification gate from an implicit
-  transport consequence into an explicit, reversible product choice.
-- **R3 — Decision item for draft1 (cross-agent seam): tiered session fidelity
-  in `EventInterest`.** Specify the vocabulary (`sessions` with
-  `full`/`summary` tiers; TUI declares full for route/tab families, summary
-  for everything else at held Locations) and pin the summary-class list from
-  the table above. Admission mechanics belong to the server-owning thread;
-  this is the upstreamable fix for same-project wire volume if measurement
-  after R1 still shows material transport cost.
-- **R4 — Out of scope, recorded:** server-wide attention aggregate (only if
-  machine-wide attention becomes a requirement), app/CLI/mini conversion to
-  the controlled feed, and `persistent-pty` reclassification (producer-side
-  fix per draft0's residual-overdelivery rule).
+### Scope
 
-## Notification product choice — explicit, with a safe default
+1. **Keep the controlled transport and policy as implemented.** Do not widen
+   or narrow the interest vocabulary in draft1.
+2. **Add the projection guard (shape (a))** for detail-class session events of
+   untracked sessions, with review0's regression test (flood an unknown
+   session: no HTTP reads, no store materialization; tracked sessions and
+   optimistic creates unaffected). This is the TUI-scope answer to the
+   same-project issue and removes the largest remaining per-event CPU cost
+   without any wire change. Default-safe: it changes no user-visible surface
+   (detail events for untracked sessions are already semantically dropped
+   after the store write).
+3. **Make the attention predicate explicit** in the notifications plugin
+   (see below) so transport scope and product attention stop being the same
+   accidental line of code.
+4. **Delegate same-project wire reduction (shape (b)) to the server-side
+   draft1 work** as an option with concrete input: the tier split in the
+   table above, the constraint that permission/form must stay Location-
+   admitted, and the TUI's willingness to declare `{route, tabs, family}`
+   sessions as `detail` and everything else Location-borne as `summary`.
+   Do not implement (b) from the TUI side in draft1.
+5. Leave (c), dialog staleness (#5), and app/CLI conversion explicitly out.
 
-| Policy | Meaning | Consequence |
-| --- | --- | --- |
-| **Location/project scope (safe default)** | Notify for any session at a retained Location | Current post-controlled behavior; no user-visible change; same-project foreign sessions still notify |
-| Tracked families only (opt-in experiment) | Notify only for route/tab session families | Tighter and quieter; implemented as a client-side predicate in the notifications plugin, independent of transport and stable in legacy fallback |
-| Server-wide attention | Notify for every session on the server | Requires a new low-rate aggregate event; server-owned; not justified by current demand |
+### Notification product choice — recommendation with safe default
 
-**Recommended default: Location/project scope with R2's predicate explicitly
-preserving it.** The tighter scope is an experiment the user can enable; the
-default ships no behavior loss, and no approval of notification loss is
-claimed here — cross-project notifications are already gone under the shipped
-controlled feed, and same-project scoping remains the user's explicit choice.
+No user approval of attention loss has been given; nothing below claims it.
 
-## Open / unverified questions
+- **Default (recommended): Location/project attention, made explicit.** Keep
+  exactly today's implemented behavior — notify for any session Bus routes to
+  a held Location (own tabs/families, plus same-project foreign sessions) —
+  but move the decision into a named predicate in the notifications plugin so
+  it survives legacy fallback unchanged and is auditable. Same-project foreign
+  notifications are arguably correct: another client's agent finishing in
+  this project is information this terminal's user chose to enter.
+- **Opt-in tightening (recommended as an experiment): tracked-family
+  attention.** Same predicate, plus `sessionID ∈ followed families ∪ {global}`
+  gating. Loses same-project foreign notifications (their owning client still
+  notifies) and keeps tabs/subagents/Home global forms. Ship behind the
+  TUI experiments registry (`dialog-experiments.tsx` + `config.experimental`
+  per package AGENTS), not as a silent default.
+- **Server-wide attention stays open** as the third draft0 option; requires
+  the aggregate event (c) and is not part of the TUI decision.
 
-- `session.usage.updated` rate (per step? per execution?) — affects summary-class
-  sizing for R3; not measured here.
-- Whether prompt footer's running count
-  ([footer.tsx:24](/packages/tui/src/feature-plugins/prompt/footer.tsx#L24))
-  reads family members or a wider set — partially read, unverified.
-- Whether the app's SharedEvents connection is per-window or process-wide in
-  desktop builds — the default-adapter fact stands, topology unverified.
-- Live before/after CPU numbers remain blocked by the environment startup
-  issue ([verification0](/.design/bus-smart/verification0.gpt56s.md) gate 2);
-  R1's effect on the same-project reproduction is therefore predicted from
-  code, not measured.
-- Whether any v1 compatibility events (`message.part.*`) still reach the TUI —
-  excluded from current Protocol per the schema package rules, assumed absent.
+The release-gate resolution draft1 should record: default = Location scope
+with the explicit predicate; family scope available behind an experiment;
+server-wide deferred. Final sign-off remains the user's.
+
+## Open questions
+
+- What does `dialog-open.tsx:50`'s `client.event.listen` do with non-session
+  events (does any dialog rely on live detail-class updates)?
+- Does `tabs.tabs()` (consumed by `eventInterest`) return exactly the
+  active-scope tab set, including `tabs.scope: "global"` cross-project tabs?
+  (Intent per research0 S18; accessor not re-verified.)
+- Which `session.*` definitions are durable vs ephemeral was not re-derived
+  per-item; the detail/summary split here is by consumer function, which is
+  the split draft1 needs, but a tier enum on the wire would need the
+  durability flags checked.
+- Does the footer's "other running sessions" count
+  ([prompt/footer.tsx:24](/packages/tui/src/feature-plugins/prompt/footer.tsx#L24))
+  iterate family members only, or a broader set? Affects nothing in the
+  recommendations but should be pinned before tightening attention.
+- Measurement: no live numbers exist yet for how much same-project foreign
+  streaming costs (verification0's live gate). The projection guard's payoff
+  and the case for shape (b) both hang on it.
+- CLI consumer line numbers (noninteractive, ACP) are cited from review0 and
+  not re-verified this session.
 
 ## Cross-references
 
-- [Directional draft](/.design/bus-smart/draft0.gpt56s.md) — §5 defined this
-  policy's shape and left the notification scope as its open gate; R2 answers
-  it without transport change.
-- [TUI interest research](/.design/bus-smart/research-tui-interest0.glm53.md) —
-  the S1–S18 trigger map this implementation collapsed into one declarative
-  function; its removal-hysteresis and family-hold conclusions are confirmed
-  in code here.
-- [Downstream review](/.design/bus-smart/review0.gpt56s.md) — finding 5 is the
-  same-project projection cost; its first-patch recommendation became R1.
-- [Verification](/.design/bus-smart/verification0.gpt56s.md) — implementation
-  and port state; its two release gates frame this wave.
-- [Bus audience research](/.design/bus-smart/research-bus-audience0.glm53.md) —
-  why permission/form events are Location-routed and cannot be followed by
-  exact-Session interest (the constraint that forces Location holds).
+- [Draft0](/.design/bus-smart/draft0.gpt56s.md) — §"Notification scope:
+  release gate" and Open item 1 are what this document resolves into a
+  recommendation; §"Known residual overdelivery" anticipated the
+  persistent-PTY global case verified here.
+- [TUI interest research 0](/.design/bus-smart/research-tui-interest0.glm53.md) —
+  the S1-S18 trigger map and the "interest is the notification scope" note;
+  this document confirms its family/unread/readership predictions against the
+  implemented policy and adds the consumer-class analysis it lacked.
+- [Review0](/.design/bus-smart/review0.gpt56s.md) — finding 5 ("the hottest
+  client work is understated") and the recommended first patch; this document
+  verifies the projection costs remain unguarded post-transport-work and
+  carries the recommendation into draft1 scope.
+- [Verification0](/.design/bus-smart/verification0.gpt56s.md) — implementation
+  and port state; source for the SharedEvents-wrapper drift and the two open
+  release gates this document addresses.
+- [Controlled feed client](/packages/client/src/solid/controlled-event-feed.ts)
+  and [event interest policy](/packages/tui/src/context/event-interest.tsx) —
+  the implemented surfaces this research measured against.
