@@ -19,6 +19,12 @@ sources:
 
 # Controlled event feed verification
 
+> Follow-up: [draft1](/.design/bus-smart/draft1.gpt6a.md) and its
+> [implementation plan](/.design/bus-smart/implementation1.gpt6a.md) define the
+> proposed post-rebase direction and new acceptance gates. Results below belong
+> to the original implementation; they do not establish draft1 performance or
+> completed-state convergence under stale snapshot responses.
+
 ## Closeout changes
 
 The implementation now includes the acceptance work that followed the initial vertical slice:

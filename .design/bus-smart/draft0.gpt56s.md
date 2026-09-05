@@ -49,6 +49,12 @@ sources:
 
 # Controlled event feed — directional draft
 
+> Follow-up: [draft1](/.design/bus-smart/draft1.gpt6a.md) reassesses this design
+> after the rebase and proposes Session-scoped streaming with broad remaining
+> observation. This document remains the detailed baseline for the existing
+> Location profile; [implementation1](/.design/bus-smart/implementation1.gpt6a.md)
+> describes the new implementation direction and unresolved verification gates.
+
 ## Direction
 
 Build one new experimental **controlled event feed** and make the V2 TUI its

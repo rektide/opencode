@@ -34,6 +34,12 @@ sources:
 
 # draft1 observation semantics review
 
+> Subsequent correction: the [client implementation assessment](/.design/bus-smart/implementation-research1-client.gpt6a.md)
+> retracts F4's unconditional convergence claim, locates actual visible/hidden
+> transcript reads beyond F3's metadata gate, and corrects the retention bound.
+> Read [implementation1](/.design/bus-smart/implementation1.gpt6a.md) for the
+> reconciled plan. The original review below is preserved as research history.
+
 ## Verdict
 
 [draft1](/.design/bus-smart/draft1.gpt6a.md) is implementable as scoped. The

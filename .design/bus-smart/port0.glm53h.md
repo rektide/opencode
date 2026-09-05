@@ -19,6 +19,11 @@ sources:
 
 # Port to v2@origin
 
+> Follow-up: the [draft1 reassessment](/.design/bus-smart/draft1.gpt6a.md) and
+> [implementation analysis](/.design/bus-smart/implementation1.gpt6a.md) examine
+> the semantic seams this port preserved. The recorded tests below are historical
+> port evidence, not proof of a CPU improvement or snapshot/live convergence.
+
 ## Situation
 
 The bus-smart stack (38 commits, 16 code) was built on `lmpvpwvxrwvv` (#46171). By port time `v2@origin` had advanced 376 commits to `lwoszptrpqvn` (#47464). The stack was rebased in place with `jj rebase -s ykvlyyxlvllo -d v2@origin`; conflicts were resolved per-commit bottom-up with jj's `new` → resolve → `squash` flow, preserving the original commit boundaries and messages.
