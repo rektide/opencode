@@ -1237,7 +1237,7 @@ const EndpointEventControlledReplaceInterests =
     preserveEffect<EventControlledReplaceInterestsOutput>()(
       raw["event.controlled.replaceInterests"]({
         params: { subscriptionID: input["subscriptionID"] },
-        payload: { locations: input["locations"], sessions: input["sessions"] },
+        payload: { locations: input["locations"], sessions: input["sessions"], profile: input["profile"] },
       }).pipe(Effect.mapError(mapClientError)),
     )
 

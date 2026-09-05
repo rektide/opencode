@@ -1642,7 +1642,10 @@ export type SessionStatusUpdated = {
   data: { sessionID: string; status: SessionStatus }
 }
 
-export type EventFeedReady = { type: "event-feed.ready"; data: { subscriptionID: EventSubscriptionID } }
+export type EventFeedReady = {
+  type: "event-feed.ready"
+  data: { subscriptionID: EventSubscriptionID; profiles?: Array<"location" | "session-streaming"> }
+}
 
 export type ReferenceSource = ReferenceLocalSource | ReferenceGitSource
 
@@ -5776,11 +5779,18 @@ export type EventControlledReplaceInterestsInput = {
   readonly locations: {
     readonly locations: ReadonlyArray<{ readonly directory: string; readonly workspaceID?: string }>
     readonly sessions: ReadonlyArray<string>
+    readonly profile?: "location" | "session-streaming"
   }["locations"]
   readonly sessions: {
     readonly locations: ReadonlyArray<{ readonly directory: string; readonly workspaceID?: string }>
     readonly sessions: ReadonlyArray<string>
+    readonly profile?: "location" | "session-streaming"
   }["sessions"]
+  readonly profile?: {
+    readonly locations: ReadonlyArray<{ readonly directory: string; readonly workspaceID?: string }>
+    readonly sessions: ReadonlyArray<string>
+    readonly profile?: "location" | "session-streaming"
+  }["profile"]
 }
 
 export type EventControlledReplaceInterestsOutput = void

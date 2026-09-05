@@ -14878,6 +14878,10 @@
               "type": "string",
               "pattern": "^ses"
             }
+          },
+          "profile": {
+            "type": "string",
+            "enum": ["location", "session-streaming"]
           }
         },
         "required": ["locations", "sessions"],

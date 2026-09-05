@@ -1624,6 +1624,7 @@ export type EventControlledReplaceInterestsInput = {
   readonly subscriptionID: string & Brand.Brand<"EventSubscription.ID">
   readonly locations: ReadonlyArray<Location.Ref>
   readonly sessions: ReadonlyArray<Session.ID>
+  readonly profile?: "location" | "session-streaming" | undefined
 }
 export type EventControlledReplaceInterestsOutput = void
 export type EventControlledReplaceInterestsOperation<E = never> = (

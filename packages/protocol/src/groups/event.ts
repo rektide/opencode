@@ -2,6 +2,8 @@ import { Event } from "@opencode-ai/schema/event"
 import { EventManifest } from "@opencode-ai/schema/event-manifest"
 import { Location } from "@opencode-ai/schema/location"
 import { Session } from "@opencode-ai/schema/session"
+import { SessionEvent } from "@opencode-ai/schema/session-event"
+import { optional } from "@opencode-ai/schema/schema"
 import type { Definition } from "@opencode-ai/schema/event"
 import { Schema } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
@@ -22,16 +24,30 @@ export class EventSubscriptionNotFoundError extends Schema.TaggedError<EventSubs
   { httpApiStatus: 404 },
 ) {}
 
+export const EventFeedProfile = Schema.Literals(["location", "session-streaming"])
+
+const streamingTypes = new Set<string>([
+  SessionEvent.Text.Delta.type,
+  SessionEvent.Reasoning.Delta.type,
+  SessionEvent.Tool.Input.Delta.type,
+  SessionEvent.Tool.Progress.type,
+  SessionEvent.Compaction.Delta.type,
+])
+
+/** Delivery policy, not authorization. Every other public type stays broad. */
+export const isStreamingEvent = (event: { readonly type: string }) => streamingTypes.has(event.type)
+
 export interface EventInterest extends Schema.Schema.Type<typeof EventInterest> {}
 export const EventInterest = Schema.Struct({
   locations: Schema.Array(Location.Ref),
   sessions: Schema.Array(Session.ID),
+  profile: EventFeedProfile.pipe(optional),
 }).annotate({ identifier: "EventInterest" })
 
 export interface EventFeedReady extends Schema.Schema.Type<typeof EventFeedReady> {}
 export const EventFeedReady = Schema.Struct({
   type: Schema.Literal("event-feed.ready"),
-  data: Schema.Struct({ subscriptionID: EventSubscriptionID }),
+  data: Schema.Struct({ subscriptionID: EventSubscriptionID, profiles: Schema.Array(EventFeedProfile).pipe(optional) }),
 }).annotate({ identifier: "EventFeedReady" })
 
 const fields = {

@@ -1681,7 +1681,7 @@ export function make(options: ClientOptions) {
             {
               method: "PUT",
               path: `/api/experimental/event/subscriptions/${encodeURIComponent(input.subscriptionID)}/interests`,
-              body: { locations: input["locations"], sessions: input["sessions"] },
+              body: { locations: input["locations"], sessions: input["sessions"], profile: input["profile"] },
               successStatus: 204,
               declaredStatuses: [400, 401, 404],
               empty: true,
