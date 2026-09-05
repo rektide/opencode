@@ -53,9 +53,13 @@ type Target = {
 
 export interface NativeInterface {
   readonly subscribe: (
-    input: Target & { readonly publish: (update: Update) => void },
+    input: Target & { readonly publish: (update: Update) => void; readonly invalidate?: () => void },
   ) => Effect.Effect<Subscription | undefined>
 }
+
+type NativeSignal =
+  | { readonly type: "update"; readonly update: Update }
+  | { readonly type: "invalidation" }
 
 /** Uses fs.watch for immediate entries and Parcel for recursive directories. */
 export class Native extends Context.Service<Native, NativeInterface>()("@opencode/Watcher/Native") {}
@@ -94,11 +98,14 @@ export const layer = (options?: Options) =>
       const watchers = yield* RcMap.make({
         lookup: (key: Target) =>
           Effect.gen(function* () {
-            const pubsub = yield* Effect.acquireRelease(PubSub.unbounded<Update>(), (pubsub) => PubSub.shutdown(pubsub))
+            const pubsub = yield* Effect.acquireRelease(PubSub.unbounded<NativeSignal>(), (pubsub) =>
+              PubSub.shutdown(pubsub),
+            )
             const subscription = yield* Effect.acquireRelease(
               native.subscribe({
                 ...key,
-                publish: (update) => PubSub.publishUnsafe(pubsub, update),
+                publish: (update) => PubSub.publishUnsafe(pubsub, { type: "update", update }),
+                invalidate: () => PubSub.publishUnsafe(pubsub, { type: "invalidation" }),
               }),
               (subscription) =>
                 subscription
@@ -141,7 +148,15 @@ export const layer = (options?: Options) =>
             const subscription = yield* PubSub.subscribe(pubsub)
             if (yield* PubSub.isShutdown(pubsub)) return Stream.empty
             yield* onReady
-            return Stream.fromSubscription(subscription)
+            return Stream.fromSubscription(subscription).pipe(
+              Stream.mapEffect((signal): Effect.Effect<NativeSignal> =>
+                signal.type === "invalidation" ? onReady.pipe(Effect.as(signal)) : Effect.succeed(signal),
+              ),
+              Stream.filter(
+                (signal): signal is Extract<NativeSignal, { readonly type: "update" }> => signal.type === "update",
+              ),
+              Stream.map((signal) => signal.update),
+            )
           }),
         )
       })

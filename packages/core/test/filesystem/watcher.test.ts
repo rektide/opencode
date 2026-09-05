@@ -202,6 +202,103 @@ describe("Watcher lifecycle", () => {
     }).pipe(withNative(native))
   })
 
+  it.effect("reruns readiness for every shared subscriber before delivering later updates", () =>
+    Effect.gen(function* () {
+      const control = yield* Deferred.make<{
+        publish: (update: Watcher.Update) => void
+        invalidate: () => void
+      }>()
+      const initial = {
+        first: yield* Deferred.make<void>(),
+        second: yield* Deferred.make<void>(),
+      }
+      const invalidated = {
+        first: yield* Deferred.make<void>(),
+        second: yield* Deferred.make<void>(),
+      }
+      const resumed = yield* Deferred.make<void>()
+      const delivered = {
+        first: yield* Deferred.make<void>(),
+        second: yield* Deferred.make<void>(),
+      }
+      const counts = { subscribes: 0, unsubscribes: 0, firstReady: 0, secondReady: 0 }
+      const updates = { first: [] as Watcher.Update[], second: [] as Watcher.Update[] }
+      const ready = (subscriber: "first" | "second") =>
+        Effect.gen(function* () {
+          const key = subscriber === "first" ? "firstReady" : "secondReady"
+          counts[key]++
+          if (counts[key] === 1) {
+            yield* Deferred.succeed(initial[subscriber], undefined)
+            return
+          }
+          yield* Deferred.succeed(invalidated[subscriber], undefined)
+          yield* Deferred.await(resumed)
+        })
+      const native: Watcher.NativeInterface = {
+        subscribe: (input) =>
+          Effect.gen(function* () {
+            counts.subscribes++
+            yield* Deferred.succeed(control, {
+              publish: input.publish,
+              invalidate: input.invalidate ?? (() => expect.unreachable("missing invalidation callback")),
+            })
+            return {
+              unsubscribe: () => {
+                counts.unsubscribes++
+                return Promise.resolve()
+              },
+            }
+          }),
+      }
+
+      yield* Effect.gen(function* () {
+        const watcher = yield* Watcher.Service
+        const firstStream = yield* watcher.subscribe({ path: "/shared", type: "directory" }, ready("first"))
+        const secondStream = yield* watcher.subscribe({ path: "/shared", type: "directory" }, ready("second"))
+        const first = yield* firstStream.pipe(
+          Stream.runForEach((update) =>
+            Effect.sync(() => updates.first.push(update)).pipe(
+              Effect.andThen(Deferred.succeed(delivered.first, undefined)),
+            ),
+          ),
+          Effect.forkScoped({ startImmediately: true }),
+        )
+        const second = yield* secondStream.pipe(
+          Stream.runForEach((update) =>
+            Effect.sync(() => updates.second.push(update)).pipe(
+              Effect.andThen(Deferred.succeed(delivered.second, undefined)),
+            ),
+          ),
+          Effect.forkScoped({ startImmediately: true }),
+        )
+        yield* Deferred.await(initial.first)
+        yield* Deferred.await(initial.second)
+        expect(counts.subscribes).toBe(1)
+
+        const callbacks = yield* Deferred.await(control)
+        callbacks.invalidate()
+        yield* Deferred.await(invalidated.first)
+        yield* Deferred.await(invalidated.second)
+        callbacks.publish({ path: "/shared/opencode.json", type: "update" })
+        expect(yield* Deferred.isDone(delivered.first)).toBe(false)
+        expect(yield* Deferred.isDone(delivered.second)).toBe(false)
+
+        yield* Deferred.succeed(resumed, undefined)
+        yield* Deferred.await(delivered.first)
+        yield* Deferred.await(delivered.second)
+        expect(counts.firstReady).toBe(2)
+        expect(counts.secondReady).toBe(2)
+        expect(updates.first).toEqual([{ path: "/shared/opencode.json", type: "update" }])
+        expect(updates.second).toEqual([{ path: "/shared/opencode.json", type: "update" }])
+
+        yield* Fiber.interrupt(first)
+        expect(counts.unsubscribes).toBe(0)
+        yield* Fiber.interrupt(second)
+        expect(counts.unsubscribes).toBe(1)
+      }).pipe(withNative(native))
+    }),
+  )
+
   it.effect("scope shutdown releases an active subscription exactly once", () => {
     const { native, counts } = countingNative()
     return Effect.gen(function* () {
