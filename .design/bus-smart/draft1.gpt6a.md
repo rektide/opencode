@@ -122,8 +122,8 @@ type EventInterest = {
   are not silently classified as streaming.
 - This is performance selection, never authorization.
 
-Add an optional supported-profile list to `event-feed.ready`. Missing list
-means only the existing Location contract is known. The new client must not
+Add an optional `profiles` list to `event-feed.ready.data`. Missing or empty
+list means only the existing Location contract is known. The new client must not
 send a new field to an old server and interpret a 204 as capability evidence:
 older decoders may ignore fields they do not understand.
 
@@ -140,6 +140,11 @@ For the candidate TUI mode:
 This adds bounded negotiation, not repeated probing within one attempt. A
 later connection-owned attempt probes the newly selected server again. Old
 clients may ignore the added ready field and continue with Location behavior.
+
+New TUI plus an older draft0 controlled server therefore means **no filtering**
+in this experiment, not automatic use of the older Location optimization. That
+can cost more than the existing branch, deliberately preserving upstream's
+observation scope rather than silently choosing narrower notifications.
 
 ### Exact streaming classifier
 
@@ -192,14 +197,18 @@ Queued events selected under an older target may drain after removal or a
 profile change. Removal grace remains bounded overdelivery, not a promise of
 instantaneous revocation. `flush()` means target installation was acknowledged;
 it is not a queue-drained acknowledgment, historical replay, or snapshot fence.
+It resolves immediately for the current already-installed target or intentional
+legacy operation. New flush calls for a persistently rejected unchanged target
+must reject rather than wait forever.
 
 ### Server hot path
 
 First separate safe mechanical work from a general indexing redesign:
 
-1. Compute audience Location keys once per publication. Maintain effective
-   derived Location key counts alongside per-Session holds; removing one hold
-   must not erase another Session's or requested Location's coverage.
+1. Compute audience Location keys once per publication when Location matching
+   is needed. Defer additional derived-key cache state unless old-profile cost
+   measures materially; if added, use counts (or recompute the effective union),
+   so removing one hold cannot erase another's or a requested Location's coverage.
 2. Maintain **Session ID → active session-streaming subscribers** under the
    existing admission cut. The five-event path visits only its indexed
    recipients, plus any Location-profile population requiring old matching.
@@ -208,14 +217,22 @@ First separate safe mechanical work from a general indexing redesign:
    clients. Add full Location reverse indexes only if profiling justifies the
    mutation and cleanup bookkeeping.
 
-Do not casually split recipient selection, asynchronous encoding, and queue
-admission into separate critical sections: replacement and move ordering would
-then need a new reservation protocol. First retain today's encode-before-cut
-behavior. If zero-recipient encoding measures materially, permit one synchronous
-lazy encode within the existing non-yielding admission section, after recipient
-selection and before offers. This explicitly revisits draft0's
-“encoding outside the permit” rule; measure PUT latency under large payloads.
-No network, database access, or blocking queue offers may occur there.
+Do not split recipient selection, asynchronous encoding, and queue admission
+into separate critical sections and keep a stale recipient list. Retain today's
+encode-before-cut behavior for the initial profile implementation. After the
+index, a synchronous no-recipient fast return may avoid encoding only if both
+the Session's focused-follower set is empty and **no active Location-profile
+subscriber exists**. That skip linearizes at its no-recipient observation;
+non-skipped publication still selects at admission. A publication initiated
+after acknowledged installation must see that membership. Pin both outcomes
+and mixed profiles in tests. This is an explicit qualification of the single
+admission-cut wording, not an asynchronous snapshot of recipients.
+
+Lazy encoding inside the permit remains a measured alternative, not a first
+change. Keep its encoding-failure semantics and large-payload PUT latency
+explicit. No network, database access, or blocking queue offers occur inside
+admission. The [implementation analysis](/.design/bus-smart/implementation1.gpt6a.md)
+specifies sequencing and when these optimizations earn their extra state.
 
 Any such follow-up preserves current encoding-failure behavior explicitly and
 cleans every index on unsubscribe, overflow, and failure. Tests compare the
@@ -263,9 +280,14 @@ integration, not a prerequisite for this TUI's win.
 - Honor pre-aborted signals; abort must settle pending reads. Close iterators
   on teardown after abort, without assuming `return()` alone unblocks fetch.
 - Declared invalid-interest 400 should suspend unchanged-target retries at the
-  connection policy level. Resume on target/server change or explicit retry.
+  connection policy level. Resume on target change, an externally known server
+  change, or explicit retry. A paused owner has no independent elected-server
+  watcher; an invisible server restart cannot promise to wake it automatically.
   Subscription-not-found can recover on a fresh generation; transport errors
   retain backoff. Never silently downgrade an invalid target.
+- Preserve a later PUT's declared error through the resulting SSE abort; otherwise
+  an invalid target can appear as retryable `ClientError("Transport")`. Keep the
+  rejected attempted target and error on the generation, not just an error string.
 - Use the generated error path in tests: fetch aborts become
   `ClientError("Transport")`. GX's provisional inevitable abort→flush-rejection
   claim was not supported by the actual implementation.
@@ -293,15 +315,25 @@ the next PUT applies. A newly opened or re-opened Session can similarly have
 an in-progress part whose prefix was intentionally not delivered. Exact
 following is a live interest, not family recursion or replay.
 
-Adoption must publish desired Session interest and await installation before
-relying on live updates, then use authoritative Session/transcript reads. This
+Adoption must synchronously refresh desired Session interest and await installation
+before starting the transcript read. Calling the existing `flush()` alone does
+not refresh the policy. Visible reads begin in
+[`rows.ts:89-103`](/packages/tui/src/routes/session/rows.ts#L89-L103), while
+[hidden-tab prefetch](/packages/tui/src/context/session-tabs.tsx#L299-L311) runs
+separately; a barrier only before route metadata reads misses both. Use one
+TUI-owned policy-reader binding/facade for these reads and the prompt gate,
+without relying on reactive-effect creation order. Keep the direct route ID
+in the desired set even before family-index resolution.
+
+This
 does **not** by itself guarantee recovery of ephemeral prefixes: the current
 [`message.sync`](/packages/client/src/solid/data.ts#L1549-L1568) replaces fetched
 rows and has no general snapshot/SSE watermark. Do not concatenate an arbitrary
 buffered suffix onto a snapshot and assume it is neither missing nor duplicated.
 
-The initial contract is full live fidelity for continuously followed Sessions,
-and canonical completed-state convergence for newly followed ones. An already
+The target contract is full live delivery for continuously followed Sessions,
+and eventual canonical completed-state convergence for explicitly observed
+transcripts after durable activity settles and a fresh read succeeds. An already
 running newly opened part may show only post-follow live fragments until its
 canonical terminal value arrives. Characterize this explicitly in UI tests;
 it must not leave an incorrect **completed** transcript. Failure/interruption
@@ -309,6 +341,16 @@ paths need their own tests; successful full-value terminal events do not prove
 partial failure recovery. If current snapshots plus terminal handling cannot
 meet that convergence criterion, block the profile's rollout and repair that
 specific read-model/adoption seam rather than invent replay in EventFeed.
+
+The observation review's stronger “correct completed state always” claim is
+retracted by the [client implementation assessment](/.design/bus-smart/implementation-research1-client.gpt6a.md).
+A GET can capture running state, terminal events can update the client, and the
+old response can then overwrite them with no later event to repair it. Also,
+`step.failed` does not replace text/reasoning with a canonical full value.
+Implement bounded request-identity/dirty-read repair at the transcript read
+seam, preserving pagination and optimistic rows; establish convergence with
+deterministic terminal-before-response and failure fixtures. It is not proved
+by full-value success events or by flush-before-read alone.
 
 ### Projection changes: do not trust the cheap-no-op premise
 
@@ -322,6 +364,12 @@ Start with a small independently testable optimization: `editAssistant` checks
 the existing message index/row before entering `produce`; a missing-target
 edit must not create an array or index. It preserves present observable edits,
 helps legacy mode too, and does not alter the domain emitter.
+
+Its benefit is limited to absent targets. Ungated durable starts/completions
+still create and update real foreign transcript rows in this profile; the
+streaming gate saves the repeated fragment/progress work, not those durable
+writes. Retention keeps **all open-tab families** plus recent non-tab roots,
+not four transcripts, and it is not a continuous foreign-row allocation guard.
 
 A stronger transcript-interest guard is a separate measured change. It must
 distinguish explicit transcript reads/retention and optimistic local admission
@@ -395,6 +443,13 @@ documented and tested; do not imply restoration of authoritative placement.
 
 Each item is an explicit-path conventional `jj commit`, with its tests. This
 is a future implementation sequence; this pass commits documentation only.
+
+Before the rollout sequence, restore intentional legacy operation behind the
+TUI experiment switch; the current unconditional Location opt-in is not the
+new safe default. Implement this with the event-attachment restart handle,
+never the managed-service restart or a DataProvider remount. The detailed
+[implementation plan](/.design/bus-smart/implementation1.gpt6a.md) refines the
+dependency order below, including snapshot repair before experiment graduation.
 
 1. `test(client): pin composed event attachment lifecycle` — real wrapper,
    controlled adapter and connection loop; marker-only shared fallback, EOF,
@@ -473,10 +528,27 @@ profile delivery counts; legacy compatibility. Slow-reader failure is expected
 in its deliberate stress case, not a correctness failure of the fast reader.
 
 **Deterministic reduction gate:** in new mode, zero five-type arrivals for
-unfollowed Sessions after installation/grace, including same-Location traffic.
+unfollowed Sessions in a fixed post-install publication cohort, including
+same-Location traffic. For removals, await grace expiration **and acknowledgment
+of the resulting replacement**; timer expiry alone does not install removal.
+Only then publish uniquely identified measured events. Earlier queued events
+may arrive afterward and belong to the separately counted old-target tail.
+Do not use arrival timestamps, flush queues, or add a production barrier frame
+to force this test. Hold the target fixed throughout the steady cohort.
 For 32 equal-rate Sessions and one followed Session, streaming arrivals should
 be exactly 1/32 of broad delivery in the steady interval. This says nothing
 about total event/byte/CPU percentage.
+
+**Broad-traffic graduation gate:** publish per-family counts and bytes for the
+five-type stream and the broad remainder, explicitly including plugin-defined
+`rpc.*`, completed text/tool payloads, durable row writes, and hydration/repair
+HTTP requests. RPC has no fixed low-rate bound. Broad observation can increase
+queue pressure relative to draft0's cross-Location filtering, so run the new
+profile's overload/isolation test and mixed-plugin workload before graduation.
+Server no-recipient encoding savings depend on the union of all clients'
+followed Sessions—not one client's followed fraction. A Session followed by
+any client still needs encoding; indexing and wire filtering can help even
+when no encoding call is avoided.
 
 **Performance decision gate:** require a repeatable aggregate CPU improvement
 and lower foreign streaming event/byte volume on the representative many-client
@@ -526,6 +598,19 @@ wasted: its activation, replacement, generation and Bus seams make this
 smaller fidelity policy possible without starting over.
 
 ## 10. Cross-references and synthesis corrections
+
+- [Implementation analysis](/.design/bus-smart/implementation1.gpt6a.md) is the
+  concrete keep/change/defer map and commit dependency plan. It reconciles the
+  [server implementation research](/.design/bus-smart/implementation-research1-server.glm53.md)
+  with the [client implementation assessment](/.design/bus-smart/implementation-research1-client.gpt6a.md).
+- [Contract review](/.design/bus-smart/review1-contract.glm53.md) strengthens
+  cohort measurement, capability compatibility, and broad residual-cost gates.
+  Its arrival-time cutoff is refined above to publication cohorts after the
+  actual replacement acknowledgment.
+- [Observation review](/.design/bus-smart/review1-observation.glm53.md) identifies
+  foreign durable-row costs and the default experiment requirement. Its route-
+  metadata-only barrier, four-transcript assumption, and unconditional terminal
+  convergence argument are superseded by the client implementation assessment.
 
 - [Client ownership research](/.design/bus-smart/research1-client-ownership.gpt6a.md)
   provides the strongest correction to the initiating concern: no competing
