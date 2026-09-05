@@ -7,15 +7,18 @@ execution report. The experiment is not graduated or verified against live-user 
 
 ## Current entry points
 
+- [Implementation and review closeout](/.design/bus-smart/closeout1.gpt6a.md)
+  — final candidate status, independent finding closure, verification provenance,
+  upstream carry burden and still-open experiment graduation gates.
 - [Third-review localized corrections — Astra](/.design/bus-smart/implementation-review-fixes3.gpt6a.md)
   — terminal absence policy, canonical input acknowledgment, model point-read
   lifetime, and narrow closure/regression verification; experiment remains off.
 - [Second-review corrections — Astra](/.design/bus-smart/implementation-review-fixes2.gpt6a.md)
   — persistent terminal-repair duty, bounded trailing work, exhaustive canonical
-  mutation audit and regression verification; awaiting independent spec recheck.
+  mutation audit and regression verification; subsequent reviews/corrections linked below.
 - [Independent-review corrections — Astra](/.design/bus-smart/implementation-review-fixes1.gpt6a.md)
-  — four P2 repairs, one TUI adoption operation, exact read/pagination bounds,
-  regression proofs and verification; awaiting reviewer recheck, still default off.
+  — four P2 repairs, one TUI adoption operation, read/pagination bounds and
+  regression proofs; later correction reports supersede intermediate limitations.
 - [Runtime execution report — Astra](/.design/bus-smart/implementation-report1.gpt6a.md)
   — implementation progress, commits, exact verification, carry cost and limits.
 - [draft1 — scope streaming, preserve observation](/.design/bus-smart/draft1.gpt6a.md)
@@ -27,6 +30,25 @@ execution report. The experiment is not graduated or verified against live-user 
   actual TUI read barriers, snapshot repair, and logical commit dependencies.
 - [draft1 research brief](/.design/bus-smart/init1.gpt6a.md)
   — user's problem, research questions, source baseline, and evidence standard.
+
+## Independent runtime review history
+
+- **Final narrow closure:** [Standards/carryability 4](/.design/bus-smart/code-review4-standards.gpt6a.md)
+  and [Spec/correctness 4](/.design/bus-smart/code-review4-spec.gpt6a.md)
+  — all reported findings closed; no direct new blocker in the final correction
+  range. Not experiment graduation or live-workload acceptance.
+- [Standards 3](/.design/bus-smart/code-review3-standards.gpt6a.md) and
+  [Spec 3](/.design/bus-smart/code-review3-spec.gpt6a.md)
+  — definitive-absence retry, canonical outbox acknowledgment and point-read
+  lifetime findings; addressed by the third correction report and review4.
+- [Standards 2](/.design/bus-smart/code-review2-standards.gpt6a.md) and
+  [Spec 2](/.design/bus-smart/code-review2-spec.gpt6a.md)
+  — original fixes verified, then persistent-duty and Skill classifier failures
+  found; addressed by the second correction report and subsequent rechecks.
+- [Standards 1](/.design/bus-smart/code-review1-standards.gpt6a.md) and
+  [Spec 1](/.design/bus-smart/code-review1-spec.gpt6a.md)
+  — initial runtime diff review, optimistic-create/adoption ownership, read
+  amplification, pagination and committed-revert findings. Preserved as history.
 
 ## Implementation assessment
 

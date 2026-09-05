@@ -12,6 +12,11 @@ sources:
 
 # Bus-smart draft1 runtime implementation
 
+> Final navigation: [implementation/review closeout](/.design/bus-smart/closeout1.gpt6a.md)
+> records independent finding closure and final verification provenance. This
+> execution history and its benchmark limitations remain intact; the candidate
+> is default off, not graduated or live-user validated.
+
 ## Baseline and scope
 
 - Author: GPT-6 Astra, xhigh. Runtime implementation explicitly authorized.
