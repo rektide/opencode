@@ -158,6 +158,15 @@ export const make = Effect.fn("ControlledEventFeed.make")(function* (
     const event = input.event
     if (!isOpenCodeEvent(event)) return
     if (activeCount === 0) return
+    const streaming = isStreamingEvent(event)
+    // This complete-arm observation and return do not yield. A later activation
+    // follows this skip; the ordinary path still selects recipients at admission.
+    if (
+      streaming &&
+      activeLocationCount === 0 &&
+      (input.audience.sessionID === undefined || !focusedBySession.get(input.audience.sessionID)?.size)
+    )
+      return
     const encoded = yield* Effect.try({
       try: () => render(event),
       catch: (cause) => new EncodingError({ eventID: event.id, eventType: event.type, cause }),
@@ -171,7 +180,6 @@ export const make = Effect.fn("ControlledEventFeed.make")(function* (
       ),
     )
     if (encoded === undefined) return
-    const streaming = isStreamingEvent(event)
     const keys = input.audience.type === "locations" ? input.audience.refs.map(locationKey) : []
     const overflow = yield* critical(() => {
       const subscriptionIDs: EventSubscriptionID[] = []

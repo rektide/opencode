@@ -115,6 +115,62 @@ function labels(values: readonly string[]) {
 }
 
 describe("ControlledEventFeed", () => {
+  it.effect("skips encoding only when every routing arm has no recipient, and sees acknowledged installs", () =>
+    Effect.gen(function* () {
+      const source = makeSource()
+      let encodes = 0
+      const feed = yield* ControlledEventFeed.make(source.observe, {
+        createID: ids(firstID, secondID),
+        encode: (event) => {
+          encodes++
+          return ControlledEventFeed.frame(event)
+        },
+      })
+      const first = yield* feed.subscribe
+      yield* feed.replaceInterests({
+        subscriptionID: firstID,
+        interest: { locations: [a], sessions: [], profile: "session-streaming" },
+      })
+      const publish = () =>
+        source.publish(
+          {
+            id: Event.ID.make("evt_stream"),
+            created: 1,
+            type: SessionEvent.Text.Delta.type,
+            data: { sessionID, assistantMessageID: SessionMessage.ID.make("msg_test"), ordinal: 0, delta: "x" },
+          },
+          { type: "locations", refs: [a], sessionID },
+        )
+      yield* publish()
+      expect(encodes).toBe(0)
+      yield* feed.replaceInterests({
+        subscriptionID: firstID,
+        interest: { locations: [], sessions: [sessionID], profile: "session-streaming" },
+      })
+      yield* publish()
+      expect(encodes).toBe(1)
+      expect(labels(Array.from(yield* first.pipe(Stream.take(3), Stream.runCollect)))).toEqual([
+        `ready:${firstID}`,
+        "connected",
+        "evt_stream",
+      ])
+      yield* feed.replaceInterests({
+        subscriptionID: firstID,
+        interest: { locations: [], sessions: [], profile: "session-streaming" },
+      })
+      yield* publish()
+      expect(encodes).toBe(1)
+      const second = yield* feed.subscribe
+      yield* feed.replaceInterests({ subscriptionID: secondID, interest: interests([a]) })
+      yield* publish()
+      expect(encodes).toBe(2)
+      expect(labels(Array.from(yield* second.pipe(Stream.take(3), Stream.runCollect)))).toEqual([
+        `ready:${secondID}`,
+        "connected",
+        "evt_stream",
+      ])
+    }),
+  )
   it.effect("indexed overflow removes the slow follower without skipping its fast neighbor", () =>
     Effect.gen(function* () {
       const source = makeSource()
