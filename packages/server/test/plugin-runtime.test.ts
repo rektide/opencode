@@ -37,29 +37,23 @@ const fixture = Effect.fn(function* () {
       effect: (ctx) => Deferred.succeed(exposed, ctx),
     }),
   )
-  const handler = EffectContext.get(context, HttpRouter.HttpRouter).asHttpEffect().pipe(HttpEffect.toWebHandlerWith(context))
+  const handler = EffectContext.get(context, HttpRouter.HttpRouter)
+    .asHttpEffect()
+    .pipe(HttpEffect.toWebHandlerWith(context))
   // Any location-scoped request boots the location, activating the probe plugin.
-  const plugins = yield* request(handler, directory, "GET", "/api/plugin")
-  expect(plugins.status).toBe(200)
-  return { directory, exposed }
-})
-
-const request = (
-  handler: ReturnType<typeof HttpEffect.toWebHandlerWith>,
-  directory: string,
-  method: "GET" | "POST",
-  route: string,
-) =>
-  Effect.promise(() => {
-    const url = new URL(route, "http://opencode.local")
+  const plugins = yield* Effect.promise(() => {
+    const url = new URL("/api/plugin", "http://opencode.local")
     url.searchParams.set("location[directory]", directory)
     return handler(
       new Request(url, {
-        method,
+        method: "GET",
         headers: { authorization: `Basic ${btoa("opencode:secret")}` },
       }),
     )
   })
+  expect(plugins.status).toBe(200)
+  return { exposed }
+})
 
 it.live("populates the plugin runtime cell for host session reads", () =>
   Effect.gen(function* () {
