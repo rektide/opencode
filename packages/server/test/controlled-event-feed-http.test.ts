@@ -23,6 +23,20 @@ it.live("negotiates the controlled feed without changing the legacy opening fram
       const ready = Schema.decodeUnknownSync(ControlledFeedItem)(await nextControlled())
       expect(ready.type).toBe("event-feed.ready")
       if (ready.type !== "event-feed.ready") throw new Error("Controlled feed did not start with ready")
+      expect(ready.data.profiles).toEqual(["location", "session-streaming"])
+      for (const profile of ["unknown", "location", "session-streaming"]) {
+        const response = await handler(
+          new Request(
+            `http://opencode.local/api/experimental/event/subscriptions/${ready.data.subscriptionID}/interests`,
+            {
+              method: "PUT",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ locations: [], sessions: [], profile }),
+            },
+          ),
+        )
+        expect(response.status).toBe(profile === "unknown" ? 400 : 204)
+      }
 
       const oversized = await handler(
         new Request(

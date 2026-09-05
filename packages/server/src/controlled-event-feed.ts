@@ -5,6 +5,7 @@ import {
   EventSubscriptionID,
   EventSubscriptionNotFoundError,
   isOpenCodeEvent,
+  isStreamingEvent,
   type ControlledFeedItem,
   type EventInterest,
   type OpenCodeEvent,
@@ -45,6 +46,7 @@ export interface Interface {
 export class Service extends Context.Service<Service, Interface>()("@opencode/server/ControlledEventFeed") {}
 
 type InterestSet = {
+  readonly profile: NonNullable<EventInterest["profile"]>
   readonly locations: ReadonlyMap<string, Location.Ref>
   readonly sessions: ReadonlySet<SessionID>
 }
@@ -62,7 +64,7 @@ type Overflow = {
   readonly overflowCount: number
 }
 
-const emptyInterest = (): InterestSet => ({ locations: new Map(), sessions: new Set() })
+const emptyInterest = (): InterestSet => ({ profile: "location", locations: new Map(), sessions: new Set() })
 
 export function frame(item: ControlledFeedItem) {
   return `data: ${JSON.stringify(item)}\n\n`
@@ -140,18 +142,29 @@ export const make = Effect.fn("ControlledEventFeed.make")(function* (
       ),
     )
     if (encoded === undefined) return
+    const streaming = isStreamingEvent(event)
+    const keys = input.audience.type === "locations" ? input.audience.refs.map(locationKey) : []
     const overflow = yield* critical(() => {
       const subscriptionIDs: EventSubscriptionID[] = []
       for (const subscriber of subscribers.values()) {
         if (!subscriber.active) continue
         const sessionID = input.audience.sessionID
+        if (subscriber.requested.profile === "session-streaming") {
+          if (
+            (!streaming || (sessionID !== undefined && subscriber.requested.sessions.has(sessionID))) &&
+            !offer(subscriber, encoded)
+          )
+            subscriptionIDs.push(subscriber.id)
+          continue
+        }
         if (sessionID !== undefined && isMoved(event) && subscriber.requested.sessions.has(sessionID)) {
           subscriber.derivedLocations.set(sessionID, event.data.location)
         }
         if (sessionID !== undefined && event.type === SessionEvent.Deleted.type) {
           subscriber.derivedLocations.delete(sessionID)
         }
-        if (matches(subscriber, input.audience) && !offer(subscriber, encoded)) subscriptionIDs.push(subscriber.id)
+        if (matches(subscriber, input.audience, keys) && !offer(subscriber, encoded))
+          subscriptionIDs.push(subscriber.id)
       }
       if (subscriptionIDs.length === 0) return
       return { subscriptionIDs, overflowCount }
@@ -175,7 +188,10 @@ export const make = Effect.fn("ControlledEventFeed.make")(function* (
         return critical(() => {
           const offered = offer(
             subscriber,
-            frame({ type: "event-feed.ready", data: { subscriptionID: subscriber.id } }),
+            frame({
+              type: "event-feed.ready",
+              data: { subscriptionID: subscriber.id, profiles: ["location", "session-streaming"] },
+            }),
           )
           if (offered) {
             subscribers.set(subscriber.id, subscriber)
@@ -215,7 +231,8 @@ export const make = Effect.fn("ControlledEventFeed.make")(function* (
           }
         subscriber.requested = requested
         for (const sessionID of subscriber.derivedLocations.keys()) {
-          if (!requested.sessions.has(sessionID)) subscriber.derivedLocations.delete(sessionID)
+          if (requested.profile !== "location" || !requested.sessions.has(sessionID))
+            subscriber.derivedLocations.delete(sessionID)
         }
         if (subscriber.active) return {}
         if (!offer(subscriber, connected))
@@ -259,21 +276,20 @@ function normalize(interest: EventInterest): InterestSet | InvalidRequestError {
     return invalid(`Interest exceeds ${LocationInterestCapacity} distinct Locations`)
   if (sessions.size > SessionInterestCapacity)
     return invalid(`Interest exceeds ${SessionInterestCapacity} distinct Sessions`)
-  return { locations, sessions }
+  return { locations, sessions, profile: interest.profile ?? "location" }
 }
 
 function invalid(message: string) {
   return new InvalidRequestError({ message, field: "interest" })
 }
 
-function matches(subscriber: Subscriber, audience: Bus.EventAudience) {
+function matches(subscriber: Subscriber, audience: Bus.EventAudience, keys: readonly string[]) {
   if (audience.type === "global") return true
-  if (audience.refs.some((ref) => covers(subscriber, ref))) return true
+  if (keys.some((key) => covers(subscriber, key))) return true
   return audience.sessionID !== undefined && subscriber.requested.sessions.has(audience.sessionID)
 }
 
-function covers(subscriber: Subscriber, ref: Location.Ref) {
-  const key = locationKey(ref)
+function covers(subscriber: Subscriber, key: string) {
   if (subscriber.requested.locations.has(key)) return true
   for (const derived of subscriber.derivedLocations.values()) {
     if (locationKey(derived) === key) return true

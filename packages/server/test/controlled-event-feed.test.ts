@@ -14,6 +14,7 @@ import { Project } from "@opencode-ai/schema/project"
 import { AbsolutePath } from "@opencode-ai/schema/schema"
 import { SessionEvent } from "@opencode-ai/schema/session-event"
 import { SessionID } from "@opencode-ai/schema/session-id"
+import { SessionMessage } from "@opencode-ai/schema/session-message"
 import { WorkspaceID } from "@opencode-ai/schema/workspace-id"
 import { Deferred, Effect, Exit, Fiber, Logger, Option, References, Schema, Stream } from "effect"
 import { it } from "../../core/test/lib/effect"
@@ -114,6 +115,123 @@ function labels(values: readonly string[]) {
 }
 
 describe("ControlledEventFeed", () => {
+  it.effect("gates all five streaming types by authoritative Session identity, retaining broad RPC and lifecycle", () =>
+    Effect.gen(function* () {
+      const source = makeSource()
+      const feed = yield* ControlledEventFeed.make(source.observe, { createID: ids(firstID, secondID) })
+      const focused = yield* feed.subscribe
+      const location = yield* feed.subscribe
+      yield* feed.replaceInterests({
+        subscriptionID: firstID,
+        interest: { ...interests([a], [sessionID]), profile: "session-streaming" },
+      })
+      yield* feed.replaceInterests({ subscriptionID: secondID, interest: interests([a]) })
+      const focusedIDs: string[] = []
+      const locationIDs: string[] = []
+      const base = {
+        sessionID,
+        assistantMessageID: SessionMessage.ID.make("msg_stream"),
+        ordinal: 0,
+        id: "tool",
+        delta: "x",
+        text: "x",
+        metadata: {},
+      }
+      const definitions = [
+        SessionEvent.Text.Delta,
+        SessionEvent.Reasoning.Delta,
+        SessionEvent.Tool.Input.Delta,
+        SessionEvent.Tool.Progress,
+        SessionEvent.Compaction.Delta,
+      ]
+      // Source cohort is published only after the acknowledged activation above.
+      for (const definition of definitions) {
+        for (const ref of [a, b, otherWorkspace]) {
+          for (const own of [false, true]) {
+            const id = Event.ID.create()
+            const event = { id, created: 1, type: definition.type, data: base }
+            yield* source.publish(event, {
+              type: "locations",
+              refs: [ref, ref],
+              sessionID: own ? sessionID : SessionID.make("ses_foreign"),
+            })
+            if (own) focusedIDs.push(id)
+            if (ref === a) locationIDs.push(id)
+          }
+        }
+        // Neither global audience nor payload sessionID may bypass Bus identity.
+        yield* source.publish(
+          { id: Event.ID.create(), created: 1, type: definition.type, data: base },
+          { type: "global" },
+        )
+        locationIDs.push("global")
+      }
+      const rpc = { id: Event.ID.make("evt_rpc"), created: 1, type: "rpc.plugin.progress", location: b, data: {} }
+      yield* source.publish(rpc, { type: "locations", refs: [b] })
+      yield* source.publish(renamed("foreign-durable"), {
+        type: "locations",
+        refs: [b],
+        sessionID: SessionID.make("ses_foreign"),
+      })
+      yield* source.publish(internal(), { type: "global" })
+      yield* source.publish(publicEvent("cohort-end"), { type: "global" })
+      const read = (stream: Stream.Stream<string, ControlledEventFeed.Error>) =>
+        stream.pipe(
+          Stream.takeUntil((frame) => labels([frame])[0] === "evt_cohort-end"),
+          Stream.runCollect,
+        )
+      expect(labels(Array.from(yield* read(focused)))).toEqual([
+        `ready:${firstID}`,
+        "connected",
+        ...focusedIDs,
+        "evt_rpc",
+        "evt_foreign-durable",
+        "evt_cohort-end",
+      ])
+      const old = labels(Array.from(yield* read(location)))
+      expect(old).toHaveLength(2 + locationIDs.length + 1)
+      expect(old.filter((id) => locationIDs.includes(id))).toHaveLength(10)
+
+      yield* feed.replaceInterests({
+        subscriptionID: firstID,
+        interest: { locations: [], sessions: [], profile: "session-streaming" },
+      })
+      yield* source.publish(
+        { id: Event.ID.make("evt_removed"), created: 1, type: SessionEvent.Text.Delta.type, data: base },
+        { type: "locations", refs: [a], sessionID },
+      )
+      yield* source.publish(publicEvent("removed-end"), { type: "global" })
+      expect(labels(Array.from(yield* focused.pipe(Stream.take(1), Stream.runCollect)))).toEqual(["evt_removed-end"])
+    }),
+  )
+
+  it.effect("discards move holds on profile changes instead of inheriting focused move history", () =>
+    Effect.gen(function* () {
+      const source = makeSource()
+      const feed = yield* ControlledEventFeed.make(source.observe, { createID: ids(firstID) })
+      const stream = yield* feed.subscribe
+      yield* feed.replaceInterests({ subscriptionID: firstID, interest: interests([], [sessionID]) })
+      yield* source.publish(moved("before-switch", b), { type: "locations", refs: [a, b], sessionID })
+      yield* feed.replaceInterests({
+        subscriptionID: firstID,
+        interest: { ...interests([], [sessionID]), profile: "session-streaming" },
+      })
+      yield* source.publish(moved("focused-move", b), { type: "locations", refs: [a, b], sessionID })
+      yield* feed.replaceInterests({ subscriptionID: firstID, interest: interests([], [sessionID]) })
+      yield* source.publish(publicEvent("not-held"), { type: "locations", refs: [b] })
+      yield* source.publish(publicEvent("done"), { type: "global" })
+      expect(
+        labels(
+          Array.from(
+            yield* stream.pipe(
+              Stream.takeUntil((frame) => labels([frame])[0] === "evt_done"),
+              Stream.runCollect,
+            ),
+          ),
+        ),
+      ).toEqual([`ready:${firstID}`, "connected", "evt_before-switch", "evt_focused-move", "evt_done"])
+    }),
+  )
   it.effect("emits a 128-bit subscription ID", () =>
     Effect.gen(function* () {
       const source = makeSource()
