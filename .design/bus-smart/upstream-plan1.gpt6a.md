@@ -23,6 +23,11 @@ sources:
 
 # Upstreaming bus-smart without the client rewrite
 
+> Revision 2: [two paths and their composite epics](/.design/bus-smart/upstream-plan2.gpt6a.md)
+> explains the larger implemented architecture as well as the lean extraction,
+> compares their distance, and adds implementation guidance. This revision remains
+> the detailed concern/provenance ledger; its historical argument is preserved.
+
 ## Recommendation
 
 Propose **two separate epics**, not two large implementation PRs:

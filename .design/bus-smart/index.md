@@ -7,6 +7,10 @@ execution report. The experiment is not graduated or verified against live-user 
 
 ## Current entry points
 
+- [Upstream plan, revision 2: two paths and their composite epics](/.design/bus-smart/upstream-plan2.gpt6a.md)
+  — explains the implemented managed-transcript architecture versus the proposed
+  selective-transport extraction, their shared code and policy differences,
+  staged work plans, implementation guidance and evidence needed to choose.
 - [Upstream plan: two separate epics, smaller deliverables](/.design/bus-smart/upstream-plan1.gpt6a.md)
   — accounts for the client scope expansion, prioritizes each concern, parks the
   broad repair subsystem, and proposes benchmark → focused feed → fixed-Session
