@@ -1,4 +1,4 @@
-export * as VcsJj from "./jj"
+export * as VcsJj from "./jj.js"
 
 import path from "path"
 import { Effect } from "effect"
@@ -6,14 +6,14 @@ import { ChildProcess } from "effect/unstable/process"
 import { FileDiff } from "@opencode-ai/schema/file-diff"
 import { FileStatus, Info, Mode } from "@opencode-ai/schema/vcs"
 import { AppProcess } from "@opencode-ai/util/process"
-import type { BranchOptions, DiffOptions } from "../vcs"
+import type { BranchOptions, DiffOptions } from "../vcs.js"
 import {
   chunksByFile,
   countPatch,
   emptyPatch,
   MAX_TOTAL_PATCH_BYTES,
   PATCH_CONTEXT_LINES,
-} from "./patch"
+} from "./patch.js"
 
 export function make(proc: AppProcess.Interface, input: { directory: string; worktree: string }) {
   const jj = makeJj(proc, input.worktree)
