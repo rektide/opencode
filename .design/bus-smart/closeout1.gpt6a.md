@@ -16,6 +16,11 @@ sources:
 
 # Implemented, reviewed, still experimental
 
+> Scope reassessment: [the upstream explainer](/.design/bus-smart/upstream-plan1.gpt6a.md)
+> distinguishes review closure from product necessity and proposes extracting a
+> much smaller streaming feature. The test outcomes below remain historical facts;
+> they do not justify upstreaming the entire client repair subsystem.
+
 **The runtime rebuild is committed in this workspace. All findings raised in
 the independent implementation reviews have been closed through the documented
 corrections and targeted rechecks.** The latest runtime/test commit is

@@ -24,6 +24,11 @@ sources:
 
 # Bus-smart draft1 — scope streaming, preserve observation
 
+> Upstream scope correction: [the two-epic explainer](/.design/bus-smart/upstream-plan1.gpt6a.md)
+> separates optional client work from the streaming feature and rejects treating
+> the broad canonical-repair subsystem as an upstream prerequisite. This document
+> records the larger branch design; its scope is not the recommended PR package.
+
 ## 1. Decision and evidence status
 
 **Keep the controlled SSE, but change the first optimization target from

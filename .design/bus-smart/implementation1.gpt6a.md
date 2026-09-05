@@ -22,6 +22,11 @@ sources:
 
 # Bus-smart draft1 implementation — keep the seams, reduce repeated work
 
+> Upstream scope correction: [the two-epic explainer](/.design/bus-smart/upstream-plan1.gpt6a.md)
+> accounts for the expansion in this plan and proposes a smaller streaming series
+> independent of the client-cache rewrite. Preserve this plan as implementation
+> history, not as a mandatory upstream dependency chain.
+
 ## 1. Assessment
 
 **The existing implementation is a usable foundation, not something to replace.**

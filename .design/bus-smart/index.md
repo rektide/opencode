@@ -7,6 +7,11 @@ execution report. The experiment is not graduated or verified against live-user 
 
 ## Current entry points
 
+- [Upstream plan: two separate epics, smaller deliverables](/.design/bus-smart/upstream-plan1.gpt6a.md)
+  — accounts for the client scope expansion, prioritizes each concern, parks the
+  broad repair subsystem, and proposes benchmark → focused feed → fixed-Session
+  CLI → optional full-TUI delivery. Supersedes the broad repair prerequisite for
+  upstream packaging; no code rollback or history rewrite has been performed.
 - [Implementation and review closeout](/.design/bus-smart/closeout1.gpt6a.md)
   — final candidate status, independent finding closure, verification provenance,
   upstream carry burden and still-open experiment graduation gates.
