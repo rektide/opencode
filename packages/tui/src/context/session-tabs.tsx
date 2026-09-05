@@ -304,10 +304,9 @@ export const { use: useSessionTabs, provider: SessionTabsProvider } = createSimp
         for (const sessionID of sessions) {
           if (stale) return
           await Promise.allSettled([
-            client.interest.flush(adoption.signal).then(() => {
-              if (stale || !state().tabs.some((tab) => tab.sessionID === sessionID)) return
-              if (client.interest.mode() === "controlled") data.session.message.invalidate(sessionID)
-              return data.session.message.sync(sessionID)
+            client.interest.adoptTranscript(sessionID, data.session.message, {
+              signal: adoption.signal,
+              current: () => !stale && state().tabs.some((tab) => tab.sessionID === sessionID),
             }),
             data.session.pending.sync(sessionID),
             data.session.permission.sync(sessionID),

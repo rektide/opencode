@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { createRoot } from "solid-js"
 import { OpenCode } from "@opencode-ai/client"
-import { createControlledEventFeed } from "@opencode-ai/client/solid"
+import { createControlledEventFeed, createData } from "@opencode-ai/client/solid"
 import { createEventInterestBinding } from "../../src/context/event-interest-binding.ts"
 
 test("policy is pulled synchronously and PUT acknowledgment precedes generated transcript GET", async () => {
@@ -37,10 +37,16 @@ test("policy is pulled synchronously and PUT acknowledgment precedes generated t
   })
   const f = createRoot((dispose) => {
     const feed = createControlledEventFeed()
-    return { feed, interest: createEventInterestBinding(feed, () => true), dispose }
+    const data = createData({
+      api: () => api,
+      directory: "/project",
+      event: { on: () => () => {}, listen: () => () => {} },
+    })
+    return { feed, data, interest: createEventInterestBinding(feed, () => true), dispose }
   })
   f.interest.bind(() => ({ profile: "session-streaming", locations: [], sessions: ["ses_selected"] }))
-  const read = f.interest.flush().then(() => api.message.list({ sessionID: "ses_selected" }))
+  let current = true
+  const read = f.interest.adoptTranscript("ses_selected", f.data.session.message, { current: () => current })
   expect(f.feed.desired().sessions).toEqual(["ses_selected"])
   const iterator = f.feed.subscribe(api, new AbortController().signal)[Symbol.asyncIterator]()
   const opening = iterator.next()
@@ -50,6 +56,13 @@ test("policy is pulled synchronously and PUT acknowledgment precedes generated t
   put.resolve()
   await Promise.all([read, opening])
   expect(order).toEqual(["installed", "transcript"])
+  const stale = f.interest.adoptTranscript("ses_selected", f.data.session.message, { current: () => current })
+  current = false
+  await stale
+  expect(order).toEqual(["installed", "transcript"])
+  current = true
+  await f.interest.adoptTranscript("ses_selected", f.data.session.message, { current: () => current })
+  expect(order).toEqual(["installed", "transcript", "transcript"])
   await iterator.return?.()
   f.dispose()
 })
@@ -72,4 +85,75 @@ test("legacy is intentional by default; disabling releases pending adoption with
   await pending
   unbind()
   f.dispose()
+})
+
+test("intentional legacy adoption preserves the cache and skips obsolete readers", async () => {
+  let reads = 0
+  const api = OpenCode.make({
+    baseUrl: "http://test",
+    fetch: Object.assign(
+      async () => {
+        reads++
+        return Response.json({ data: [], cursor: {} })
+      },
+      { preconnect: fetch.preconnect },
+    ),
+  })
+  const f = createRoot((dispose) => {
+    const data = createData({
+      api: () => api,
+      directory: "/project",
+      event: { on: () => () => {}, listen: () => () => {} },
+    })
+    return { dispose, data, interest: createEventInterestBinding(createControlledEventFeed(), () => false) }
+  })
+  try {
+    await f.interest.adoptTranscript("ses_selected", f.data.session.message, { current: () => true })
+    await f.interest.adoptTranscript("ses_selected", f.data.session.message, { current: () => true })
+    const abort = new AbortController()
+    abort.abort()
+    await f.interest.adoptTranscript("ses_obsolete", f.data.session.message, {
+      signal: abort.signal,
+      current: () => true,
+    })
+    await f.interest.adoptTranscript("ses_obsolete", f.data.session.message, { current: () => false })
+    expect(reads).toBe(1)
+  } finally {
+    f.dispose()
+  }
+})
+
+test("cancelling adoption while installation is pending cannot start a transcript GET", async () => {
+  let reads = 0
+  const api = OpenCode.make({
+    baseUrl: "http://test",
+    fetch: Object.assign(
+      async () => {
+        reads++
+        return Response.json({ data: [], cursor: {} })
+      },
+      { preconnect: fetch.preconnect },
+    ),
+  })
+  const f = createRoot((dispose) => {
+    const data = createData({
+      api: () => api,
+      directory: "/project",
+      event: { on: () => () => {}, listen: () => () => {} },
+    })
+    return { dispose, data, interest: createEventInterestBinding(createControlledEventFeed(), () => true) }
+  })
+  try {
+    f.interest.bind(() => ({ profile: "session-streaming", locations: [], sessions: ["ses_selected"] }))
+    const abort = new AbortController()
+    const read = f.interest.adoptTranscript("ses_selected", f.data.session.message, {
+      signal: abort.signal,
+      current: () => true,
+    })
+    abort.abort(new Error("obsolete reader"))
+    await expect(read).rejects.toThrow("obsolete reader")
+    expect(reads).toBe(0)
+  } finally {
+    f.dispose()
+  }
 })

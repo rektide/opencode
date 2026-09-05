@@ -98,11 +98,9 @@ export function createSessionRows(sessionID: Accessor<string>, onSynced?: (sessi
       setRows(reconcile(reduce()))
       void data.session.pending.sync(id).catch(() => undefined)
       void client.interest
-        .flush(adoption.signal)
-        .then(() => {
-          if (stale || sessionID() !== id) return
-          if (client.interest.mode() === "controlled") data.session.message.invalidate(id)
-          return data.session.message.sync(id)
+        .adoptTranscript(id, data.session.message, {
+          signal: adoption.signal,
+          current: () => !stale && sessionID() === id,
         })
         .then(
           () => {
