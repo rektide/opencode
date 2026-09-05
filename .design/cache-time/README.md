@@ -110,6 +110,19 @@ upstream retry tests), typecheck clean, all with
 `cache-ttl-20260903` at the refresh docs commit. Details:
 [`refresh-20260903.glm53f.md`](refresh-20260903.glm53f.md).
 
+## Refresh onto `23f3f8b6ca61` (2026-09-04)
+
+Freshened the 5-commit line onto locked baseline `v2@origin`
+`23f3f8b6ca61` via duplicate-then-rebase: 67-commit upstream delta,
+**0 conflicts** — in fact the delta touches none of the line's five
+files, so the slide is a pure re-parent of a byte-identical diff
+(+343/−2 carried). Collision check clean (`location-activity.ts`
+untouched upstream; no new `OPENCODE_*` vars in the delta at all).
+Verification: ttl 5/5, location-layer 24/24, typecheck clean, all with
+`OPENCODE_LOCATION_CACHE_TTL` unset. Bookmarks `cache-ttl` +
+`cache-ttl-20260904` at the refresh docs commit. Details:
+[`refresh-20260904.glm53h.md`](refresh-20260904.glm53h.md).
+
 ## History
 
 The superseded flat-RcMap line, the diagnosis, and the prioritization

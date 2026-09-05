@@ -39,6 +39,8 @@ import { AbsolutePath } from "@opencode/core/schema"
 import { Session } from "@opencode/core/session"
 import { Workspace } from "@opencode/core/workspace"
 import { SessionEvent } from "@opencode/core/session/event"
+import { SessionExecution } from "@opencode/core/session/execution"
+import { SessionStore } from "@opencode/core/session/store"
 import { SessionRunnerModel } from "@opencode/core/session/runner/model"
 import { tmpdir, tmpdirScoped } from "./fixture/tmpdir"
 import { tempGlobalLayer } from "./fixture/global"
@@ -75,7 +77,10 @@ const activityLocations = Layer.effect(
 const pinnedActivity = makeGlobalNode({
   service: LocationActivity.Service,
   layer: LocationActivity.layer({ timeToLive: "60 minutes" }),
-  deps: [Bus.node, LocationServiceMap.node],
+  // Mirrors upstream's LocationActivity.node deps: the eviction sweep now
+  // interrupts active sessions before detaching a location, so the layer
+  // requires SessionExecution and SessionStore.
+  deps: [Bus.node, LocationServiceMap.node, SessionExecution.node, SessionStore.node],
 })
 const itWithActivity = testEffect(
   AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node, LocationServiceMap.node, LocationActivity.node]), [
