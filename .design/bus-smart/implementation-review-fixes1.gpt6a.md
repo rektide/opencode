@@ -49,6 +49,8 @@ test outcomes are recorded below as each correction lands.
   coalesced repair resumes after `creating` releases its gate. Tests exercise both
   terminal-before-POST-settlement and terminal-after-settlement, with zero premature
   GETs and one canonical repair. This remains the same cache-ownership correction.
+- Refinement commit `93ba6f88`; browser transcript suite **29 pass** and Client
+  typecheck passed.
 
 ### Spec P2: bounded transcript repair
 
@@ -110,6 +112,12 @@ test outcomes are recorded below as each correction lands.
   reads. Observed mutations invalidate it; no new guarantee is made for a boundary
   concurrently deleted without its durable notification being observed.
 - Commit: `dd6fa0d9`.
+- Full TUI verification caught an old footer fixture expecting reconnect to
+  discard the loaded older pair even though the fixture still served it. It now
+  covers two actual renderer paths: retain all six rows when the old pair still
+  exists, and retain the same-length index-shift oracle only when the fixture
+  canonically removes that pair. Footer metrics and committed revert remain
+  asserted in both cases. Both targeted renderer cases pass.
 
 ### Spec P2: committed-revert pending hydration
 
@@ -145,6 +153,7 @@ test outcomes are recorded below as each correction lands.
 - TUI policy/binding/tab suites **47 pass**; TUI typecheck passed. This adds a
   small named operation but removes the transport-dependent read policy from both
   high-churn callers. No registry, provider rearrangement or second policy owner.
+- Commit: `1c0575c5`.
 
 ## Cross-references
 
