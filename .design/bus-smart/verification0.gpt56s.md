@@ -79,3 +79,30 @@ The transport, routing, move guarantees, client negotiation, TUI interest owners
 - [TUI interest research](/.design/bus-smart/research-tui-interest0.glm53.md) explains why launch, route, tab, and Session-family interests are owned declaratively.
 - [Client compatibility research](/.design/bus-smart/research-client-compat0.glm53.md) grounds controlled probing and older-server fallback behavior.
 - [EventFeed Effect research](/.design/bus-smart/research-eventfeed-effect0.glm53.md) grounds the serialized admission cut and bounded queue behavior.
+
+# Port to v2@origin (2026-09-05)
+
+The full 38-commit stack was rebased from its original base (`lmpvpwvxrwvv`, #46171) onto the `v2@origin` tip `lwoszptrpqvn` (#47464), spanning 376 upstream commits. All sixteen code commits were hand-merged; the design-doc commits rebased cleanly.
+
+## Upstream drift that required semantic adaptation
+
+1. **`Session.move` extraction.** Upstream moved the inline `Session.move` implementation into `packages/core/src/session/move.ts` and refined its idle-recovery condition (#46955). The immediate-move notification fix (`bus.publishAll([moved])` when no cancellations exist) now lives in the extracted file instead of `session.ts`.
+2. **Promise client `SharedEvents` wrapper.** Upstream added `packages/client/src/promise/client.ts`, which wraps the generated client and replaced `event` with a shared-events instance, dropping the generated `event.controlled` surface. The wrapper now spreads `raw.event` and overrides only `subscribe`, so controlled negotiation survives alongside shared legacy subscriptions. The Effect wrapper already spread `raw.event` and needed no change.
+3. **`app.tsx` provider tree.** `EventInterestProvider` still wraps `SessionTerminalsProvider`; upstream's new `UpdateNotificationProvider` + `PanelProvider` layers nest inside `AttentionProvider` below it.
+4. **Shared TUI app fixture.** Upstream extracted `createAppFixture` into `packages/tui/test/fixture/app.ts`. The `controlled` interest-callback option and its `createFetch` passthrough moved into the shared fixture; `app-lifecycle.test.tsx` keeps upstream's expanded suite.
+5. **Session-runner scenario absorption.** Upstream folded the old "preserves a tool continuation across a steered move" scenario into the parameterized chained-moves loop. The routed-observation interruption scenario re-anchored after that loop; its assertions are unchanged.
+6. **Generated client surfaces.** Conflicts in generated files were resolved by re-running `bun run generate` from `packages/client` mid-stack; a final regeneration at the tip produced no drift.
+
+## Re-verification on the new base
+
+| Area | Result |
+| --- | --- |
+| Typecheck | protocol, core, server, client, tui, sdk, plugin all pass |
+| Core Bus routing | 65 tests passed (`bus.test.ts`, `bus-session-routing.test.ts`) |
+| Core move paths | 19 `session-move` and 203 `session-runner` tests passed |
+| Protocol contract | 5 event tests passed; regeneration produced no diff |
+| Server feeds | 20 tests passed (controlled, controlled HTTP negotiation, legacy) |
+| Client | 54 passed with 3 expected non-browser skips; 28 contract/boundary/service/shared-events tests passed |
+| TUI focused | 50 tests across interest/devtools/use-event/session-tabs and 32 `app-lifecycle` tests passed |
+
+The two release gates above (notification scope decision, live before/after record) are unchanged by the port and remain open.
