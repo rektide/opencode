@@ -164,10 +164,12 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
 
       const version = wakeVersion
       if (options.retry?.(result.error) === "pause" && version === wakeVersion) {
-        setConnection("paused", true)
-        await new Promise<void>((resolve) => {
+        const parked = new Promise<void>((resolve) => {
           wake = resolve
         })
+        // Reactive observers may wake or stop us synchronously when paused becomes visible.
+        setConnection("paused", true)
+        await parked
         wake = undefined
         setConnection("paused", false)
         if (abort.signal.aborted || !started || generation !== active) return
@@ -216,9 +218,9 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
     wake?.()
   }
 
-  function reconnectEvents() {
+  function reconnectEvents(options?: { resolve?: boolean }) {
     stop()
-    resolveOnStart = true
+    resolveOnStart = options?.resolve ?? true
     if (!abort.signal.aborted) void start()
   }
 

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import type { OpenCodeClient, OpenCodeEvent } from "../src/promise"
 import { createClientConnection } from "../src/solid/connection"
-import { createRoot } from "solid-js"
+import { createRoot, createEffect } from "solid-js"
 import { isServer } from "solid-js/web"
 import { OpenCode } from "../src/promise/index.ts"
 import { createControlledEventFeed } from "../src/solid/controlled-event-feed.ts"
@@ -201,3 +201,34 @@ async function until(check: () => boolean) {
   }
   throw new Error("connection state timed out")
 }
+
+browserTest("a reactive paused observer can wake immediately, and a toggle need not resolve the service", async () => {
+  let attempts = 0
+  let resolutions = 0
+  const api = OpenCode.make({ baseUrl: "http://unused" })
+  const fixture = createRoot((dispose) => {
+    const connection = createClientConnection(api, {
+      subscribe: async function* (_api, signal) {
+        if (++attempts === 1) throw new Error("invalid")
+        yield connected
+        await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }))
+      },
+      retry: () => "pause",
+      reconnect: async () => {
+        resolutions++
+        return api
+      },
+      onEvent: () => {},
+    })
+    createEffect(() => {
+      if (connection.paused()) connection.wakeEvents()
+    })
+    return { connection, dispose }
+  })
+  await until(() => fixture.connection.status() === "connected")
+  expect(resolutions).toBe(1)
+  fixture.connection.reconnectEvents({ resolve: false })
+  await until(() => attempts === 3 && fixture.connection.status() === "connected")
+  expect(resolutions).toBe(1)
+  fixture.dispose()
+})

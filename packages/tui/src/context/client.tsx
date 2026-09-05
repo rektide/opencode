@@ -51,7 +51,7 @@ export const { use: useClient, provider: ClientProvider } = createSimpleContext(
       if (next === previous) return
       previous = next
       interest.changed()
-      connection.reconnectEvents()
+      connection.reconnectEvents({ resolve: false })
     })
 
     onCleanup(() => {
