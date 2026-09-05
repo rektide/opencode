@@ -27,7 +27,7 @@ export function plan(sources: ConfigDiscovery.Sources) {
       ...directories.map((path) => ({
         path,
         type: "directory" as const,
-        ignore: ["node_modules", ".git", "**/{node_modules,.git}/**"],
+        ignore: ["node_modules", ".git", ".jj", "**/{node_modules,.git,.jj}/**"],
       })),
       ...Array.from(parents, ([parent, files]) => ({
         path: parent,

@@ -176,6 +176,7 @@ const layer = Layer.effect(
             // Positive globs override rg's hidden-file filter; exclude before applying the result limit.
             ...(input.hidden ? [] : ["--glob=!**/.*"]),
             "--glob=!**/.git/**",
+            "--glob=!**/.jj/**",
             ".",
           ],
           parse: (line) => Effect.succeed(normalizePath(line)),
@@ -203,6 +204,7 @@ const layer = Layer.effect(
             ...(input.pattern === "*" ? [] : [`--glob=${input.pattern}`]),
             ...(input.exclude ?? []).map((pattern) => `--glob=!${pattern}`),
             "--glob=!**/.git/**",
+            "--glob=!**/.jj/**",
             ".",
           ],
           parse: (line) => {
@@ -228,6 +230,7 @@ const layer = Layer.effect(
             ...(input.caseSensitive === false ? ["--ignore-case"] : []),
             ...(input.include ? [`--glob=${input.include}`] : []),
             "--glob=!**/.git/**",
+            "--glob=!**/.jj/**",
             "--",
             input.pattern,
             input.file ?? ".",
