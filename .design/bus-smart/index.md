@@ -2,7 +2,8 @@
 
 Architecture and research for reducing OpenCode's many-client event fanout.
 Documents are proposals and historical evidence unless explicitly accepted.
-No draft1 performance win or completed runtime implementation is claimed.
+A default-off runtime candidate and synthetic measurements are recorded in the
+execution report. The experiment is not graduated or verified against live-user CPU.
 
 ## Current entry points
 
