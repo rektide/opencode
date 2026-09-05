@@ -496,7 +496,8 @@ describe("Project.resolve", () => {
         await fs.mkdir(path.join(tmp.path, ".jj", "repo", "store"), { recursive: true })
         await fs.writeFile(path.join(tmp.path, ".jj", "repo", "store", "git_target"), "../../../.git")
       })
-      const result = yield* (yield* Project.Service).resolve(abs(tmp.path))
+      const project = yield* Project.Service
+      const result = yield* project.resolve(abs(tmp.path))
 
       expect(result.vcs?.type).toBe("jj")
       expect(result.canonical).toBe(yield* real(tmp.path))
@@ -547,7 +548,8 @@ describe("Project.resolve", () => {
         await fs.writeFile(path.join(tmp.path, ".jj", "repo", "store", "git_target"), "../../../.git")
         await Bun.write(path.join(tmp.path, ".git", "opencode"), "old-id")
       })
-      const result = yield* (yield* Project.Service).resolve(abs(tmp.path))
+      const project = yield* Project.Service
+      const result = yield* project.resolve(abs(tmp.path))
 
       expect(result.previous).toBe(Project.ID.make("old-id"))
       expect(result.id).toBe(Project.ID.make("old-id"))
@@ -566,7 +568,8 @@ describe("Project.resolve", () => {
         await fs.mkdir(path.join(tmp.path, ".jj"))
       })
 
-      const result = yield* (yield* Project.Service).resolve(abs(tmp.path))
+      const project = yield* Project.Service
+      const result = yield* project.resolve(abs(tmp.path))
 
       expect(result.vcs?.type).toBe("git")
       expect(result.id).toBe(remoteID("github.com/owner/repo"))
@@ -632,7 +635,8 @@ describe("Project.resolve", () => {
         await $`jj git init --colocate`.cwd(tmp.path).quiet()
         await $`git remote add origin git@github.com:owner/repo.git`.cwd(tmp.path).quiet()
       })
-      const result = yield* (yield* Project.Service).resolve(abs(tmp.path))
+      const project = yield* Project.Service
+      const result = yield* project.resolve(abs(tmp.path))
 
       expect(result.vcs?.type).toBe("jj")
       expect(result.id).toBe(remoteID("github.com/owner/repo"))
@@ -675,7 +679,8 @@ describe("Project.resolve", () => {
       // the .jj/repo pointer in place, so the directory still resolves and
       // keeps the repo's canonical root. Detection is filesystem-only, so
       // workspace membership is not re-checked against jj.
-      const result = yield* (yield* Project.Service).resolve(abs(linked))
+      const project = yield* Project.Service
+      const result = yield* project.resolve(abs(linked))
       expect(result.vcs?.type).toBe("jj")
       expect(result.canonical).toBe(yield* real(tmp.path))
     }),
