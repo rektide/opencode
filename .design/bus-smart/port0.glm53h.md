@@ -52,7 +52,7 @@ All commands run from package directories on the rebased tip.
 | Client | 54 pass / 3 expected browser skips (effect, promise, solid-connection, solid-controlled-event-feed) |
 | Client contract surfaces | 28 pass (contract-identity, import-boundaries, promise-service, shared-events) |
 | TUI focused | 50 pass (event-interest, devtools-bar, use-event, session-tabs); 32 pass `app-lifecycle.test.tsx` |
-| TUI full suite | See log entry below |
+| TUI full suite | 1301 pass / 4 skip / 2 fail — the 2 failures reproduce identically on a pristine `v2@origin` checkout in this environment (`shell output opens, follows, scrolls, and survives exit` at both widths, 5s timeouts with sibling tests at ~4.2s); pre-existing upstream timing sensitivity on this machine, not a port regression |
 
 ## Notes and follow-ups
 
