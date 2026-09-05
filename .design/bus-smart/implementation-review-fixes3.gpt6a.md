@@ -1,0 +1,59 @@
+---
+type: ImplementationReport
+title: Bus-smart third-review localized corrections
+description: Declared-absence repair termination, canonical input acknowledgment, and model-selection point-read lifetime fencing.
+resource: /.design/bus-smart/implementation-review-fixes3.gpt6a.md
+status: draft
+generated: { by: "openai/gpt-6-astra#xhigh", at: 2026-09-05 }
+stale_after: 2026-10-05
+sources:
+  - resource: /.design/bus-smart/code-review3-standards.gpt6a.md
+  - resource: /.design/bus-smart/code-review3-spec.gpt6a.md
+  - resource: /packages/client/src/solid/data.ts
+  - resource: /.test-agent/bus-smart/spec-review3-gpt6a/README.md
+---
+
+# Third-review localized corrections
+
+## Baseline and scope
+
+Clean checkpoint `55005115`, following standards review `faccf10c`. Both review3
+reports and the scratch README/reproductions were read in full. The previous lost
+duty and Skill findings are closed; their bounded scheduling regressions remain.
+
+Only the three authorized seams are in scope. The declared-absence retry loop is
+a regression of persistent automatic repair. Canonical input acknowledgment and
+the unfenced model-selection point read are **pre-existing adjacent defects**, not
+new backoff regressions. No new audit, generic request framework, pruning, permanent
+tombstone, Protocol/Core/Server change, live-service operation, child agent, history
+rewrite, or push. The experiment stays default off.
+
+## Planned correction boundaries
+
+1. Stop automatic continuation of a repair episode on the generated client's
+   decoded `SessionNotFoundError`, for both list pages and boundary probes. Keep
+   the cache incomplete, preserve user state, and allow explicit reads/reconnect
+   to try again. Arbitrary HTTP 404 and transport failures remain transient.
+2. At the accepted canonical reconciliation cut, acknowledge matching local
+   optimistic user/synthetic input IDs. Preserve the server's first-admission
+   payload, unresolved optimistic rows, and the original POST's rejection result.
+   Do not acknowledge from discarded or failed snapshots.
+3. Capture ownership of the model-selection row being enriched. Before applying
+   the point response, require that same live row and a non-disposed data owner;
+   eviction/deletion/recreation must not bless an old response. Use existing row
+   ownership rather than adding another epoch map or changing the public API.
+
+## Execution and verification
+
+Corrections pending. Each seam will be committed independently with red/green
+package tests. Both earlier scratch suites and review3's originals remain intact.
+
+## Cross-references
+
+- [Standards review3](/.design/bus-smart/code-review3-standards.gpt6a.md): definitive
+  absence must terminate automatic repair without preventing later explicit retry.
+- [Spec review3](/.design/bus-smart/code-review3-spec.gpt6a.md): canonical-positive
+  acknowledgment and lifetime fencing of the retained upstream point read.
+- [Previous correction report](/.design/bus-smart/implementation-review-fixes2.gpt6a.md):
+  persistent-duty/backoff invariants and canonical mutation categories remain the
+  baseline, except for the narrowly refined terminal-error policy in this report.
