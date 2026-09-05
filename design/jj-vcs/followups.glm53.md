@@ -96,6 +96,16 @@ five probes before any freshen; a `jj.ts` appearing in
 the substrate question. Detail: upstream-check-20260902 §"What to
 re-check next time".
 
+### 8. `worktree.metadata` migrate-away — scheduled (rung 2 of the rebuild)
+
+The core-table ALTER (C5's `metadata` column, two migration lineage ids)
+caused the 2026-09-04 deployment boot incident; the stable directive
+prohibits the shape and prescribes the exit. **Scheduled** as rung 2 of
+[`way-forward1.glm53.md`](way-forward1.glm53.md) (rebuild on
+`23f3f8b6ca61`): `rektide_jj_worktree` own table, guarded idempotent
+migration + backfill, dual-read, three-worlds test matrix. Detail:
+[`table-ownership0.glm53max.md`](table-ownership0.glm53max.md).
+
 ## Adjacent, owned elsewhere
 
 - **cache-ttl TTL pin port** (compose rider `174bd670` → feature

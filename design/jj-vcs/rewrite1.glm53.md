@@ -211,6 +211,10 @@ Verify: typecheck `packages/core` `packages/schema` `packages/tui`
   probe definitions; this doc's evening fetch re-ran them clean.
 - [`jj-vcs2.glm53.md`](jj-vcs2.glm53.md) — the ID-space stance C1's body
   text flags; refreshed at endgame.
+- [`table-ownership0.glm53max.md`](table-ownership0.glm53max.md) — C5's
+  ALTER minted the second migration lineage that broke the deployed build on
+  2026-09-04; the directive and migrate-away plan (scheduled as rung 2 of
+  [`way-forward1.glm53.md`](way-forward1.glm53.md)) are the response.
 
 # Outcome — rewrite landed 2026-09-02 evening
 
