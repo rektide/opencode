@@ -59,6 +59,39 @@ default (answers only, no option list).
 
 ## Refresh log
 
+### 2026-09-04 — freshened onto `23f3f8b6ca61`
+
+- New base: locked upstream baseline `23f3f8b6ca61` ("fix(tui): reference
+  update command (#47415)"), replacing `7ba5f3e5b220` (67-commit gap, oldest
+  `09157609b7f0` session project menu).
+- Single-shot duplicate-then-rebase (`jj duplicate 7ba5f3e5b220..export-qa` →
+  one connected 6-chain, then `jj rebase -s tsxmzynt -d 23f3f8b6ca61`):
+  **cleanly — zero conflicts, zero adaptations**. Freshened ids: `609c98ad963d`
+  (answers), `34c4a67cf02c` (options toggle), `122c1bde3b6b` (design notes),
+  `f59d86b6118b` / `acc94a8f03c7` (prior refresh docs), `1f7566afd1fd`
+  (refresh doc onto 7ba5f3e5b220).
+- Collision audit: clean. `dialog-export-options.tsx` and both focused test
+  files untouched by the gap; `index.tsx` touched by 4 delta commits
+  (plugin-owned panels #47150, undo pending prompts #47343, retry countdown
+  #47145, subagent error styling #47295), all disjoint from the feature's
+  hunks.
+- Footprint on the new base **identical** to the previous line's: 6 files,
+  +468/−7; `jj interdiff` from the old tip to the new tip is empty.
+- Verification (from `packages/tui`, after `bun install` for upstream's
+  `bun.lock` drift and new `@opencode-ai/util` workspace dep; the stale
+  install's phantom errors were first reproduced identically on a pristine
+  baseline checkout to rule out the rebase):
+  - `bun test test/cli/tui/transcript-export.test.ts` — 6 pass, 0 fail,
+    15 expect() calls.
+  - `bun test test/cli/tui/inline-tool-wrap-snapshot.test.tsx` — 12 pass,
+    0 fail, 2 snapshots, 31 expect() calls.
+  - `bun run typecheck` (`tsgo -b`) — clean, 0 errors.
+- Bookmarks: `export-qa` advanced to the new docs tip; `export-qa-20260904`
+  created at the same commit; `export-qa-20260903` untouched.
+- Confidence: high — mechanical rebase, byte-identical footprint, counts
+  match the prior refresh exactly. Details:
+  [`refresh-20260904.glm53.md`](/.design/export-qa/refresh-20260904.glm53.md).
+
 ### 2026-09-01 — freshened onto `43d09b9d75ad`
 
 - New base: upstream `v2@origin` tip `43d09b9d75ad5d74cda5bd29ab72319e724fbbb9`
