@@ -21,3 +21,23 @@ test("review modes preserve shipped working and combined branch names", () => {
   }
   expect(() => Schema.decodeUnknownSync(Vcs.Mode)("unknown")).toThrow()
 })
+
+test("working-copy identity omits unavailable optional fields", () => {
+  const workingCopy = {
+    label: undefined,
+    workspace: "default",
+    changeID: undefined,
+    commitID: "abc",
+    bookmarks: ["main"],
+    description: undefined,
+    conflicted: false,
+    empty: true,
+  }
+  expect(Schema.encodeSync(Vcs.WorkingCopy)(workingCopy)).toEqual({
+    workspace: "default",
+    commitID: "abc",
+    bookmarks: ["main"],
+    conflicted: false,
+    empty: true,
+  })
+})
