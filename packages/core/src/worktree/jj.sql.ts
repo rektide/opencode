@@ -4,5 +4,5 @@ import { absoluteColumn } from "../database/path.js"
 
 export const JjWorktreeTable = sqliteTable("rektide_jj_worktree", {
   id: absoluteColumn().primaryKey(),
-  metadata: text({ mode: "json" }).$type<Worktree.JjWorkspaceMetadata>().notNull(),
+  metadata: text({ mode: "json" }).$type<Worktree.Metadata>().notNull(),
 })
