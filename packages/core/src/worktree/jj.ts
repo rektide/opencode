@@ -16,6 +16,7 @@ import { WorktreeTable } from "./sql.js"
 import { canonical, DirectoryUnavailableError } from "./directory.js"
 import { JjWorktreeTable } from "./jj.sql.js"
 
+const decodeMetadata = Schema.decodeUnknownOption(Worktree.JjWorkspaceMetadata)
 const decodeLegacy = Schema.decodeUnknownOption(Schema.fromJsonString(Worktree.JjWorkspaceMetadata))
 const defined = <A>(item: A | undefined): item is A => item !== undefined
 
@@ -56,7 +57,7 @@ export const make = Effect.gen(function* () {
       .where(eq(JjWorktreeTable.id, directory))
       .get()
       .pipe(Effect.orDie)
-    if (owned) return owned.metadata
+    if (owned) return Option.getOrUndefined(decodeMetadata(owned.metadata))
     if (!hasLegacyMetadata) return undefined
     const legacy = yield* db
       .get<{ metadata: string | null }>(sql`SELECT metadata FROM worktree WHERE directory = ${directory}`)
