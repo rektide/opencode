@@ -173,7 +173,8 @@ export const make = Effect.gen(function* () {
         return yield* new Worktree.OperationError({ message: "Cannot forget the only registered JJ workspace" })
       const entries = direct.length ? direct : yield* list(source)
       const entry = entries.find((item) => item.directory === directory)
-      if (entry?.metadata?.type !== "jj_workspace") {
+      const actual = entry ? yield* read(directory) : undefined
+      if (!actual) {
         if (!expected) return yield* new Worktree.OperationError({ message: "JJ workspace is not registered" })
         if (!input.force)
           return yield* new Worktree.OperationError({
@@ -186,7 +187,7 @@ export const make = Effect.gen(function* () {
         yield* db.delete(JjWorktreeTable).where(eq(JjWorktreeTable.id, directory)).run().pipe(Effect.orDie)
         return
       }
-      if (expected && expected.workspace !== entry.metadata.workspace)
+      if (expected && expected.workspace !== actual.workspace)
         return yield* new Worktree.OperationError({ message: "JJ workspace identity changed" })
 
       if (!input.force) {
@@ -219,7 +220,7 @@ export const make = Effect.gen(function* () {
           })
       }
 
-      yield* run("remove", source, ["workspace", "forget", entry.metadata.workspace])
+      yield* run("remove", source, ["workspace", "forget", actual.workspace])
       yield* fs.remove(directory, { recursive: true, force: true }).pipe(
         Effect.mapError(
           (cause) =>
