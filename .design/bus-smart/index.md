@@ -6,6 +6,8 @@ No draft1 performance win or completed runtime implementation is claimed.
 
 ## Current entry points
 
+- [Runtime execution report — Astra](/.design/bus-smart/implementation-report1.gpt6a.md)
+  — implementation progress, commits, exact verification, carry cost and limits.
 - [draft1 — scope streaming, preserve observation](/.design/bus-smart/draft1.gpt6a.md)
   — current architectural recommendation: gate five native streaming/progress
   types by followed Session, retain broad non-streaming observation, preserve
