@@ -41,6 +41,12 @@ export const ServerOptions = Schema.Struct({
     Schema.Struct({
       filewatcher: Schema.optional(Schema.Boolean),
       fff: Schema.optional(Schema.Boolean),
+      watchman: Schema.optional(
+        Schema.Struct({
+          socket: Schema.String,
+          commandTimeoutMs: Schema.optional(Schema.Number),
+        }),
+      ),
     }),
   ),
 })
