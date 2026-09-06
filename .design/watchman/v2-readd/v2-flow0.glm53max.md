@@ -169,8 +169,8 @@ number of files:
   — the work plan whose W0/W10 documentation duties this flow operationalizes.
 - Scratch index and journals (as of this writing):
   [`README.md`](file:///home/rektide/src/opencode-watchman-old/.test-agent/watchman-v2-readd/README.md),
-  [`research0`](file:///home/rektide/src/opencode-watchman-old/.test-agent/watchman-v2-readd/research0.glm53max.md),
-  [`execution0`](file:///home/rektide/src/opencode-watchman-old/.test-agent/watchman-v2-readd/execution0.glm53f.md).
+  [`research0`](file:///home/rektide/src/opencode-watchman-v2-readd/.design/watchman/v2-readd/v2-research0.glm53max.md),
+  [`execution0`](file:///home/rektide/src/opencode-watchman-v2-readd/.design/watchman/v2-readd/v2-execution0.glm53f.md).
 - [`patches.md`](file:///home/rektide/ado/patches.md) — the compose process
   whose bookmark/verification conventions the carrier line will eventually
   enter through.
