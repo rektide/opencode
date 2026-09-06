@@ -77,6 +77,8 @@ export type Frame =
     }
   | { readonly type: "canceled"; readonly subscription: string }
   | { readonly type: "error"; readonly error: string }
+  /** Subscription-less unilateral notification (e.g. stock clock ticks): dropped. */
+  | { readonly type: "ignored" }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null
 
@@ -104,12 +106,29 @@ export const decode = (value: unknown): Frame | undefined => {
   if (!isRecord(value)) return undefined
   const error = string(value.error)
   if (error !== undefined) return { type: "error", error }
-  if (value.unilateral === true) return push(value)
+  if (value.unilateral === true) {
+    const subscription = string(value.subscription)
+    if (subscription === undefined) return { type: "ignored" }
+    return push(subscription, value)
+  }
   if (value.canceled === true) {
     const subscription = string(value.subscription)
     if (subscription === undefined) return undefined
     return { type: "canceled", subscription }
   }
+  const watch = string(value.watch)
+  if (watch !== undefined) return { type: "watch", watch }
+  const subscribe = string(value.subscribe)
+  if (subscribe !== undefined) return { type: "subscribe", subscribe }
+  // Stock replies with `deleted`; Watchwoman with `unsubscribed`.
+  if (value.deleted !== undefined || value.unsubscribed !== undefined) return { type: "unsubscribed" }
+  if ("files" in value) {
+    const subscription = string(value.subscription)
+    if (subscription === undefined) return undefined
+    return push(subscription, value)
+  }
+  const clock = string(value.clock)
+  if (clock !== undefined) return { type: "clock", clock }
   const version = string(value.version)
   if (version !== undefined) {
     const capabilities = isRecord(value.capabilities)
@@ -121,29 +140,16 @@ export const decode = (value: unknown): Frame | undefined => {
       : {}
     return { type: "version", version, capabilities }
   }
-  const watch = string(value.watch)
-  if (watch !== undefined) return { type: "watch", watch }
-  const subscribe = string(value.subscribe)
-  if (subscribe !== undefined) return { type: "subscribe", subscribe }
-  // Stock replies with `deleted`; Watchwoman with `unsubscribed`.
-  if (value.deleted !== undefined || value.unsubscribed !== undefined) return { type: "unsubscribed" }
-  if ("files" in value) return push(value)
-  const clock = string(value.clock)
-  if (clock !== undefined) return { type: "clock", clock }
   return undefined
 }
 
-const push = (value: Record<string, unknown>): Frame | undefined => {
-  const subscription = string(value.subscription)
-  if (subscription === undefined) return undefined
-  return {
-    type: "push",
-    subscription,
-    clock: string(value.clock),
-    fresh: value.is_fresh_instance === true,
-    files: rows(value.files),
-  }
-}
+const push = (subscription: string, value: Record<string, unknown>): Frame => ({
+  type: "push",
+  subscription,
+  clock: string(value.clock),
+  fresh: value.is_fresh_instance === true,
+  files: rows(value.files),
+})
 
 /**
  * The stable daemon-root identity of a clock: everything but the tick.
