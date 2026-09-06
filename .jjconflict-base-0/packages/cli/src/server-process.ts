@@ -118,6 +118,7 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
               process.env.OPENCODE_DISABLE_FFF === undefined
                 ? process.platform !== "win32"
                 : !truthy(process.env.OPENCODE_DISABLE_FFF),
+            watchman: watchmanFromEnv(),
           },
         },
         serviceOptions === undefined
@@ -182,6 +183,26 @@ function serviceURL(hostname: string, port: number) {
 
 function truthy(value?: string) {
   return value === "1" || value?.toLowerCase() === "true"
+}
+
+/**
+ * Watchman selection is explicit: `OPENCODE_WATCHER_BACKEND=watchman` with a
+ * socket from `OPENCODE_WATCHMAN_SOCKET` or the daemon-standard
+ * `WATCHMAN_SOCK`. Unknown selectors and missing sockets fail loudly in Core
+ * at layer construction rather than silently choosing Parcel.
+ */
+function watchmanFromEnv() {
+  const backend = process.env.OPENCODE_WATCHER_BACKEND
+  if (backend === undefined || backend === "parcel") return undefined
+  if (backend !== "watchman")
+    throw new Error(
+      `OPENCODE_WATCHER_BACKEND must be "parcel" or "watchman", got: ${backend}`,
+    )
+  const commandTimeoutMs = process.env.OPENCODE_WATCHMAN_COMMAND_TIMEOUT_MS
+  return {
+    socket: process.env.OPENCODE_WATCHMAN_SOCKET ?? process.env.WATCHMAN_SOCK ?? "",
+    ...(commandTimeoutMs === undefined ? {} : { commandTimeoutMs: Number.parseInt(commandTimeoutMs, 10) }),
+  }
 }
 
 function addressInUse(error: unknown): boolean {
