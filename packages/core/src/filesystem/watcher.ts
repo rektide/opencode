@@ -79,6 +79,8 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/Wa
 export interface TestInterface extends Interface {
   /** Delivers one update to every active watch whose target covers `update.path`. */
   readonly emit: (update: Update) => Effect.Effect<void>
+  /** Runs the reacquisition readiness of every active watch. */
+  readonly invalidate: () => Effect.Effect<void>
   /** Returns every subscribe call observed so far, in order. */
   readonly subscriptions: () => Effect.Effect<readonly WatchInput[]>
 }
@@ -170,6 +172,7 @@ export const testLayer = Layer.effectContext(
   Effect.gen(function* () {
     const subscriptions: WatchInput[] = []
     const active = new Map<(update: Update) => void, (path: string) => boolean>()
+    const invalidates = new Set<() => void>()
     const native = Native.of({
       subscribe: (input) =>
         Effect.sync(() => {
@@ -192,9 +195,11 @@ export const testLayer = Layer.effectContext(
               return path.dirname(target) === input.target && input.names.includes(path.basename(target))
             return FSUtil.contains(input.target, target) && !ignored.some((entry) => FSUtil.contains(entry, target))
           })
+          if (input.invalidate) invalidates.add(input.invalidate)
           return {
             unsubscribe: () => {
               active.delete(input.publish)
+              if (input.invalidate) invalidates.delete(input.invalidate)
               return Promise.resolve()
             },
           }
@@ -209,6 +214,10 @@ export const testLayer = Layer.effectContext(
           active.forEach((matches, publish) => {
             if (matches(target)) publish(update)
           })
+        }),
+      invalidate: () =>
+        Effect.sync(() => {
+          for (const invalidate of invalidates) invalidate()
         }),
       subscriptions: () => Effect.sync(() => [...subscriptions]),
     })

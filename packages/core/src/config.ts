@@ -32,15 +32,22 @@ export function latest<K extends keyof Info>(entries: readonly Entry[], key: K):
     ?.info[key]
 }
 
+/**
+ * Filesystem updates under config roots, plus invalidation items reporting
+ * that a watch was reacquired: owners must reread without a path event.
+ */
+export type Change = Watcher.Update | { readonly type: "invalidation"; readonly path: string }
+
 export interface Interface {
   /** Returns location config documents and discovery sources from lowest to highest priority. */
   readonly entries: () => Effect.Effect<Entry[]>
   /**
    * Streams raw filesystem updates under config roots. Config owns root
    * topology and watch reconciliation; domain owners filter this feed for the
-   * source files they parse and rebuild their own state.
+   * source files they parse and rebuild their own state. Invalidation items
+   * must bypass path filtering: they carry the watched root, not a changed file.
    */
-  readonly changes: () => Stream.Stream<Watcher.Update>
+  readonly changes: () => Stream.Stream<Change>
 }
 
 export const Options = Schema.Struct({
@@ -58,8 +65,8 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/Co
 export interface TestInterface extends Interface {
   /** Replaces the entries returned by subsequent entries() calls. */
   readonly setEntries: (entries: Entry[]) => Effect.Effect<void>
-  /** Emits one filesystem update to every changes() subscriber. */
-  readonly emitChange: (update: Watcher.Update) => Effect.Effect<void>
+  /** Emits one filesystem update or invalidation to every changes() subscriber. */
+  readonly emitChange: (change: Change) => Effect.Effect<void>
 }
 
 export class Test extends Context.Service<Test, TestInterface>()("@opencode/Config/Test") {}
@@ -69,12 +76,12 @@ export const testLayer = (initial: Entry[] = []) =>
   Layer.effectContext(
     Effect.gen(function* () {
       const entries = yield* Ref.make(initial)
-      const updates = yield* PubSub.unbounded<Watcher.Update>()
+      const updates = yield* PubSub.unbounded<Change>()
       const service = Test.of({
         entries: () => Ref.get(entries),
         changes: () => Stream.fromPubSub(updates),
         setEntries: (next) => Ref.set(entries, next),
-        emitChange: (update) => PubSub.publish(updates, update).pipe(Effect.asVoid),
+        emitChange: (change) => PubSub.publish(updates, change).pipe(Effect.asVoid),
       })
       return Context.empty().pipe(Context.add(Service, service), Context.add(Test, service))
     }),
@@ -235,7 +242,7 @@ export const layer = (options?: Options) =>
 
       const initial = yield* ConfigDiscovery.discover(options)
       let configs = yield* load(initial)
-      const updates = yield* PubSub.unbounded<Watcher.Update>()
+      const updates = yield* PubSub.unbounded<Change>()
       const reloads = yield* PubSub.sliding<void>(1)
       // Readiness rescans recover writes made before a watch attached.
       const requestReload = PubSub.publish(reloads, undefined).pipe(Effect.asVoid)
@@ -246,14 +253,18 @@ export const layer = (options?: Options) =>
           if (!plan.has(key)) yield* FiberMap.remove(watched, key)
         }
         for (const [key, target] of plan) {
-          yield* watcher
-            .subscribe(target, requestReload)
-            .pipe(
-              Effect.flatMap(
-                Stream.runForEach((update) => PubSub.publish(updates, update).pipe(Effect.andThen(requestReload))),
-              ),
-              FiberMap.run(watched, key, { onlyIfMissing: true, startImmediately: true }),
-            )
+          // Readiness after (re)acquisition reports the replaced watch to owners
+          // and recovers writes made before the watch attached.
+          const onReady = PubSub.publish(updates, {
+            type: "invalidation",
+            path: target.path,
+          } satisfies Change).pipe(Effect.andThen(requestReload))
+          yield* watcher.subscribe(target, onReady).pipe(
+            Effect.flatMap(
+              Stream.runForEach((update) => PubSub.publish(updates, update).pipe(Effect.andThen(requestReload))),
+            ),
+            FiberMap.run(watched, key, { onlyIfMissing: true, startImmediately: true }),
+          )
         }
       })
 

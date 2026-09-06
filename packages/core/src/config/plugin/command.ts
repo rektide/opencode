@@ -53,7 +53,13 @@ export const Plugin = define({
     const changes = yield* PubSub.sliding<void>(1)
     const notify = () => PubSub.publish(changes, undefined)
     yield* config.changes().pipe(
-      Stream.filterEffect((update) => Effect.map(config.entries(), (entries) => isCommandSource(entries, update.path))),
+      // Invalidation bypasses source filtering: reacquisition makes every
+      // source suspect even though no exact path event arrived.
+      Stream.filterEffect((change) =>
+        change.type === "invalidation"
+          ? Effect.succeed(true)
+          : Effect.map(config.entries(), (entries) => isCommandSource(entries, change.path)),
+      ),
       Stream.runForEach(notify),
       Effect.forkScoped({ startImmediately: true }),
     )

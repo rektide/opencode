@@ -323,6 +323,48 @@ Review files`,
       ),
     ),
   )
+
+  it.effect("rebuilds on reacquisition readiness even when no path matches a source", () =>
+    Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const directory = path.join(tmp.path, "commands")
+          yield* Effect.promise(() => fs.mkdir(directory, { recursive: true }))
+
+          const command = yield* Command.Service
+          const configTest = yield* Config.Test
+          let reloads = 0
+          yield* ConfigCommandPlugin.Plugin.effect(
+            host({
+              command: {
+                list: () => Effect.die("unused command.list"),
+                transform: command.transform,
+                reload: () => command.reload().pipe(Effect.tap(() => Effect.sync(() => reloads++))),
+              },
+            }),
+          )
+          yield* Effect.yieldNow
+          expect(yield* command.get("review")).toBeUndefined()
+          yield* Effect.promise(() =>
+            fs.writeFile(path.join(directory, "review.md"), markdown("Review reacquired", "Review reacquired")),
+          )
+
+          // Readiness after watch reacquisition: no exact path event, and the
+          // reported root is outside every source directory.
+          yield* configTest.emitChange({ type: "invalidation", path: path.join(tmp.path, "opencode.json") })
+          yield* advance(() => reloads >= 1)
+          expect(reloads).toBe(1)
+          expect((yield* command.get("review"))?.description).toBe("Review reacquired")
+
+          // Repeated readiness coalesces into one rebuild.
+          yield* configTest.emitChange({ type: "invalidation", path: tmp.path })
+          yield* configTest.emitChange({ type: "invalidation", path: directory })
+          yield* advance(() => reloads >= 2)
+          expect(reloads).toBe(2)
+        }).pipe(Effect.provide(Config.testLayer([directoryEntry(tmp.path)]))),
+      ),
+    ),
+  )
 })
 
 const describeNative = Watcher.hasNativeBinding() && !process.env.CI ? describe : describe.skip

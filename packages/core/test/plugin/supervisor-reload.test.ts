@@ -165,6 +165,47 @@ describe("PluginSupervisor reload", () => {
     )
   })
 
+  it.effect("reloads a configured plugin directory on reacquisition readiness", () =>
+    Effect.gen(function* () {
+      const directory = yield* tmpdirScoped()
+      const file = path.join(directory.path, "external/greeter/index.ts")
+      yield* Effect.promise(async () => {
+        await Bun.write(file, greeter("greet-v1"))
+        await fs.utimes(file, new Date(0), new Date(0))
+        await Bun.write(
+          path.join(directory.path, ".opencode/opencode.json"),
+          JSON.stringify({ plugins: [path.dirname(file)] }),
+        )
+      })
+      const watcher = yield* Watcher.Test
+      const locations = yield* LocationServiceMap.Service
+      yield* Effect.gen(function* () {
+        const plugins = yield* Plugin.Service
+        const commands = yield* Command.Service
+        yield* plugins.awaitActivation
+        expect(yield* commands.get("greet-v1")).toBeDefined()
+
+        // The direct configured-directory watch reports readiness after
+        // reacquisition: the authoritative reread must run without a path event.
+        yield* Effect.promise(async () => {
+          await Bun.write(file, greeter("greet-v2"))
+          await fs.utimes(file, new Date(), new Date())
+        })
+        yield* watcher
+          .invalidate()
+          .pipe(
+            Effect.andThen(commands.get("greet-v2")),
+            Effect.flatMap((command) => (command ? Effect.void : Effect.fail("pending"))),
+            Effect.retry({ times: 200, schedule: Schedule.spaced("10 millis") }),
+          )
+        expect(yield* commands.get("greet-v1")).toBeDefined()
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(locations.get(Location.Ref.make({ directory: AbsolutePath.make(directory.path) }))),
+      )
+    }),
+  )
+
   it.live("keeps the running generation when an updated local plugin fails to import", () =>
     Effect.gen(function* () {
       const directory = yield* tmpdirScoped()

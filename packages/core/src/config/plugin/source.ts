@@ -57,10 +57,12 @@ export const layer = Layer.effect(
         // The config change feed already covers {plugin,plugins} directories.
         if (isPluginSource(entries, operation.target)) continue
         watched.add(operation.target)
-        const updates = yield* watcher.subscribe({
-          path: operation.target,
-          type: (yield* fs.isDir(operation.target)) ? "directory" : "file",
-        })
+        // Readiness after (re)acquisition notifies change subscribers without a
+        // path event.
+        const updates = yield* watcher.subscribe(
+          { path: operation.target, type: (yield* fs.isDir(operation.target)) ? "directory" : "file" },
+          PubSub.publish(configuredChanges, undefined).pipe(Effect.asVoid),
+        )
         yield* updates.pipe(
           Stream.runForEach(() => PubSub.publish(configuredChanges, undefined)),
           Effect.catchCause((cause) =>
@@ -81,8 +83,12 @@ export const layer = Layer.effect(
       changes: () =>
         Stream.merge(
           config.changes().pipe(
-            Stream.filterEffect((update) =>
-              Effect.map(config.entries(), (entries) => isPluginSource(entries, update.path)),
+            // Invalidation bypasses source filtering: reacquisition makes every
+            // source suspect even though no exact path event arrived.
+            Stream.filterEffect((change) =>
+              change.type === "invalidation"
+                ? Effect.succeed(true)
+                : Effect.map(config.entries(), (entries) => isPluginSource(entries, change.path)),
             ),
             Stream.map(() => undefined),
           ),
