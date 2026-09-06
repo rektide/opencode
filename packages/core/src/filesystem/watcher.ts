@@ -6,10 +6,11 @@ import type ParcelWatcher from "@parcel/watcher"
 import { FileSystem } from "@opencode-ai/schema/filesystem"
 import { makeGlobalNode } from "@opencode-ai/util/effect/app-node"
 import { FSUtil } from "@opencode-ai/util/fs-util"
-import { Cause, Context, Effect, Layer, PubSub, RcMap, Schema, Stream } from "effect"
+import { Cause, Context, Effect, Exit, Layer, PubSub, RcMap, Schema, Scope, Stream } from "effect"
 import { lazy } from "../util/lazy.js"
 import { watch } from "node:fs"
 import path from "path"
+import { WatchmanDirectory } from "./watchman/directory.js"
 import loadBinding from "./watcher-binding.js"
 
 const SUBSCRIBE_TIMEOUT_MS = 10_000
@@ -75,6 +76,12 @@ export interface Interface {
 
 export const Options = Schema.Struct({
   enabled: Schema.optional(Schema.Boolean),
+  watchman: Schema.optional(
+    Schema.Struct({
+      socket: Schema.String,
+      commandTimeoutMs: Schema.optional(Schema.Number),
+    }),
+  ),
 })
 export type Options = typeof Options.Type
 
@@ -229,34 +236,59 @@ export const testLayer = Layer.effectContext(
   }),
 )
 
-export const nativeLayer = Layer.succeed(
-  Native,
-  Native.of({
-    subscribe: (input) => {
-      if (input.type === "file" || input.type === "entries") {
-        return Effect.sync(() => {
-          const directory = input.type === "file" ? path.dirname(input.target) : input.target
-          const names = new Set(input.type === "file" ? [path.basename(input.target)] : input.names)
-          const subscription = watch(directory, { recursive: false }, (_event, file) => {
-            if (file && !names.has(file)) return
-            for (const name of file ? [file] : names) {
-              input.publish({ path: path.join(directory, name), type: "update" })
-            }
-          })
-          subscription.on("error", (error: unknown) =>
-            Effect.runFork(Effect.logError("watcher callback failed", { path: directory, error })),
-          )
-          return { unsubscribe: () => Promise.resolve(subscription.close()), backend: "node" }
-        })
-      }
-      return subscribeDirectory(watcher(), getBackend(), input.target, input.ignore, input.publish)
-    },
-  }),
-)
+export const nativeLayer = Layer.succeed(Native, Native.of({ subscribe: nativeSubscribe }))
 
 export const nativeNode = makeGlobalNode({ service: Native, layer: nativeLayer, deps: [] })
 
+function nativeSubscribe(input: Parameters<NativeInterface["subscribe"]>[0]): Effect.Effect<Subscription | undefined> {
+  if (input.type === "file" || input.type === "entries") {
+    return Effect.sync(() => {
+      const directory = input.type === "file" ? path.dirname(input.target) : input.target
+      const names = new Set(input.type === "file" ? [path.basename(input.target)] : input.names)
+      const subscription = watch(directory, { recursive: false }, (_event, file) => {
+        if (file && !names.has(file)) return
+        for (const name of file ? [file] : names) {
+          input.publish({ path: path.join(directory, name), type: "update" })
+        }
+      })
+      subscription.on("error", (error: unknown) =>
+        Effect.runFork(Effect.logError("watcher callback failed", { path: directory, error })),
+      )
+      return { unsubscribe: () => Promise.resolve(subscription.close()), backend: "node" }
+    })
+  }
+  return subscribeDirectory(watcher(), getBackend(), input.target, input.ignore, input.publish)
+}
+
 export function configured(options?: Options) {
+  if (options?.watchman) {
+    const validated = WatchmanDirectory.options(options.watchman)
+    if (validated instanceof WatchmanDirectory.OptionsError) throw validated
+    return makeGlobalNode({
+      service: Service,
+      layer: layer(options),
+      deps: [
+        makeGlobalNode({
+          service: Native,
+          layer: Layer.effect(
+            Native,
+            Effect.gen(function* () {
+              // Supervisor fibers die with the backend; watches stop joined.
+              const scope = yield* Scope.make()
+              yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+              return Native.of({
+                subscribe: (input) =>
+                  input.type === "directory"
+                    ? WatchmanDirectory.subscribe(validated, scope, input)
+                    : nativeSubscribe(input),
+              })
+            }),
+          ),
+          deps: [],
+        }),
+      ],
+    })
+  }
   return makeGlobalNode({ service: Service, layer: layer(options), deps: [nativeNode] })
 }
 
