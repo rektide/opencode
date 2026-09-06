@@ -32,10 +32,18 @@ export const Plugin = define({
     const watches = yield* FiberMap.make<string>()
     const changes = yield* PubSub.sliding<string>(1)
     const lock = Semaphore.makeUnsafe(1)
+    // Watch keys demanded by the current refresh; drives retained-watch
+    // reconciliation the same way Config reconciles its plan.
+    const desired = new Set<string>()
 
     const watch = Effect.fn("ConfigSkillPlugin.watch")(function* (directory: string, type: "file" | "directory") {
       const target = path.resolve(directory)
-      const updates = yield* watcher.subscribe({ path: target, type })
+      desired.add(`${type}:${target}`)
+      const updates = yield* watcher.subscribe(
+        { path: target, type },
+        // Readiness (including watchman invalidations) rescans this target.
+        PubSub.publish(changes, target),
+      )
       yield* FiberMap.run(
         watches,
         `${type}:${target}`,
@@ -153,11 +161,18 @@ export const Plugin = define({
 
     const refresh = Effect.fn("ConfigSkillPlugin.refresh")(
       function* (file?: string) {
-        yield* FiberMap.clear(watches)
+        // Retain live watches across rescans: keep what this scan still
+        // demands, add only what is missing, remove the rest. Recreating
+        // every watch on every refresh churns backends and re-triggers
+        // readiness in a loop.
+        desired.clear()
         const skills = new Map<Skill.ID, Skill.Info>()
         const current = sources()
         for (const source of current) {
           for (const skill of yield* load(source)) skills.set(skill.id, skill)
+        }
+        for (const key of Array.from(watches, ([key]) => key)) {
+          if (!desired.has(key)) yield* FiberMap.remove(watches, key)
         }
         loaded.skills = Array.from(skills.values())
         if (file) {
