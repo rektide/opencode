@@ -53,9 +53,17 @@ type Target = {
 
 export interface NativeInterface {
   readonly subscribe: (
-    input: Target & { readonly publish: (update: Update) => void },
+    input: Target & {
+      readonly publish: (update: Update) => void
+      /** Signals cached state may be stale; reruns each subscriber's readiness before later updates. */
+      readonly invalidate?: () => void
+    },
   ) => Effect.Effect<Subscription | undefined>
 }
+
+type NativeSignal =
+  | { readonly type: "update"; readonly update: Update }
+  | { readonly type: "invalidation" }
 
 /** Uses fs.watch for immediate entries and Parcel for recursive directories. */
 export class Native extends Context.Service<Native, NativeInterface>()("@opencode/Watcher/Native") {}
@@ -75,6 +83,8 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/Wa
 export interface TestInterface extends Interface {
   /** Delivers one update to every active watch whose target covers `update.path`. */
   readonly emit: (update: Update) => Effect.Effect<void>
+  /** Runs the reacquisition readiness of every active watch. */
+  readonly invalidate: () => Effect.Effect<void>
   /** Returns every subscribe call observed so far, in order. */
   readonly subscriptions: () => Effect.Effect<readonly WatchInput[]>
 }
@@ -94,11 +104,14 @@ export const layer = (options?: Options) =>
       const watchers = yield* RcMap.make({
         lookup: (key: Target) =>
           Effect.gen(function* () {
-            const pubsub = yield* Effect.acquireRelease(PubSub.unbounded<Update>(), (pubsub) => PubSub.shutdown(pubsub))
+            const pubsub = yield* Effect.acquireRelease(PubSub.unbounded<NativeSignal>(), (pubsub) =>
+              PubSub.shutdown(pubsub),
+            )
             const subscription = yield* Effect.acquireRelease(
               native.subscribe({
                 ...key,
-                publish: (update) => PubSub.publishUnsafe(pubsub, update),
+                publish: (update) => PubSub.publishUnsafe(pubsub, { type: "update", update }),
+                invalidate: () => PubSub.publishUnsafe(pubsub, { type: "invalidation" }),
               }),
               (subscription) =>
                 subscription
@@ -141,7 +154,15 @@ export const layer = (options?: Options) =>
             const subscription = yield* PubSub.subscribe(pubsub)
             if (yield* PubSub.isShutdown(pubsub)) return Stream.empty
             yield* onReady
-            return Stream.fromSubscription(subscription)
+            return Stream.fromSubscription(subscription).pipe(
+              Stream.mapEffect((signal): Effect.Effect<NativeSignal> =>
+                signal.type === "invalidation" ? onReady.pipe(Effect.as(signal)) : Effect.succeed(signal),
+              ),
+              Stream.filter(
+                (signal): signal is Extract<NativeSignal, { readonly type: "update" }> => signal.type === "update",
+              ),
+              Stream.map((signal) => signal.update),
+            )
           }),
         )
       })
@@ -155,6 +176,7 @@ export const testLayer = Layer.effectContext(
   Effect.gen(function* () {
     const subscriptions: WatchInput[] = []
     const active = new Map<(update: Update) => void, (path: string) => boolean>()
+    const invalidates = new Set<() => void>()
     const native = Native.of({
       subscribe: (input) =>
         Effect.sync(() => {
@@ -177,9 +199,11 @@ export const testLayer = Layer.effectContext(
               return path.dirname(target) === input.target && input.names.includes(path.basename(target))
             return FSUtil.contains(input.target, target) && !ignored.some((entry) => FSUtil.contains(entry, target))
           })
+          if (input.invalidate) invalidates.add(input.invalidate)
           return {
             unsubscribe: () => {
               active.delete(input.publish)
+              if (input.invalidate) invalidates.delete(input.invalidate)
               return Promise.resolve()
             },
           }
@@ -194,6 +218,10 @@ export const testLayer = Layer.effectContext(
           active.forEach((matches, publish) => {
             if (matches(target)) publish(update)
           })
+        }),
+      invalidate: () =>
+        Effect.sync(() => {
+          invalidates.forEach((invalidate) => invalidate())
         }),
       subscriptions: () => Effect.sync(() => [...subscriptions]),
     })
