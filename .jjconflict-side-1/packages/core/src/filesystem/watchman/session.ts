@@ -121,6 +121,7 @@ interface Pending {
         push(frame)
         return
       }
+      if (frame.type === "ignored") return
       const request = inFlight
       if (!request) {
         settle(new ProtocolError({ reason: `unassociated frame ${frame.type}` }))
