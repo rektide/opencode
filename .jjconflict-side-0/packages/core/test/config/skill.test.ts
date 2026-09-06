@@ -380,11 +380,13 @@ describe("ConfigSkillPlugin.Plugin", () => {
           yield* emitAndWait({ type: "update", path: source })
 
           expect((yield* skill.list()).find((item) => item.id === "bro")?.description).toBe("Second")
+          // Retained watches: the symlink's file watch is not re-subscribed
+          // (onlyIfMissing) and the stale first-target directory watch is
+          // removed after the scan; the subscribe history gains only second.
           expect(yield* watcher.subscriptions()).toEqual([
             { path: first, type: "directory" },
             { path: source, type: "file" },
             { path: second, type: "directory" },
-            { path: source, type: "file" },
           ])
         }),
       ),
