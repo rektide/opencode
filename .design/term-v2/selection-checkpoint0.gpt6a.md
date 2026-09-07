@@ -101,3 +101,21 @@ Result before independent review: **44 tests passed across three files** (26 new
 ## Next gate
 
 Review this executable selection contract before authorizing inventory/config, retained-batch, looker, or excerpt integration. In particular, agree that the custom predicate is host-internal, the source contract requires stable read-only facts, and the current pin is outside every narrowing stage. The selector alone does not make multi-session epilogues visible. The current + visible-tabs inventory remains the next independent capability; visited-this-process recording is not a prerequisite and is not implemented here.
+
+# Review addendum
+
+The complete executable revision is saved at **`1b1ff39bb787`** (`fix(tui): separate selection authority from filter decisions`), following **`aef3a916a5c6`**. Both code commit bodies reference `rekon-session-mementos-display-selection`. The latest focused run remains **44 passed / 0 failed / 92 assertions**. All seven local/cross-repository Markdown link targets in this checkpoint resolve. A jj comparison confirms the reported core FFI error's source file is unchanged against the review baseline.
+
+The required independent Standards/Spec review was attempted, but both background reviewer calls were rejected because this session is already at the configured subagent-depth limit. No configuration was changed to bypass that limit. The notes below are therefore **author self-review**, not independent review or parent acceptance.
+
+Review range: `jj diff --from d78bdbf39eee --to 1b1ff39bb787 --git packages/tui/src/epilogue/selection.ts packages/tui/test/epilogue/selection.test.ts`.
+
+## Standards
+
+No documented-standard violation or actionable heuristic smell identified in the bounded diff. The implementation is domain-grouped, has no runtime imports/dependencies, validates its numeric policy boundary once, and uses generators only for real lazy traversal. The tests exercise exported behavior without mocks or duplicated selection logic. Tool-enforced formatting/type diagnostics are not reclassified as manual standards findings.
+
+## Spec
+
+No outstanding functional requirement identified within the authorized pure-kernel slice. In particular, all stages now have a separate composition grant; denied limiter termination preserves its ordinary keep/drop behavior; source order justifies age stopping; current is excluded before stage-local counting; metadata scan/sort cost is explicit. Inventory and modular last-activity/content lookers remain intentionally unimplemented capabilities, not silently wired defaults.
+
+Self-review summary: **Standards 0 findings; Spec 0 findings. Independent review remains unavailable here and parent architectural review remains the next gate.** Package typecheck is still blocked by the untouched core error described above.
