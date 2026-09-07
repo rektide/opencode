@@ -7,6 +7,7 @@ export type EpilogueSession = {
   }
 }
 
+/** Use orderEpilogueSessions; wrappers must preserve distinct IDs, current exclusion, and activity order. */
 export type EpilogueSessionSource = {
   readonly order: "activity-desc"
   readonly current?: EpilogueSession
@@ -15,20 +16,24 @@ export type EpilogueSessionSource = {
 
 type EpilogueDecision = { readonly keep: boolean; readonly terminate?: boolean }
 
-export type EpilogueSelectionRule =
+/** Host composition grants authority here; the synchronous predicate's result cannot grant it. */
+export type EpilogueSelectionRule = { readonly terminating: boolean } & (
   | { readonly type: "membership"; readonly sessionIDs: ReadonlySet<string> }
-  | { readonly type: "activity-within"; readonly within_ms: number; readonly terminating: boolean }
+  | { readonly type: "activity-within"; readonly within_ms: number }
   | { readonly type: "limit"; readonly count: number }
   | {
       readonly type: "filter"
-      readonly terminating: boolean
       readonly evaluate: (
         session: EpilogueSession,
         scope: { readonly index: number; readonly now: number },
       ) => EpilogueDecision
     }
+)
 
-/** Scans all supplied metadata before selection; missing entries are omitted and the first ID wins. */
+/**
+ * Scans all supplied metadata before selection; missing entries are omitted and the first ID wins.
+ * The caller owns the read-only facts and must keep them stable while consuming the selection.
+ */
 export function orderEpilogueSessions(input: {
   readonly sessions: Iterable<EpilogueSession | undefined>
   readonly currentID?: string
@@ -44,11 +49,12 @@ export function orderEpilogueSessions(input: {
       .filter((session) => session.sessionID !== input.currentID)
       .sort((a, b) => {
         if (a.activity.status !== b.activity.status) return a.activity.status === "running" ? -1 : 1
-        return lastActivity(b) - lastActivity(a) || (a.sessionID < b.sessionID ? -1 : 1)
+        return lastActivity(b) - lastActivity(a) || (a.sessionID < b.sessionID ? -1 : a.sessionID > b.sessionID ? 1 : 0)
       }),
   }
 }
 
+/** Pin current before narrowing additional Sessions. Stages preserve source order and count their own inputs. */
 export function* selectEpilogueSessions(input: {
   readonly source: EpilogueSessionSource
   readonly now: number
@@ -57,10 +63,7 @@ export function* selectEpilogueSessions(input: {
   const rules = input.rules ?? []
   requireSelection(rules, input.now)
   if (input.source.current) yield input.source.current
-  yield* rules.reduce(
-    (sessions, rule) => applyRule(sessions, rule, input.now),
-    input.source.additional,
-  )
+  yield* rules.reduce((sessions, rule) => applyRule(sessions, rule, input.now), input.source.additional)
 }
 
 function requireSelection(rules: readonly EpilogueSelectionRule[], now: number) {
@@ -74,12 +77,12 @@ function requireSelection(rules: readonly EpilogueSelectionRule[], now: number) 
 }
 
 function* applyRule(sessions: Iterable<EpilogueSession>, rule: EpilogueSelectionRule, now: number) {
-  if (rule.type === "limit" && rule.count === 0) return
+  if (rule.type === "limit" && rule.count === 0 && rule.terminating) return
   let index = 0
   for (const session of sessions) {
     const decision = evaluateRule(rule, session, { index: index++, now })
     if (decision.keep) yield session
-    if (decision.terminate && (rule.type === "limit" || (rule.type !== "membership" && rule.terminating))) return
+    if (decision.terminate && rule.terminating) return
   }
 }
 
@@ -89,8 +92,9 @@ function evaluateRule(
   scope: { readonly index: number; readonly now: number },
 ): EpilogueDecision {
   if (rule.type === "membership") return { keep: rule.sessionIDs.has(session.sessionID) }
-  if (rule.type === "limit") return { keep: true, terminate: scope.index + 1 === rule.count }
+  if (rule.type === "limit") return { keep: scope.index < rule.count, terminate: scope.index + 1 >= rule.count }
   if (rule.type === "activity-within") {
+    // Running comes first; every later idle Session is no newer, even after preceding narrowing stages.
     const keep = session.activity.status === "running" || lastActivity(session) >= scope.now - rule.within_ms
     return { keep, terminate: !keep }
   }
