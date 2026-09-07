@@ -1,5 +1,12 @@
 # Term V2 design index
 
+## Multi-session extension under development
+
+- [Multi-session implementation checkpoint](/.design/term-v2/multi-session-evidence0.gpt6a.md): verified ownership, shared tabs, incomplete message cache and possible retained-batch implementation. Its initial recommendation predates the human's terminating-authority refinement below.
+- [Rekon capability checkpoint](file:///home/rektide/src/rekon/design/session-mementos/checkpoint0.gpt6a.md): current-plus-visible-tabs direction, separately ticketed visit records, ordered filters with stop authority, modular lookers and unresolved bookmark contracts. Work anchor: `rekon-session-mementos`.
+- [Ordered-pipeline memento](file:///home/rektide/src/rekon/design/ordered-pipelines/memento0.gpt6a.md): Watchwoman precedent and broader composition inquiry; no generic framework dependency.
+- [Cotail summary bookmark proposal](file:///home/rektide/src/cotail/.design/bookmarks/summary0.gpt6a.md): future live summary source; no bookmark implementation or exit-time database reads.
+
 ## Current direction
 
 - [Generic TUI epilogue registry implementation](/.design/term-v2/epilogue-registry-implementation0.gpt56s.md): implemented ownership graph, invariants, public contract, carry surface, verification, and pitch.
