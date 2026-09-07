@@ -131,7 +131,7 @@ test("membership narrows additional sessions without admitting missing metadata 
           return { keep: true }
         },
       },
-      { type: "membership", sessionIDs: new Set(["ses_tab", "ses_missing"]) },
+      { type: "membership", sessionIDs: new Set(["ses_tab", "ses_missing"]), terminating: false },
     ],
   })
 
@@ -168,7 +168,11 @@ test.each([true, false])("the inclusive 2d cutoff stops safely in activity order
       },
       now,
       rules: [
-        { type: "membership", sessionIDs: new Set(["ses_running", "ses_idle", "ses_edge", "ses_old", "ses_tail"]) },
+        {
+          type: "membership",
+          sessionIDs: new Set(["ses_running", "ses_idle", "ses_edge", "ses_old", "ses_tail"]),
+          terminating: false,
+        },
         { type: "activity-within", within_ms: within, terminating },
       ],
     }),
@@ -187,8 +191,12 @@ test.each([true, false])("the inclusive 2d cutoff stops safely in activity order
 })
 
 test("limit counts preceding-stage inputs so filter then limit differs from limit then filter", () => {
-  const membership: EpilogueSelectionRule = { type: "membership", sessionIDs: new Set(["ses_b", "ses_c"]) }
-  const limit: EpilogueSelectionRule = { type: "limit", count: 1 }
+  const membership: EpilogueSelectionRule = {
+    type: "membership",
+    sessionIDs: new Set(["ses_b", "ses_c"]),
+    terminating: false,
+  }
+  const limit: EpilogueSelectionRule = { type: "limit", count: 1, terminating: true }
   const source = orderEpilogueSessions({
     currentID: "ses_current",
     sessions: [session("ses_a", 3), session("ses_b", 2), session("ses_c", 1), session("ses_current", 0)],
@@ -215,6 +223,27 @@ test("limit counts preceding-stage inputs so filter then limit differs from limi
   expect(run([limit, membership])).toEqual({ ids: ["ses_current"], visits: ["ses_a"] })
 })
 
+test.each([0, 1])("a non-terminating limit of %s drops excess items but keeps consuming upstream", (count) => {
+  const visits: string[] = []
+  const source = orderEpilogueSessions({ sessions: [session("ses_a", 3), session("ses_b", 2), session("ses_c", 1)] })
+  const selected = selectEpilogueSessions({
+    source: {
+      ...source,
+      additional: (function* () {
+        for (const item of source.additional) {
+          visits.push(item.sessionID)
+          yield item
+        }
+      })(),
+    },
+    now: 42,
+    rules: [{ type: "limit", count, terminating: false }],
+  })
+
+  expect(Array.from(selected).map((item) => item.sessionID)).toEqual(count === 0 ? [] : ["ses_a"])
+  expect(visits).toEqual(["ses_a", "ses_b", "ses_c"])
+})
+
 test.each(["ses_current", undefined])("zero limit never opens upstream and still preserves current=%s", (currentID) => {
   const source = orderEpilogueSessions({ sessions: [session("ses_current", 0)], currentID })
   const selected = selectEpilogueSessions({
@@ -225,7 +254,7 @@ test.each(["ses_current", undefined])("zero limit never opens upstream and still
       })(),
     },
     now: 42,
-    rules: [{ type: "limit", count: 0 }],
+    rules: [{ type: "limit", count: 0, terminating: true }],
   })
 
   expect(Array.from(selected).map((item) => item.sessionID)).toEqual(currentID ? [currentID] : [])
@@ -244,8 +273,16 @@ test.each([
     rules: [{ type: "activity-within", within_ms: Infinity, terminating: true }],
     error: "Epilogue activity window must be finite and nonnegative",
   },
-  { now: 42, rules: [{ type: "limit", count: -1 }], error: "Epilogue limit must be a nonnegative integer" },
-  { now: 42, rules: [{ type: "limit", count: 1.5 }], error: "Epilogue limit must be a nonnegative integer" },
+  {
+    now: 42,
+    rules: [{ type: "limit", count: -1, terminating: true }],
+    error: "Epilogue limit must be a nonnegative integer",
+  },
+  {
+    now: 42,
+    rules: [{ type: "limit", count: 1.5, terminating: true }],
+    error: "Epilogue limit must be a nonnegative integer",
+  },
 ] satisfies { now: number; rules: EpilogueSelectionRule[]; error: string }[])(
   "rejects invalid selection parameters before yielding current",
   (input) => {
@@ -306,7 +343,7 @@ test("sorting scans all metadata even when lazy selection only visits the first 
           return { keep: true }
         },
       },
-      { type: "limit", count: 1 },
+      { type: "limit", count: 1, terminating: true },
     ],
   })
   expect(evaluated).toEqual([])
