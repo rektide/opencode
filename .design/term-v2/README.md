@@ -105,6 +105,14 @@ this line; re-run the single test before suspecting the feature.
 
 ## Open questions
 
+- Multi-session output is now an explicit feature inquiry, tracked by Rekon's
+  `rekon-session-mementos` and capability children. The
+  [current checkpoint](file:///home/rektide/src/rekon/design/session-mementos/checkpoint0.gpt6a.md)
+  covers visible tabs, a distinct visit record, newest-active-first ordered
+  filters with terminating authority, and modular per-session lookers. The
+  [local evidence](/.design/term-v2/multi-session-evidence0.gpt6a.md) locates the
+  retained-batch seam. This extends the display model, not the general JSX slot
+  algebra; bookmark and next-response contracts remain design-gated.
 - Should `SIGQUIT` also route through scoped cleanup, or keep core-dump
   semantics for diagnosability?
 - The manifest's recorded performance-suspicion order names the
