@@ -86,10 +86,28 @@ wiring; keep the distinct visit-record and bookmark contracts separately gated.
   [`packages/core/src/util/process-lock-ffi.bun.ts:49`](/packages/core/src/util/process-lock-ffi.bun.ts#L49)
   reports `bigint | Pointer` not assignable to `Pointer`. Parent jj comparison
   independently confirmed the source file is unchanged from the review baseline.
-- A full TUI package suite was commissioned once in followup session
-  `ses_f86a08d88ffelHI2NGDyybi24e`; its result is pending at this saved checkpoint.
+- The full TUI package suite subsequently passed on its single run in followup
+  session `ses_f86a08d88ffelHI2NGDyybi24e`: **1,291 passed, 4 skipped, 0 failed**
+  across 141 files, exit code 0. Invocation was `bun run test` from `packages/tui`.
+  The suite reported 2 snapshots and 107,648 assertions. No restart, focused-test
+  rerun or typecheck rerun was performed by that verifier.
 - No interactive TUI, live-service, bookmark-store or multi-session output
   verification is claimed: the kernel is not yet connected to those surfaces.
+
+## Full-suite receipt
+
+The verifier confirmed the selector has no production importer: its only import
+under `packages/` is the selector test. No known baseline timing failure surfaced
+in this run. Non-fatal output included existing renderer resize-listener warnings,
+a mini keymap `leader` warning, and a caught client-refresh `UnexpectedStatus`
+log; all associated tests passed. This is one successful sample, not a claim that
+existing flakes or warnings have been repaired.
+
+Raw output and the verifier's report are retained in the local scratch directory
+`.test-agent/epilogue-selection-review/` (`full-suite.log`, `report.md`, `README.md`).
+They are local verification artifacts, not distributed product documentation.
+The unchanged Core typecheck blocker remains; this passing runtime suite does not
+make the package typecheck green or finish the multi-session display feature.
 
 ## Cross-references
 
