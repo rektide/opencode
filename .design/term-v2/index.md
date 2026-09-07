@@ -2,6 +2,8 @@
 
 ## Multi-session extension under development
 
+- [Executable ordered selector](/.design/term-v2/selection-checkpoint0.gpt6a.md): implemented pure selection, current pinning, activity ordering and per-stage terminating authority; no display wiring yet.
+- [Selector review](/.design/term-v2/selection-review0.gpt6a.md): parent architectural acceptance of the kernel and independent Standards/Spec review; verification limits remain explicit.
 - [Multi-session implementation checkpoint](/.design/term-v2/multi-session-evidence0.gpt6a.md): verified ownership, shared tabs, incomplete message cache and possible retained-batch implementation. Its initial recommendation predates the human's terminating-authority refinement below.
 - [Rekon capability checkpoint](file:///home/rektide/src/rekon/design/session-mementos/checkpoint0.gpt6a.md): current-plus-visible-tabs direction, separately ticketed visit records, ordered filters with stop authority, modular lookers and unresolved bookmark contracts. Work anchor: `rekon-session-mementos`.
 - [Ordered-pipeline memento](file:///home/rektide/src/rekon/design/ordered-pipelines/memento0.gpt6a.md): Watchwoman precedent and broader composition inquiry; no generic framework dependency.
