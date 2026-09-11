@@ -125,6 +125,9 @@ the feature.
   batches. Rekon's `rekon-session-mementos` still owns the separately gated visit
   record, excerpts, Cotail bookmarks, and deferred exit-time callback contract.
   This extends the display model, not the general JSX slot algebra.
+- [Deferred collection callbacks](/.design/term-v2/callbacks0.gpt6a.md) records the
+  future global/per-session callback direction after the retained implementation.
+  No new shutdown phase or exit-time callback execution has been added.
 - Should `SIGQUIT` also route through scoped cleanup, or keep core-dump
   semantics for diagnosability?
 - The manifest's recorded performance-suspicion order names the
