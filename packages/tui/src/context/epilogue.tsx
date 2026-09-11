@@ -129,17 +129,11 @@ export function transformEpilogueSelection(input: {
         }
       })()
       if (result === failedTransform) return current
-      if (thenable(result)) {
-        void Promise.resolve(result).catch(() => undefined)
-        input.report({
-          plugin: group.plugin,
-          key: item.key,
-          type: "validation",
-          error: new EpilogueValidationError("Epilogue selection transform must be synchronous"),
-        })
-        return current
-      }
       try {
+        if (thenable(result)) {
+          void Promise.resolve(result).catch(() => undefined)
+          throw new EpilogueValidationError("Epilogue selection transform must be synchronous")
+        }
         return normalizeEpilogueSelectionRules(draft)
       } catch (error) {
         input.report({ plugin: group.plugin, key: item.key, type: "validation", error })
