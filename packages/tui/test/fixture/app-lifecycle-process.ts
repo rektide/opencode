@@ -11,6 +11,7 @@ const plugin = process.env.OPENCODE_EPILOGUE_PLUGIN
 const state = process.env.OPENCODE_EPILOGUE_STATE
 const exit = process.env.OPENCODE_EPILOGUE_EXIT
 if (!server || !ready || !plugin || !state || !exit) throw new Error("Missing epilogue process fixture configuration")
+const expire = process.env.OPENCODE_EPILOGUE_EXPIRE === "true"
 
 const setup = await createTestRenderer({
   width: Number(process.env.OPENCODE_EPILOGUE_WIDTH ?? 80),
@@ -47,8 +48,17 @@ run({
   app: { name: "test", version: "test", channel: "test" },
   server: { endpoint: { url: server } },
   config: {
-    get: async () => ({ tabs: { scope: "global" } }),
-    update: async () => ({ tabs: { scope: "global" } }),
+    get: async () => ({
+      tabs: { scope: "global" as const },
+      ...(expire
+        ? {
+            epilogue: {
+              selection: [{ type: "activity-within" as const, within_ms: 800, terminating: true }],
+            },
+          }
+        : {}),
+    }),
+    update: async () => ({ tabs: { scope: "global" as const } }),
   },
   packages: { prepare: async () => ({ directory: path.dirname(plugin) }) },
   terminalHandoff: async () => ({ renderer: setup.renderer, mode: "dark", complete: () => {} }),

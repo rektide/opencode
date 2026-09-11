@@ -35,6 +35,12 @@ test.skipIf(process.platform === "win32").each([40, 120])(
 )
 
 test.skipIf(process.platform === "win32")(
+  "live activity timer expires staggered idle tabs and retains current and running Sessions",
+  () => runCase("fixture", "app.exit", 0, false, 80, true),
+  30_000,
+)
+
+test.skipIf(process.platform === "win32")(
   "destroy during hot reload freezes the documented missing-row interval",
   () => runCase("fixture", "app.exit", 0, true),
   30_000,
@@ -52,6 +58,7 @@ async function runCase(
   expectedExit: number,
   reload = false,
   width = 80,
+  expire = false,
 ) {
   await using tmp = await tmpdir()
   const ready = path.join(tmp.path, "ready")
@@ -70,6 +77,9 @@ export default {
   id: "test.epilogue",
   setup: async (context) => {
     let shutdownProjections = 0
+    let seenOther = false
+    let seenLater = false
+    let seenRunning = false
     let blankKeyRejected = false
     try {
       context.ui.epilogue.retainSession("dummy", "")
@@ -112,6 +122,9 @@ export default {
       }),
       context.ui.epilogue.registerSession(({ sessionID }) => {
         if (context.renderer.isDestroyed) shutdownProjections++
+        if (sessionID === "other") seenOther = true
+        if (sessionID === "later") seenLater = true
+        if (sessionID === "running") seenRunning = true
         return { label: "Scoped", value: { type: "text", text: sessionID } }
       }),
       context.ui.epilogue.selection.transform((rules) => {
@@ -127,7 +140,10 @@ export default {
       dispose.reverse().forEach((remove) => remove())
       await appendFile(${JSON.stringify(cleanup)}, "cleanup:start\\n")
       while (!(await Bun.file(${JSON.stringify(gate)}).exists())) await Bun.sleep(10)
-      await appendFile(${JSON.stringify(cleanup)}, "cleanup:end\\nshutdown:" + shutdownProjections + "\\n")
+      await appendFile(
+        ${JSON.stringify(cleanup)},
+        "cleanup:end\\nshutdown:" + shutdownProjections + "\\nseen:" + Number(seenOther) + Number(seenLater) + Number(seenRunning) + "\\n",
+      )
     }
   },
 }
@@ -149,13 +165,34 @@ export default {
     cost: 2.5,
     time: { created: 0, updated: Date.now() - 120_000 },
   }
+  const later = { ...other, id: "later", title: "Later session", cost: 3.5 }
+  const running = {
+    ...other,
+    id: "running",
+    title: "Running session",
+    cost: 3.75,
+    time: { created: 0, updated: 0 },
+  }
+  let expiring: { other: typeof other; later: typeof later } | undefined
+  const expiringSessions = () => {
+    if (expiring) return expiring
+    const now = Date.now()
+    expiring = {
+      other: { ...other, time: { created: 0, updated: now } },
+      later: { ...later, time: { created: 0, updated: now + 300 } },
+    }
+    return expiring
+  }
   const sessionReady = Promise.withResolvers<void>()
   const otherReady = Promise.withResolvers<void>()
+  const laterReady = Promise.withResolvers<void>()
+  const runningReady = Promise.withResolvers<void>()
   const requests: string[] = []
   const calls = createFetch(async (url) => {
     requests.push(url.pathname)
     if (url.pathname === "/api/health") return json({ healthy: true, version: "local", pid: process.pid })
     if (url.pathname === "/api/server") return json({ urls: [] })
+    if (url.pathname === "/api/session/active") return json({ data: expire ? { running: { type: "running" } } : {} })
     if (url.pathname === "/api/plugin")
       return json({
         location: { directory, project: { id: "project", directory, canonical: directory } },
@@ -171,19 +208,28 @@ export default {
     if (
       url.pathname === "/api/session" ||
       url.pathname === "/api/session/dummy" ||
-      url.pathname === "/api/session/other"
+      url.pathname === "/api/session/other" ||
+      url.pathname === "/api/session/later" ||
+      url.pathname === "/api/session/running"
     ) {
       if (trigger === "app.exit") await waitForText(cleanup, "setup\n", "plugin did not finish setup")
       const current =
         trigger === "app.exit" ? { ...session, time: { created: 0, updated: Date.now() - 58_000 } } : session
-      if (url.pathname === "/api/session") return json({ data: [current, other], cursor: {} })
-      return json({ data: url.pathname.endsWith("/other") ? other : current })
+      const visible = expire ? expiringSessions() : { other, later }
+      if (url.pathname === "/api/session")
+        return json({ data: [current, visible.other, visible.later, running], cursor: {} })
+      if (url.pathname.endsWith("/other")) return json({ data: visible.other })
+      if (url.pathname.endsWith("/later")) return json({ data: visible.later })
+      if (url.pathname.endsWith("/running")) return json({ data: running })
+      return json({ data: current })
     }
     if (/^\/api\/session\/[^/]+\/message$/.test(url.pathname)) return json({ data: [], cursor: {} })
     if (/^\/api\/session\/[^/]+\/(inbox|form)$/.test(url.pathname)) return json({ data: [] })
     if (/^\/api\/session\/[^/]+\/permission$/.test(url.pathname)) {
       sessionReady.resolve()
       if (url.pathname === "/api/session/other/permission") otherReady.resolve()
+      if (url.pathname === "/api/session/later/permission") laterReady.resolve()
+      if (url.pathname === "/api/session/running/permission") runningReady.resolve()
       return json({ data: [] })
     }
     return undefined
@@ -194,6 +240,12 @@ export default {
       tabs: [
         { sessionID: "dummy", title: "Demo session" },
         { sessionID: "other", title: "Other session" },
+        ...(expire
+          ? [
+              { sessionID: "later", title: "Later session" },
+              { sessionID: "running", title: "Running session" },
+            ]
+          : []),
       ],
       unread: {},
     },
@@ -230,6 +282,7 @@ export default {
       OPENCODE_EPILOGUE_STATE: tmp.path,
       OPENCODE_EPILOGUE_EXIT: exit,
       OPENCODE_EPILOGUE_WIDTH: String(width),
+      OPENCODE_EPILOGUE_EXPIRE: String(expire),
       OPENCODE_TUI_CHANNEL: "test",
       OPENCODE_CONFIG_DIR: path.join(tmp.path, "config"),
       XDG_CACHE_HOME: path.join(tmp.path, "cache"),
@@ -255,7 +308,7 @@ export default {
     ])
     await waitForText(cleanup, "setup\n", "plugin did not finish setup")
     await Promise.race([
-      otherReady.promise,
+      expire ? Promise.all([otherReady.promise, laterReady.promise, runningReady.promise]) : otherReady.promise,
       child.exited.then((code) => {
         throw new Error(`TUI exited before the visible tab hydrated (${code}): ${stderr.join("")}`)
       }),
@@ -263,7 +316,7 @@ export default {
         throw new Error(`Visible tab did not hydrate: ${JSON.stringify({ requests, stderr: stderr.join("") })}`)
       }),
     ])
-    await Bun.sleep(mode === "cli" ? 500 : 100)
+    await Bun.sleep(expire ? 1_500 : mode === "cli" ? 500 : 100)
     if (reload) {
       await Bun.write(
         tuiPlugin,
@@ -297,17 +350,26 @@ export default {
 
     const raw = stdout.join("")
     const output = Bun.stripANSI(raw)
-    if (!output.includes("opencode -s dummy") || !output.includes("opencode -s other"))
+    if (
+      !output.includes("opencode -s dummy") ||
+      (!expire && !output.includes("opencode -s other")) ||
+      (expire && !output.includes("opencode -s running"))
+    )
       throw new Error(
         `Missing epilogue: ${JSON.stringify({ output: output.slice(-1000), stderr: stderr.join(""), requests })}`,
       )
     expect(output.match(/opencode -s dummy/g) ?? []).toHaveLength(1)
-    expect(output.match(/opencode -s other/g) ?? []).toHaveLength(1)
+    expect(output.match(/opencode -s other/g) ?? []).toHaveLength(expire ? 0 : 1)
+    expect(output.match(/opencode -s later/g) ?? []).toHaveLength(0)
+    expect(output.match(/opencode -s running/g) ?? []).toHaveLength(expire ? 1 : 0)
     expect(output).toContain("Demo session")
-    expect(output).toContain("Other session")
+    expect(output.includes("Other session")).toBe(!expire)
+    expect(output).not.toContain("Later session")
+    expect(output.includes("Running session")).toBe(expire)
     expect(output.match(/Last active/g) ?? []).toHaveLength(2)
     expect(output).toContain("Cost      $1.25")
-    expect(output).toContain("Cost      $2.50")
+    expect(output.includes("Cost      $2.50")).toBe(!expire)
+    expect(output.includes("Cost      $3.75")).toBe(expire)
     if (reload) {
       expect(output).not.toContain("Fixture")
       expect(output).not.toContain("Observed")
@@ -324,9 +386,11 @@ export default {
       expect(output.match(/Observed\s+/g) ?? []).toHaveLength(1)
       expect(output.match(/Scoped\s+/g) ?? []).toHaveLength(2)
       expect(output).toContain("Scoped    dummy")
-      expect(output).toContain("Scoped    other")
+      expect(output.includes("Scoped    other")).toBe(!expire)
+      expect(output).not.toContain("Scoped    later")
+      expect(output.includes("Scoped    running")).toBe(expire)
       expect(output).toContain("Pushed    dummy")
-      expect(output).toContain("Pushed    other")
+      expect(output.includes("Pushed    other")).toBe(!expire)
       expect(output.indexOf("Pushed global")).toBeLessThan(output.indexOf("Session"))
       expect(output.indexOf("Last active")).toBeLessThan(output.indexOf("Cost"))
       expect(output.indexOf("Cost")).toBeLessThan(output.indexOf("Pushed    dummy"))
@@ -341,7 +405,9 @@ export default {
     if (mode === "cli") expect(raw).toContain("\x1b]0;\x07")
     expect(stderr.join("")).toBe("")
     expect(requests).toHaveLength(requestsAtShutdown)
-    expect(await Bun.file(cleanup).text()).toBe("setup\ncleanup:start\ncleanup:end\nshutdown:0\n")
+    expect(await Bun.file(cleanup).text()).toBe(
+      `setup\ncleanup:start\ncleanup:end\nshutdown:0\nseen:${expire ? "111" : "100"}\n`,
+    )
   } finally {
     await Bun.write(gate, "continue\n")
     if (child.exitCode === null) child.kill("SIGKILL")
