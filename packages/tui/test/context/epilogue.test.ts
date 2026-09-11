@@ -296,6 +296,55 @@ test("selection transforms replay in order and discard throwing, asynchronous, o
   expect(output.every(Object.isFrozen)).toBe(true)
 })
 
+test("contains hostile and rejected transform thenables before continuing the rule program", async () => {
+  const issues: string[] = []
+  let later = false
+  const output = transformEpilogueSelection({
+    base: [],
+    groups: [
+      {
+        plugin: "fixture",
+        transforms: [
+          {
+            key: "getter",
+            transform: () =>
+              Object.defineProperty({}, "then", {
+                get() {
+                  throw new Error("then getter failed")
+                },
+              }),
+          },
+          {
+            key: "assimilation",
+            transform: () => ({
+              then(_resolve: (value: unknown) => void, reject: (error: unknown) => void) {
+                reject(new Error("then failed"))
+              },
+            }),
+          },
+          {
+            key: "rejected",
+            transform: () => Promise.reject(new Error("rejected")),
+          },
+          {
+            key: "later",
+            transform(rules) {
+              later = true
+              rules.push({ type: "limit", count: 2, terminating: true })
+            },
+          },
+        ],
+      },
+    ],
+    report: (issue) => issues.push(`${issue.key}:${issue.type}`),
+  })
+  await Promise.resolve()
+
+  expect(output).toEqual([{ type: "limit", count: 2, terminating: true }])
+  expect(later).toBe(true)
+  expect(issues).toEqual(["getter:validation", "assimilation:validation", "rejected:validation"])
+})
+
 test("config replacement resets the base and reapplies active transforms without mutating config", () => {
   const first = [{ type: "limit" as const, count: 3, terminating: false }]
   const second = [{ type: "activity-within" as const, within_ms: 20, terminating: true }]
