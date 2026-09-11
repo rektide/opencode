@@ -1227,6 +1227,12 @@ export function Session(props: {
     bindings: [...baseAndUnfocusedCommands, ...baseCommands()].map((command) => command.id),
   }))
 
+  Keymap.createLayer(() => ({
+    priority: 2,
+    enabled: () => !composer.open && !!session()?.parentID,
+    bindings: ["session.parent"],
+  }))
+
   createEffect(
     on(
       () => route.sessionID,
