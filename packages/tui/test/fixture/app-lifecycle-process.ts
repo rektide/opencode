@@ -12,7 +12,11 @@ const state = process.env.OPENCODE_EPILOGUE_STATE
 const exit = process.env.OPENCODE_EPILOGUE_EXIT
 if (!server || !ready || !plugin || !state || !exit) throw new Error("Missing epilogue process fixture configuration")
 
-const setup = await createTestRenderer({ width: 80, height: 24, useThread: false })
+const setup = await createTestRenderer({
+  width: Number(process.env.OPENCODE_EPILOGUE_WIDTH ?? 80),
+  height: 24,
+  useThread: false,
+})
 const setTitle = setup.renderer.setTerminalTitle.bind(setup.renderer)
 setup.renderer.setTerminalTitle = (title) => {
   setTitle(title)
