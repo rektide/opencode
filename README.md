@@ -127,3 +127,86 @@ If you are working on a project that's related to OpenCode and is using "opencod
 ---
 
 **Join our community** [Discord](https://discord.gg/opencode) | [X.com](https://x.com/opencode)
+
+---
+
+## Local patch: interactive child sessions
+
+This workspace carries the `sub-interactive` TUI patch on base commit
+`312651f68ed2` (`feat(tui): configure session permission handling (#48545)`).
+The source of truth is the **TUI child-session interaction** entry in
+[`/home/rektide/a/doc/opencode/patches.md`](file:///home/rektide/a/doc/opencode/patches.md),
+with lifecycle background in
+[`/home/rektide/a/doc/opencode/subagents.md`](file:///home/rektide/a/doc/opencode/subagents.md).
+
+### Behavior
+
+The patch gives a child Session (`parentID` set) the same ordinary prompt
+composer as any other Session. A human can steer a running child or continue an
+idle/completed child directly from its transcript. The prompt submits to the
+current `route.sessionID`; a response produced after the original subagent Job
+has settled remains in the child transcript and is not automatically returned
+to the parent.
+
+The global disarm has no configuration gate and introduces no new keybinding:
+
+| Guard | Requested pin | Location on the base | Final line |
+| --- | ---: | ---: | ---: |
+| Picker toggle no longer force-closes on children | 1197 | 1166 | [`packages/tui/src/routes/session/index.tsx:1166`](packages/tui/src/routes/session/index.tsx#L1166) |
+| Composer is no longer force-opened on children | 1381 | 1350 | [`packages/tui/src/routes/session/index.tsx:1356`](packages/tui/src/routes/session/index.tsx#L1356) |
+| Composer no longer forces the `subagents` default tab | 1382 | 1351 | [`packages/tui/src/routes/session/index.tsx:1357`](packages/tui/src/routes/session/index.tsx#L1357) |
+| The render switch suppresses the prompt only while the picker is open | 1394 | 1363 | [`packages/tui/src/routes/session/index.tsx:1369`](packages/tui/src/routes/session/index.tsx#L1369) |
+
+All four guards had drifted 31 lines earlier than the requested pins on the
+specified base. The final render lines are six lines later than those relocated
+positions because the patch also preserves parent navigation at
+[`packages/tui/src/routes/session/index.tsx:1223-1227`](packages/tui/src/routes/session/index.tsx#L1223-L1227).
+When the picker is closed on a child, this child-only base-mode layer gives the
+existing `session.parent` command priority over the focused prompt's history
+binding. Thus `up` still navigates to the parent. When the picker is open,
+Composer activates `composer` mode as before; closing its subagents tab still
+uses the existing `onClose` path to navigate to the parent.
+
+### Deliberate v1 constraint — **may revisit**
+
+Do not remove the child-view early returns in `descendantSessionIDs()`,
+`permissions()`, or `forms()` at
+[`packages/tui/src/routes/session/index.tsx:178-195`](packages/tui/src/routes/session/index.tsx#L178-L195).
+The root view aggregates descendant blockers, while the child view exposes no
+child-local permissions and only global forms. Consequently, a child blocked on
+elicitation can accept a user steer into its queue without showing that blocker
+in the child view; answer the elicitation from the root view. This is accepted
+for v1 and **may revisit** later.
+
+With the picker closed:
+
+- no visible global form: the ordinary focused `<Prompt>` renders for the child;
+- a global form present: the global `<FormPrompt>` renders instead;
+- child-local forms or permissions: they remain hidden by the deliberate v1
+  filtering above, so the ordinary prompt remains visible.
+
+With the picker open, `<Composer>` renders and the switch suppresses the prompt
+and blocker surfaces regardless of form state, matching the existing picker
+behavior.
+
+### Verification checklist
+
+Use `bun run dev:live` from this development worktree for manual verification
+against the elected background server and live Sessions.
+
+- [x] Run `bun typecheck` from `packages/tui`.
+- [x] Run the neighboring keymap/composer tests:
+  `bun test test/cli/tui/composer-keymap.test.tsx test/keymap.test.tsx` from
+  `packages/tui` (10 passed). There are no `*.test.*` files under
+  `packages/tui/src/routes/session`, and no existing test directly covers these
+  child-view guards; tests importing that module exercise exported display
+  helpers instead.
+- [ ] Open a running child and submit a prompt; verify it steers the active run.
+- [ ] Open a completed child and submit a prompt; verify it continues in the
+  child transcript without an implicit return to the parent.
+- [ ] Drive a child whose agent has `edit: allow`; verify permitted edits happen
+  silently under the child agent's own permission policy. Also verify an
+  interactive ask still reaches the root view and remains first-reply-wins.
+- [ ] With the picker closed on a child, press `up` and verify navigation to the
+  parent. Reopen the subagents picker and verify its close action also navigates
+  to the parent.
