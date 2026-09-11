@@ -6,6 +6,7 @@ import { createStore } from "solid-js/store"
 import {
   createEpilogue,
   epilogueLimits,
+  normalizeEpilogueContribution,
   normalizeEpilogueTitle,
   trackEpilogue,
   transformEpilogueSelection,
@@ -82,54 +83,84 @@ test("tracks global projections once and isolates per-Session reactive recomputa
   dispose()
 })
 
-test("retained values are scoped, copied, budgeted, and do not admit Sessions", async () => {
+test("retained values normalize once at publication, remain scoped, and do not admit Sessions", async () => {
   const global = row("Global", "retained")
   const a = row("Scoped", "alpha")
   const b = row("Scoped", "beta")
-  const rejected = Promise.reject(new Error("late"))
-  const issues: string[] = []
+  expect(() =>
+    normalizeEpilogueContribution({
+      type: "retained",
+      scope: "session",
+      sessionID: "ses_missing",
+      value: Promise.reject(new Error("late")),
+    }),
+  ).toThrow("synchronous")
+  const scans = { label: 0, value: 0 }
+  const scanned = {
+    get label() {
+      scans.label++
+      return "Scanned"
+    },
+    get value() {
+      scans.value++
+      return { type: "text", text: "once" }
+    },
+  }
+  const storedGlobal = normalizeEpilogueContribution({ type: "retained", scope: "global", value: global })
+  const storedScanned = normalizeEpilogueContribution({ type: "retained", scope: "global", value: scanned })
+  const storedA = normalizeEpilogueContribution({
+    type: "retained",
+    scope: "session",
+    sessionID: "ses_a",
+    value: a,
+  })
+  const storedB = normalizeEpilogueContribution({
+    type: "retained",
+    scope: "session",
+    sessionID: "ses_b",
+    value: b,
+  })
+  const scansAtPublication = { ...scans }
+  const [currentID, setCurrentID] = createSignal<string>()
   let retained!: RetainedEpilogue
 
   createRoot((dispose) => {
     trackEpilogue({
-      currentID: () => undefined,
+      currentID,
       sessionIDs: () => ["ses_a"],
       candidate: session,
       groups: () => [
         {
           plugin: "fixture",
           contributions: [
-            { key: "global", contribution: { type: "retained", scope: "global", value: global } },
-            {
-              key: "a",
-              contribution: { type: "retained", scope: "session", sessionID: "ses_a", value: a },
-            },
-            {
-              key: "b",
-              contribution: { type: "retained", scope: "session", sessionID: "ses_b", value: b },
-            },
-            {
-              key: "async",
-              contribution: { type: "retained", scope: "global", value: rejected },
-            },
+            { key: "global", contribution: storedGlobal },
+            { key: "scanned", contribution: storedScanned },
+            { key: "a", contribution: storedA },
+            { key: "b", contribution: storedB },
           ],
         },
       ],
       publish: (value) => {
         retained = value
       },
-      report: (issue) => issues.push(`${issue.key}:${issue.type}`),
+      report: () => {},
     })
+    setCurrentID("ses_a")
+    setCurrentID("ses_other")
     dispose()
   })
   await Promise.resolve()
 
   global.value.text = "mutated"
   a.value.text = "mutated"
-  expect(retained.globalRows).toEqual([row("Global", "retained")])
+  expect(retained.globalRows).toEqual([row("Global", "retained"), row("Scanned", "once")])
   expect(retained.sessions).toEqual([{ candidate: session("ses_a"), rows: [row("Scoped", "alpha")] }])
   expect(retained.sessions.some((item) => item.candidate.sessionID === "ses_b")).toBe(false)
-  expect(issues).toEqual(["async:validation"])
+  expect(scans).toEqual(scansAtPublication)
+  if (storedGlobal.type !== "retained") throw new Error("Expected retained contribution")
+  const retainedValue = storedGlobal.value
+  if (!retainedValue) throw new Error("Expected retained value")
+  expect(retained.globalRows[0]).toBe(retainedValue)
 
   const calls: string[] = []
   createRoot((dispose) => {

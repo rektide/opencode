@@ -70,6 +70,13 @@ export default {
   id: "test.epilogue",
   setup: async (context) => {
     let shutdownProjections = 0
+    let blankKeyRejected = false
+    try {
+      context.ui.epilogue.retainSession("dummy", "")
+    } catch {
+      blankKeyRejected = true
+    }
+    if (!blankKeyRejected) throw new Error("blank retained Session key was accepted")
     const pushedGlobal = {
       label: "Pushed global",
       value: { type: "text", text: "retained" },

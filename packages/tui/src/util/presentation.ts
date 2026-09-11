@@ -1,4 +1,5 @@
 import { logo } from "../logo"
+import type { EpilogueActivity } from "../epilogue/activity.ts"
 import { stringWidth } from "./string-width.ts"
 
 export type EpilogueValue =
@@ -13,11 +14,7 @@ export type EpilogueRow = {
 export type SessionEpilogueCandidate = {
   readonly title: string
   readonly sessionID: string
-  readonly activity: {
-    readonly status: "idle" | "running"
-    readonly updated: number
-    readonly idle?: number
-  }
+  readonly activity: EpilogueActivity
 }
 
 export type RetainedSessionEpilogue = {
