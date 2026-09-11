@@ -38,6 +38,7 @@ import {
   transformEpilogueSelection,
   useEpilogue,
   normalizeEpilogueRow,
+  normalizeEpilogueTitle,
   type EpilogueContribution,
   type EpilogueProjectionIssue,
   type EpilogueSelectionTransform,
@@ -45,7 +46,6 @@ import {
 import { useLog, type LogTags } from "../context/log"
 import { epilogueSelectionRules, orderEpilogueSessions, selectEpilogueSessions } from "../epilogue/selection.ts"
 import { epilogueInventoryIDs } from "../epilogue/inventory.ts"
-import { Locale } from "../util/locale.ts"
 
 export interface PackageSource {
   readonly prepare: (spec: string, install?: boolean) => Promise<Host.Target>
@@ -208,7 +208,7 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
     const session = data.session.get(sessionID)
     if (!session) return undefined
     return {
-      title: Locale.truncate(session.title ?? "", 50),
+      title: normalizeEpilogueTitle(session.title ?? ""),
       sessionID: session.id,
       activity: {
         status: data.session.status(session.id),
