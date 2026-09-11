@@ -6,6 +6,7 @@ import { createStore } from "solid-js/store"
 import {
   createEpilogue,
   epilogueLimits,
+  normalizeEpilogueTitle,
   trackEpilogue,
   transformEpilogueSelection,
   type EpilogueContributionGroup,
@@ -429,6 +430,35 @@ test("copies an atomic batch before freeze and never consults it after freeze", 
   expect(output).toContain("Session   ses_a")
   expect(output).not.toContain("after")
   expect(epilogue.take()).toBeUndefined()
+})
+
+test("flattens unsafe Session titles without discarding identity or readable Unicode", () => {
+  expect(normalizeEpilogueTitle("Normal title")).toBe("Normal title")
+  expect(normalizeEpilogueTitle("  Café 👩🏽‍💻\nمرحبا  ")).toBe("Café 👩🏽‍💻 مرحبا")
+  expect(normalizeEpilogueTitle("normal\nEXTRA-LINE\u001b[31m\u0000")).toBe("normal EXTRA-LINE")
+
+  const epilogue = createEpilogue()
+  epilogue.setBatch({
+    globalRows: [],
+    sessions: [
+      {
+        candidate: {
+          title: "normal\nEXTRA-LINE\u001b[31m",
+          sessionID: "ses_safe",
+          activity: { status: "idle", updated: 1 },
+        },
+        rows: [],
+      },
+    ],
+  })
+  epilogue.freeze(2)
+
+  const output = epilogue.take() ?? ""
+  const plain = Bun.stripANSI(output)
+  expect(output).not.toContain("\u001b[31m")
+  expect(plain.split("\n")).toContain("  Session   normal EXTRA-LINE")
+  expect(plain.match(/EXTRA-LINE/g) ?? []).toHaveLength(1)
+  expect(plain).toContain("Continue  opencode -s ses_safe")
 })
 
 test("row updates allocate no renderables or frames", async () => {

@@ -2,6 +2,7 @@ import type { EpilogueSelectionRule } from "@opencode/plugin/tui/context"
 import { createComputed, createMemo, mapArray } from "solid-js"
 import stripAnsi from "strip-ansi"
 import { normalizeEpilogueSelectionRules } from "../epilogue/selection.ts"
+import { Locale } from "../util/locale.ts"
 import { stringWidth } from "../util/string-width.ts"
 import {
   epilogueOutput,
@@ -210,6 +211,18 @@ export function normalizeEpilogueRow(input: unknown): EpilogueRow {
   return Object.freeze({ label, value })
 }
 
+export function normalizeEpilogueTitle(input: string) {
+  const value = Array.from(stripAnsi(input), (character) => {
+    const code = character.codePointAt(0) ?? 0
+    if (code === 0x09 || code === 0x0a || code === 0x0d || code === 0x2028 || code === 0x2029) return " "
+    return control(character) ? "" : character
+  })
+    .join("")
+    .replace(/\s+/gu, " ")
+    .trim()
+  return Locale.truncateWidth(value, 50)
+}
+
 function copyBatch(input: RetainedEpilogue): RetainedEpilogue {
   return Object.freeze({
     globalRows: Object.freeze(input.globalRows.map(copyRow)),
@@ -217,7 +230,7 @@ function copyBatch(input: RetainedEpilogue): RetainedEpilogue {
       input.sessions.map((session) =>
         Object.freeze({
           candidate: Object.freeze({
-            title: session.candidate.title,
+            title: normalizeEpilogueTitle(session.candidate.title),
             sessionID: session.candidate.sessionID,
             activity: Object.freeze({
               status: session.candidate.activity.status,
