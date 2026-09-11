@@ -1,4 +1,5 @@
 import { Plugin } from "@opencode/plugin/tui"
+import { lastEpilogueActivity } from "../../epilogue/activity.ts"
 
 export default Plugin.define({
   id: "opencode.epilogue.activity",
@@ -10,7 +11,7 @@ export default Plugin.define({
         label: "Last active",
         value: {
           type: "relative-time",
-          timestamp: Math.max(session.time.updated, session.time.idle ?? session.time.updated),
+          timestamp: lastEpilogueActivity(session.time),
         },
       }
     })

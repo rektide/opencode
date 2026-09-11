@@ -12,6 +12,13 @@ export function epilogueInventoryIDs(input: {
   )
 }
 
+export function hydratedEpilogueSessionID(input: {
+  readonly currentID?: string
+  readonly session?: { readonly id: string }
+}) {
+  return input.currentID !== undefined && input.session?.id === input.currentID ? input.currentID : undefined
+}
+
 function isSessionID(value: string | undefined): value is string {
   return value !== undefined
 }

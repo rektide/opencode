@@ -31,7 +31,7 @@ import { useStorage } from "../context/storage"
 import { useSessionTabs } from "../context/session-tabs"
 import { useOptionalPanel } from "../context/panel"
 import { abbreviateHome } from "../util/path-format"
-import type { EpilogueContribution, EpilogueSelectionTransform } from "../context/epilogue.tsx"
+import type { EpilogueContributionInput, EpilogueSelectionTransform } from "../context/epilogue.tsx"
 
 export type Dispose = () => Promise<void>
 
@@ -55,7 +55,7 @@ export type Registry = {
   set(kind: "routes", name: string, page: Page): void
   set(kind: "slots", name: string, claim: RegisteredSlot): void
   set(kind: "markdown", name: string, render: MarkdownCodeBlockRenderer): void
-  set(kind: "epilogue", name: string, contribution: EpilogueContribution): void
+  set(kind: "epilogue", name: string, contribution: EpilogueContributionInput): void
   set(kind: "epilogueSelection", name: string, transform: EpilogueSelectionTransform): void
   remove(kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueSelection", name: string): void
   active(): boolean
@@ -148,7 +148,7 @@ export function createPluginContext(input: {
   const retain = (options: {
     name: string
     identity: string
-    contribution: (value: unknown) => EpilogueContribution
+    contribution: (value: unknown) => EpilogueContributionInput
     initial: EpilogueRow | undefined
   }) => {
     if (!options.identity.trim()) throw new Error("Epilogue retained identity is required")
@@ -228,6 +228,7 @@ export function createPluginContext(input: {
         },
         retainSession(sessionID, key, initial) {
           if (!sessionID.trim()) throw new Error("Epilogue retained Session ID is required")
+          if (!key.trim()) throw new Error("Epilogue retained identity is required")
           return retain({
             name: `retained-session:${JSON.stringify([sessionID, key])}`,
             identity: `${sessionID}/${key}`,

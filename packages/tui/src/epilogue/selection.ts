@@ -1,12 +1,9 @@
 import type { EpilogueSelectionRule } from "@opencode/plugin/tui/context"
+import { lastEpilogueActivity, type EpilogueActivity } from "./activity.ts"
 
 export type EpilogueSession = {
   readonly sessionID: string
-  readonly activity: {
-    readonly status: "idle" | "running"
-    readonly updated: number
-    readonly idle?: number
-  }
+  readonly activity: EpilogueActivity
 }
 
 /** Use orderEpilogueSessions; wrappers must preserve distinct IDs, current exclusion, and activity order. */
@@ -86,7 +83,10 @@ export function orderEpilogueSessions(input: {
       .filter((session) => session.sessionID !== input.currentID)
       .sort((a, b) => {
         if (a.activity.status !== b.activity.status) return a.activity.status === "running" ? -1 : 1
-        return lastActivity(b) - lastActivity(a) || (a.sessionID < b.sessionID ? -1 : a.sessionID > b.sessionID ? 1 : 0)
+        return (
+          lastEpilogueActivity(b.activity) - lastEpilogueActivity(a.activity) ||
+          (a.sessionID < b.sessionID ? -1 : a.sessionID > b.sessionID ? 1 : 0)
+        )
       }),
   }
 }
@@ -132,14 +132,11 @@ function evaluateRule(
   if (rule.type === "limit") return { keep: scope.index < rule.count, terminate: scope.index + 1 >= rule.count }
   if (rule.type === "activity-within") {
     // Running comes first; every later idle Session is no newer, even after preceding narrowing stages.
-    const keep = session.activity.status === "running" || lastActivity(session) >= scope.now - rule.within_ms
+    const keep =
+      session.activity.status === "running" || lastEpilogueActivity(session.activity) >= scope.now - rule.within_ms
     return { keep, terminate: !keep }
   }
   return rule.evaluate(session, scope)
-}
-
-function lastActivity(session: EpilogueSession) {
-  return Math.max(session.activity.updated, session.activity.idle ?? session.activity.updated)
 }
 
 function record(input: unknown): input is Record<string, unknown> {

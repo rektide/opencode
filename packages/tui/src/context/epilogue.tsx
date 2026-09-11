@@ -22,10 +22,20 @@ type State =
 export type EpilogueProjection = (scope: { readonly sessionID: string }) => unknown
 export type EpilogueSelectionTransform = (rules: EpilogueSelectionRule[]) => unknown
 
+type EpilogueProjectionContribution = {
+  readonly type: "projection"
+  readonly scope: "global" | "session"
+  readonly project: EpilogueProjection
+}
+
+type EpilogueRetainedContribution<Value> =
+  | { readonly type: "retained"; readonly scope: "global"; readonly value: Value }
+  | { readonly type: "retained"; readonly scope: "session"; readonly sessionID: string; readonly value: Value }
+
+export type EpilogueContributionInput = EpilogueProjectionContribution | EpilogueRetainedContribution<unknown>
 export type EpilogueContribution =
-  | { readonly type: "projection"; readonly scope: "global" | "session"; readonly project: EpilogueProjection }
-  | { readonly type: "retained"; readonly scope: "global"; readonly value: unknown }
-  | { readonly type: "retained"; readonly scope: "session"; readonly sessionID: string; readonly value: unknown }
+  | EpilogueProjectionContribution
+  | EpilogueRetainedContribution<EpilogueRow | undefined>
 
 export type EpilogueContributionGroup = {
   readonly plugin: string
@@ -158,8 +168,10 @@ function collectRows(
         .filter((item) => applies(item.contribution, lane, sessionID))
         .slice(0, epilogueLimits.rowsPerPlugin)
         .flatMap((item) => {
+          if (item.contribution.type === "retained")
+            return item.contribution.value === undefined ? [] : [item.contribution.value]
           try {
-            const value = project(item.contribution, sessionID)
+            const value = project(item.contribution.project, sessionID)
             if (value === undefined) return []
             return [normalizeEpilogueRow(value)]
           } catch (error) {
@@ -182,10 +194,9 @@ function applies(contribution: EpilogueContribution, lane: "global" | "session",
   return contribution.sessionID === sessionID
 }
 
-function project(contribution: EpilogueContribution, sessionID: string | undefined) {
-  if (contribution.type === "retained") return contribution.value
+function project(projection: EpilogueProjection, sessionID: string | undefined) {
   if (!sessionID) return undefined
-  return contribution.project(Object.freeze({ sessionID }))
+  return projection(Object.freeze({ sessionID }))
 }
 
 export function normalizeEpilogueRow(input: unknown): EpilogueRow {
@@ -209,6 +220,14 @@ export function normalizeEpilogueRow(input: unknown): EpilogueRow {
     throw new EpilogueValidationError("Epilogue value type is invalid")
   })()
   return Object.freeze({ label, value })
+}
+
+export function normalizeEpilogueContribution(input: EpilogueContributionInput): EpilogueContribution {
+  if (input.type === "projection") return input
+  return Object.freeze({
+    ...input,
+    value: input.value === undefined ? undefined : normalizeEpilogueRow(input.value),
+  })
 }
 
 export function normalizeEpilogueTitle(input: string) {

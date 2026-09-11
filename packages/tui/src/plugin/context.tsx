@@ -37,15 +37,17 @@ import {
   trackEpilogue,
   transformEpilogueSelection,
   useEpilogue,
-  normalizeEpilogueRow,
+  normalizeEpilogueContribution,
   normalizeEpilogueTitle,
   type EpilogueContribution,
+  type EpilogueContributionInput,
   type EpilogueProjectionIssue,
   type EpilogueSelectionTransform,
 } from "../context/epilogue.tsx"
 import { useLog, type LogTags } from "../context/log"
 import { epilogueSelectionRules, orderEpilogueSessions, selectEpilogueSessions } from "../epilogue/selection.ts"
-import { epilogueInventoryIDs } from "../epilogue/inventory.ts"
+import { epilogueInventoryIDs, hydratedEpilogueSessionID } from "../epilogue/inventory.ts"
+import { lastEpilogueActivity } from "../epilogue/activity.ts"
 
 export interface PackageSource {
   readonly prepare: (spec: string, install?: boolean) => Promise<Host.Target>
@@ -242,12 +244,7 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
     const expires = inventory().flatMap((session) =>
       session.sessionID === currentID || session.activity.status === "running"
         ? []
-        : activityRules.map(
-            (rule) =>
-              Math.max(session.activity.updated, session.activity.idle ?? session.activity.updated) +
-              rule.within_ms +
-              1,
-          ),
+        : activityRules.map((rule) => lastEpilogueActivity(session.activity) + rule.within_ms + 1),
     )
     const next = Math.min(...expires.filter((at) => at > now))
     if (!Number.isFinite(next)) return
@@ -270,7 +267,10 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
   trackEpilogue({
     currentID: () => {
       const sessionID = currentRouteID()
-      return sessionID && candidate(sessionID) ? sessionID : undefined
+      return hydratedEpilogueSessionID({
+        currentID: sessionID,
+        session: sessionID ? data.session.get(sessionID) : undefined,
+      })
     },
     sessionIDs: selectedIDs,
     candidate,
@@ -305,19 +305,23 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
         set: (
           kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueSelection",
           name: string,
-          value: Page | RegisteredSlot | MarkdownCodeBlockRenderer | EpilogueContribution | EpilogueSelectionTransform,
+          value:
+            | Page
+            | RegisteredSlot
+            | MarkdownCodeBlockRenderer
+            | EpilogueContributionInput
+            | EpilogueSelectionTransform,
         ) => {
           if (kind !== "epilogue") return setStore("registrations", id, kind, name, () => value)
-          if (!isEpilogueContribution(value)) throw new TypeError("Invalid epilogue contribution")
+          if (!isEpilogueContributionInput(value)) throw new TypeError("Invalid epilogue contribution")
           const contribution = value
           if (contribution.type !== "retained") return setStore("registrations", id, kind, name, () => contribution)
           const retained = (() => {
-            if (contribution.value === undefined) return contribution
             try {
-              return { ...contribution, value: normalizeEpilogueRow(contribution.value) }
+              return normalizeEpilogueContribution(contribution)
             } catch (error) {
               reportEpilogue({ plugin: id, key: name, type: "validation", error })
-              return { ...contribution, value: undefined }
+              return normalizeEpilogueContribution({ ...contribution, value: undefined })
             }
           })()
           setStore("registrations", id, kind, name, () => retained)
@@ -906,7 +910,7 @@ function isPlugin(value: unknown): value is Plugin.Definition {
   )
 }
 
-function isEpilogueContribution(value: unknown): value is EpilogueContribution {
+function isEpilogueContributionInput(value: unknown): value is EpilogueContributionInput {
   return (
     typeof value === "object" &&
     value !== null &&
