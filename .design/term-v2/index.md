@@ -2,6 +2,7 @@
 
 ## Multi-session extension under development
 
+- [Retained multi-session implementation](/.design/term-v2/multi-session-implementation0.gpt56sx.md): implemented visible-tab inventory, configurable and plugin-editable ordered rules, global/per-Session retained reporters, atomic batch output, and lifecycle/process verification; exit-time callbacks, visits, excerpts, and Cotail remain deferred.
 - [Executable ordered selector](/.design/term-v2/selection-checkpoint0.gpt6a.md): implemented pure selection, current pinning, activity ordering and per-stage terminating authority; no display wiring yet.
 - [Selector review](/.design/term-v2/selection-review0.gpt6a.md): parent architectural acceptance of the kernel and independent Standards/Spec review; verification limits remain explicit.
 - [Multi-session implementation checkpoint](/.design/term-v2/multi-session-evidence0.gpt6a.md): verified ownership, shared tabs, incomplete message cache and possible retained-batch implementation. Its initial recommendation predates the human's terminating-authority refinement below.
