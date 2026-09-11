@@ -5,11 +5,14 @@ for the OpenCode v2 TUI: catchable death signals route through normal scoped
 cleanup, and the exit epilogue is a pluggable row registry with plugin
 adapters. Workspace `~/src/opencode-term-v2` (jj workspace name matches the
 directory; V1 precedent was `~/src/opencode-term`, bookmark `term`, commit
-`e524a2c6`). Floating bookmark `term-v2` at `0731ad28` (= snapshot
-`term-v2-20260903`), a 4-commit afresh line directly on base `v2@origin`
-`7ba5f3e5b220` (the 2026-09-03 recreate-afresh; the prior 26-commit line
-remains preserved under snapshot `term-v2-20260901` at `71b797d2` plus the
-README commit `615f01d0`). Manifest: "Graceful TUI termination" row in the
+`e524a2c6`). Floating bookmark `term-v2` at `d6a2a44e` (= snapshot
+`term-v2-20260906`): the 2026-09-03 recreate-afresh ladder (signals + core
+epilogue → registry/plugin surface → tests → design docs) on base `v2@origin`
+`7ba5f3e5b220`, refreshed onto `23f3f8b6` (`term-v2-20260904`), extended on
+2026-09-06 by the ordered-selection kernel line (kernel + authority fix +
+selector docs; no display wiring yet). The prior 26-commit line remains
+preserved under snapshot `term-v2-20260901` at `71b797d2` plus the README
+commit `615f01d0`. Manifest: "Graceful TUI termination" row in the
 accepted `working` table (preferred order 2, though recent rebuilds apply the
 line last to ease merging) and idea-log #5 in
 [`patches.md`](/opencode/patches.md).
