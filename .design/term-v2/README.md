@@ -87,8 +87,9 @@ involved; the plugin package typecheck is part of the line's verification.
 
 - **2026-09-11 retained multi-Session implementation**: focused inventory,
   selection, retention, config, presentation, built-in, and lifecycle checks
-  105/105; full TUI suite 1,298 passed, 4 skipped, 0 failed; real process matrix
-  plus 40/120-column cases passed; Plugin/CLI/Website checks green. TUI
+  108/108; full TUI suite 1,302 passed, 4 skipped, 0 failed; 12-case real
+  process matrix including 40/120-column and live-expiry cases passed;
+  Plugin/CLI/Website checks green. TUI
   typecheck remains blocked only by the unchanged Core FFI diagnostic recorded
   in the [implementation receipt](/.design/term-v2/multi-session-implementation0.gpt56sx.md#verification).
 - **2026-09-03 freshen (afresh line on `7ba5f3e5`)**: app-lifecycle 32/32
