@@ -10,7 +10,9 @@ directory; V1 precedent was `~/src/opencode-term`, bookmark `term`, commit
 epilogue → registry/plugin surface → tests → design docs) on base `v2@origin`
 `7ba5f3e5b220`, refreshed onto `23f3f8b6` (`term-v2-20260904`), extended on
 2026-09-06 by the ordered-selection kernel line (kernel + authority fix +
-selector docs; no display wiring yet). The prior 26-commit line remains
+selector docs), then on 2026-09-11 by visible-tab inventory, scoped retained
+reporters, live rule transforms, and atomic multi-Session output. The prior
+26-commit line remains
 preserved under snapshot `term-v2-20260901` at `71b797d2` plus the README
 commit `615f01d0`. Manifest: "Graceful TUI termination" row in the
 accepted `working` table (preferred order 2, though recent rebuilds apply the
@@ -83,6 +85,12 @@ involved; the plugin package typecheck is part of the line's verification.
 
 ## Verification
 
+- **2026-09-11 retained multi-Session implementation**: focused inventory,
+  selection, retention, config, presentation, built-in, and lifecycle checks
+  105/105; full TUI suite 1,298 passed, 4 skipped, 0 failed; real process matrix
+  plus 40/120-column cases passed; Plugin/CLI/Website checks green. TUI
+  typecheck remains blocked only by the unchanged Core FFI diagnostic recorded
+  in the [implementation receipt](/.design/term-v2/multi-session-implementation0.gpt56sx.md#verification).
 - **2026-09-03 freshen (afresh line on `7ba5f3e5`)**: app-lifecycle 32/32
   (family grew 24→32 with upstream's own new tests; the documented Ctrl-O
   case passed this run); process matrix 9; config+epilogue 20; TUI +
@@ -100,22 +108,22 @@ involved; the plugin package typecheck is part of the line's verification.
 
 ## Deployment notes
 
-Nothing to configure — behavior is unconditional TUI cleanup and epilogue
-rendering. Limits worth remembering: `SIGQUIT` is unhandled (core-dump
-semantics preserved), and `SIGKILL`/power loss cannot be cleaned up by any
-process. The known Ctrl-O app-lifecycle flake is upstream-pre-existing, not
-this line; re-run the single test before suspecting the feature.
+Cleanup and epilogue rendering are unconditional. Session selection defaults to
+current plus visible tabs; `epilogue.selection` optionally chooses the two-day
+preset or an ordered custom rule array. Limits worth remembering: `SIGQUIT` is
+unhandled (core-dump semantics preserved), and `SIGKILL`/power loss cannot be
+cleaned up by any process. The known Ctrl-O app-lifecycle flake is
+upstream-pre-existing, not this line; re-run the single test before suspecting
+the feature.
 
 ## Open questions
 
-- Multi-session output is now an explicit feature inquiry, tracked by Rekon's
-  `rekon-session-mementos` and capability children. The
-  [current checkpoint](file:///home/rektide/src/rekon/design/session-mementos/checkpoint0.gpt6a.md)
-  covers visible tabs, a distinct visit record, newest-active-first ordered
-  filters with terminating authority, and modular per-session lookers. The
-  [local evidence](/.design/term-v2/multi-session-evidence0.gpt6a.md) locates the
-  retained-batch seam. This extends the display model, not the general JSX slot
-  algebra; bookmark and next-response contracts remain design-gated.
+- [Retained multi-session output](/.design/term-v2/multi-session-implementation0.gpt56sx.md)
+  now implements visible shared tabs, ordered rules with terminating authority,
+  global and per-Session reporters, direct retained publication, and atomic
+  batches. Rekon's `rekon-session-mementos` still owns the separately gated visit
+  record, excerpts, Cotail bookmarks, and deferred exit-time callback contract.
+  This extends the display model, not the general JSX slot algebra.
 - Should `SIGQUIT` also route through scoped cleanup, or keep core-dump
   semantics for diagnosability?
 - The manifest's recorded performance-suspicion order names the
