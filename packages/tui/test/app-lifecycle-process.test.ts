@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { createEventStream, createFetch, directory, json } from "./fixture/tui-client.ts"
 import { tmpdir } from "./fixture/fixture.ts"
@@ -62,6 +63,28 @@ export default {
   id: "test.epilogue",
   setup: async (context) => {
     let shutdownProjections = 0
+    const pushedGlobal = {
+      label: "Pushed global",
+      value: { type: "text", text: "retained" },
+    }
+    const global = context.ui.epilogue.retain("global")
+    global.set(pushedGlobal)
+    pushedGlobal.value.text = "mutated"
+    const first = context.ui.epilogue.retainSession("dummy", "event")
+    first.set({
+      label: "Pushed",
+      value: { type: "text", text: "dummy" },
+    })
+    const second = context.ui.epilogue.retainSession("other", "event", {
+      label: "Pushed",
+      value: { type: "text", text: "other" },
+    })
+    const invalid = context.ui.epilogue.retainSession("unselected", "invalid")
+    invalid.set({
+      then(_resolve, reject) {
+        reject(new Error("invalid retained value"))
+      },
+    })
     const dispose = [
       context.ui.epilogue.register(() => {
         if (context.renderer.isDestroyed) shutdownProjections++
@@ -73,6 +96,17 @@ export default {
         if (!session) return
         return { label: "Observed", value: { type: "relative-time", timestamp: session.time.updated } }
       }),
+      context.ui.epilogue.registerSession(({ sessionID }) => {
+        if (context.renderer.isDestroyed) shutdownProjections++
+        return { label: "Scoped", value: { type: "text", text: sessionID } }
+      }),
+      context.ui.epilogue.selection.transform((rules) => {
+        rules.push({ type: "limit", count: 5, terminating: true })
+      }),
+      global.dispose,
+      first.dispose,
+      second.dispose,
+      invalid.dispose,
     ]
     await appendFile(${JSON.stringify(cleanup)}, "setup\\n")
     return async () => {
@@ -94,7 +128,15 @@ export default {
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     time: { created: 0, updated: 0 },
   }
+  const other = {
+    ...session,
+    id: "other",
+    title: "Other session",
+    cost: 2.5,
+    time: { created: 0, updated: Date.now() - 120_000 },
+  }
   const sessionReady = Promise.withResolvers<void>()
+  const otherReady = Promise.withResolvers<void>()
   const requests: string[] = []
   const calls = createFetch(async (url) => {
     requests.push(url.pathname)
@@ -112,22 +154,43 @@ export default {
           },
         ],
       })
-    if (url.pathname === "/api/session" || url.pathname === "/api/session/dummy") {
+    if (
+      url.pathname === "/api/session" ||
+      url.pathname === "/api/session/dummy" ||
+      url.pathname === "/api/session/other"
+    ) {
       if (trigger === "app.exit") await waitForText(cleanup, "setup\n", "plugin did not finish setup")
       const current =
         trigger === "app.exit" ? { ...session, time: { created: 0, updated: Date.now() - 58_000 } } : session
-      if (url.pathname === "/api/session") return json({ data: [current], cursor: {} })
-      return json({ data: current })
+      if (url.pathname === "/api/session") return json({ data: [current, other], cursor: {} })
+      return json({ data: url.pathname.endsWith("/other") ? other : current })
     }
-    if (url.pathname === "/api/session/dummy/message") return json({ data: [], cursor: {} })
-    if (url.pathname === "/api/session/dummy/inbox") return json({ data: [] })
-    if (url.pathname === "/api/session/dummy/permission") {
+    if (/^\/api\/session\/[^/]+\/message$/.test(url.pathname)) return json({ data: [], cursor: {} })
+    if (/^\/api\/session\/[^/]+\/(inbox|form)$/.test(url.pathname)) return json({ data: [] })
+    if (/^\/api\/session\/[^/]+\/permission$/.test(url.pathname)) {
       sessionReady.resolve()
+      if (url.pathname === "/api/session/other/permission") otherReady.resolve()
       return json({ data: [] })
     }
     return undefined
   }, createEventStream())
   const server = Bun.serve({ port: 0, fetch: (request) => calls.fetch(request) })
+  const tabs = JSON.stringify({
+    global: {
+      tabs: [
+        { sessionID: "dummy", title: "Demo session" },
+        { sessionID: "other", title: "Other session" },
+      ],
+      unread: {},
+    },
+    cwd: {},
+  })
+  for (const state of [tmp.path, path.join(tmp.path, "state", "opencode")]) {
+    await mkdir(path.join(state, "test", "tui"), { recursive: true })
+    await Bun.write(path.join(state, "test", "tui", "tabs.json"), tabs)
+  }
+  await mkdir(path.join(tmp.path, "config"), { recursive: true })
+  await Bun.write(path.join(tmp.path, "config", "cli.json"), JSON.stringify({ tabs: { scope: "global" } }))
   const command =
     mode === "fixture"
       ? [process.execPath, path.join(import.meta.dir, "fixture/app-lifecycle-process.ts")]
@@ -152,6 +215,7 @@ export default {
       OPENCODE_EPILOGUE_PLUGIN: tuiPlugin,
       OPENCODE_EPILOGUE_STATE: tmp.path,
       OPENCODE_EPILOGUE_EXIT: exit,
+      OPENCODE_TUI_CHANNEL: "test",
       OPENCODE_CONFIG_DIR: path.join(tmp.path, "config"),
       XDG_CACHE_HOME: path.join(tmp.path, "cache"),
       XDG_CONFIG_HOME: path.join(tmp.path, "config-home"),
@@ -175,7 +239,16 @@ export default {
       }),
     ])
     await waitForText(cleanup, "setup\n", "plugin did not finish setup")
-    if (mode === "cli") await Bun.sleep(500)
+    await Promise.race([
+      otherReady.promise,
+      child.exited.then((code) => {
+        throw new Error(`TUI exited before the visible tab hydrated (${code}): ${stderr.join("")}`)
+      }),
+      Bun.sleep(10_000).then(() => {
+        throw new Error(`Visible tab did not hydrate: ${JSON.stringify({ requests, stderr: stderr.join("") })}`)
+      }),
+    ])
+    await Bun.sleep(mode === "cli" ? 500 : 100)
     if (reload) {
       await Bun.write(
         tuiPlugin,
@@ -191,6 +264,7 @@ export default {
       )
       await waitForText(cleanup, "cleanup:start\n", "plugin hot-reload cleanup did not start")
     }
+    const requestsAtShutdown = requests.length
     if (trigger === "app.exit" && mode === "fixture") await Bun.write(exit, "exit\n")
     if (trigger === "app.exit" && mode === "cli") {
       await child.stdin.write(new Uint8Array([3]))
@@ -208,34 +282,50 @@ export default {
 
     const raw = stdout.join("")
     const output = Bun.stripANSI(raw)
-    if (!output.includes("opencode -s dummy"))
+    if (!output.includes("opencode -s dummy") || !output.includes("opencode -s other"))
       throw new Error(
         `Missing epilogue: ${JSON.stringify({ output: output.slice(-1000), stderr: stderr.join(""), requests })}`,
       )
     expect(output.match(/opencode -s dummy/g) ?? []).toHaveLength(1)
+    expect(output.match(/opencode -s other/g) ?? []).toHaveLength(1)
     expect(output).toContain("Demo session")
-    expect(output.match(/Active/g) ?? []).toHaveLength(1)
+    expect(output).toContain("Other session")
+    expect(output.match(/Last active/g) ?? []).toHaveLength(2)
     expect(output).toContain("Cost      $1.25")
+    expect(output).toContain("Cost      $2.50")
     if (reload) {
       expect(output).not.toContain("Fixture")
       expect(output).not.toContain("Observed")
       expect(output).not.toContain("Replacement")
-      expect(output.indexOf("Cost")).toBeLessThan(output.indexOf("Continue"))
+      expect(output).not.toContain("Pushed global")
+      expect(output).not.toContain("Scoped")
+      expect(output).not.toContain("Pushed     dummy")
+      expect(output).not.toContain("Pushed     other")
     } else {
       expect(output).toContain("Fixture   retained")
       expect(output).toContain("Observed")
-      expect(output.indexOf("Active")).toBeLessThan(output.indexOf("Cost"))
-      expect(output.indexOf("Cost")).toBeLessThan(output.indexOf("Fixture"))
+      expect(output).toContain("Pushed global retained")
+      expect(output.match(/Fixture\s+retained/g) ?? []).toHaveLength(1)
+      expect(output.match(/Observed\s+/g) ?? []).toHaveLength(1)
+      expect(output.match(/Scoped\s+/g) ?? []).toHaveLength(2)
+      expect(output).toContain("Scoped    dummy")
+      expect(output).toContain("Scoped    other")
+      expect(output).toContain("Pushed    dummy")
+      expect(output).toContain("Pushed    other")
+      expect(output.indexOf("Pushed global")).toBeLessThan(output.indexOf("Session"))
+      expect(output.indexOf("Last active")).toBeLessThan(output.indexOf("Cost"))
+      expect(output.indexOf("Cost")).toBeLessThan(output.indexOf("Pushed    dummy"))
+      expect(output.indexOf("Pushed    dummy")).toBeLessThan(output.indexOf("Scoped"))
       expect(output.indexOf("Fixture")).toBeLessThan(output.indexOf("Observed"))
-      expect(output.indexOf("Observed")).toBeLessThan(output.indexOf("Continue"))
+      expect(output.indexOf("Observed")).toBeLessThan(output.indexOf("Session"))
     }
     if (trigger === "app.exit") {
-      expect(output).toContain("Active    now")
-      expect(output).toMatch(/Active\s+now · \d{4}-\d{2}-\d{2} \d{2}:\d{2}/)
+      expect(output).toContain("Last active now")
     }
     if (mode === "fixture") expect(output.endsWith("\n\n")).toBe(true)
     if (mode === "cli") expect(raw).toContain("\x1b]0;\x07")
     expect(stderr.join("")).toBe("")
+    expect(requests).toHaveLength(requestsAtShutdown)
     expect(await Bun.file(cleanup).text()).toBe("setup\ncleanup:start\ncleanup:end\nshutdown:0\n")
   } finally {
     await Bun.write(gate, "continue\n")

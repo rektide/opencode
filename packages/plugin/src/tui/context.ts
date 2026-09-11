@@ -468,13 +468,36 @@ export type EpilogueRow = {
   readonly value: EpilogueValue
 }
 
+export type EpilogueSelectionRule =
+  | { type: "activity-within"; within_ms: number; terminating: boolean }
+  | { type: "limit"; count: number; terminating: boolean }
+
+export interface RetainedEpilogueRow {
+  /** Replaces the retained row. Passing undefined omits it. Writes after disposal are ignored. */
+  set(row: EpilogueRow | undefined): void
+  dispose(): void
+}
+
 export interface Epilogue {
   /**
-   * Registers one cheap synchronous projection of live cached Session state.
+   * Registers one global row projected from the current live cached Session.
    * Returning undefined omits the row. The host tracks, validates, and copies
    * accepted values while the TUI is live, before shutdown begins.
    */
   register(project: (scope: { readonly sessionID: string }) => EpilogueRow | undefined): () => void
+  /** Registers one cheap synchronous projection for every selected Session. */
+  registerSession(project: (scope: { readonly sessionID: string }) => EpilogueRow | undefined): () => void
+  /** Publishes an event-driven global row without requiring a current Session. */
+  retain(key: string, initial?: EpilogueRow): RetainedEpilogueRow
+  /** Publishes an event-driven row for one Session without admitting it to the epilogue inventory. */
+  retainSession(sessionID: string, key: string, initial?: EpilogueRow): RetainedEpilogueRow
+  readonly selection: {
+    /**
+     * Registers a live replayable edit over the configured ordered rule program.
+     * The edit may only produce activity and limit rules and never runs during shutdown.
+     */
+    transform(edit: (rules: EpilogueSelectionRule[]) => void): () => void
+  }
 }
 
 export interface UI {

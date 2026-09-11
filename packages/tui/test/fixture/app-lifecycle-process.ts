@@ -42,7 +42,10 @@ process.stdout.write = ((
 run({
   app: { name: "test", version: "test", channel: "test" },
   server: { endpoint: { url: server } },
-  config: { get: async () => ({}), update: async () => ({}) },
+  config: {
+    get: async () => ({ tabs: { scope: "global" } }),
+    update: async () => ({ tabs: { scope: "global" } }),
+  },
   packages: { prepare: async () => ({ directory: path.dirname(plugin) }) },
   terminalHandoff: async () => ({ renderer: setup.renderer, mode: "dark", complete: () => {} }),
   args: { sessionID: "dummy" },

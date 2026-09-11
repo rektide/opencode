@@ -20,6 +20,16 @@ export type SessionEpilogueCandidate = {
   }
 }
 
+export type RetainedSessionEpilogue = {
+  readonly candidate: SessionEpilogueCandidate
+  readonly rows: readonly EpilogueRow[]
+}
+
+export type RetainedEpilogue = {
+  readonly globalRows: readonly EpilogueRow[]
+  readonly sessions: readonly RetainedSessionEpilogue[]
+}
+
 const reset = "\x1b[0m"
 const bold = "\x1b[1m"
 const dim = "\x1b[90m"
@@ -44,30 +54,22 @@ function wordmark(pad = "") {
 }
 
 export function sessionEpilogue(input: SessionEpilogueCandidate, now: number, rows: readonly EpilogueRow[] = []) {
-  const weak = (text: string) => `${dim}${text}${" ".repeat(Math.max(1, 10 - stringWidth(text)))}${reset}`
-  const value = (row: EpilogueRow) => (row.value.type === "text" ? row.value.text : activeAgo(row.value.timestamp, now))
-  const last = Math.max(input.activity.updated, input.activity.idle ?? input.activity.updated)
-  const active =
-    input.activity.status === "running"
-      ? `  ${weak("Active")}${bold}running${reset}`
-      : `  ${weak("Active")}${bold}${activeAgo(last, now)}${reset}${dim} · ${datestamp(last)}${reset}`
-  return [
-    ...wordmark("  "),
-    "",
-    `  ${weak("Session")}${bold}${input.title}${reset}`,
-    active,
-    ...rows.map((row) => `  ${weak(row.label)}${bold}${value(row)}${reset}`),
-    `  ${weak("Continue")}${bold}opencode -s ${input.sessionID}${reset}`,
-    "",
-  ].join("\n")
+  return epilogueOutput({ globalRows: [], sessions: [{ candidate: input, rows }] }, now) ?? ""
 }
 
-// Local calendar time rather than Locale.datetime: the epilogue asserts exact strings
-// in tests and stays identical regardless of the runtime locale.
-function datestamp(at: number) {
-  const date = new Date(at)
-  const pair = (value: number) => String(value).padStart(2, "0")
-  return `${date.getFullYear()}-${pair(date.getMonth() + 1)}-${pair(date.getDate())} ${pair(date.getHours())}:${pair(date.getMinutes())}`
+export function epilogueOutput(input: RetainedEpilogue, now: number) {
+  if (input.globalRows.length === 0 && input.sessions.length === 0) return undefined
+  const weak = (text: string) => `${dim}${text}${" ".repeat(Math.max(1, 10 - stringWidth(text)))}${reset}`
+  const value = (row: EpilogueRow) => (row.value.type === "text" ? row.value.text : activeAgo(row.value.timestamp, now))
+  const row = (item: EpilogueRow) => `  ${weak(item.label)}${bold}${value(item)}${reset}`
+  const global = input.globalRows.map(row)
+  const sessions = input.sessions.flatMap((session) => [
+    `  ${weak("Session")}${bold}${session.candidate.title}${reset}`,
+    ...session.rows.map(row),
+    `  ${weak("Continue")}${bold}opencode -s ${session.candidate.sessionID}${reset}`,
+    "",
+  ])
+  return [...wordmark("  "), "", ...global, ...(global.length ? [""] : []), ...sessions].join("\n")
 }
 
 function activeAgo(updated: number, now: number) {

@@ -12,6 +12,15 @@ ui.epilogue.register(() => ({
   label: "Updated",
   value: { type: "relative-time", timestamp: Date.now() },
 }))
+ui.epilogue.registerSession(({ sessionID }) => ({ label: "Scoped", value: { type: "text", text: sessionID } }))
+const retained = ui.epilogue.retain("client", { label: "Client", value: { type: "text", text: "ready" } })
+retained.set(undefined)
+retained.dispose()
+ui.epilogue.retainSession("ses_123", "event").set({ label: "Event", value: { type: "text", text: "seen" } })
+ui.epilogue.selection.transform((rules) => {
+  rules.reverse()
+  rules.push({ type: "limit", count: 3, terminating: true })
+})
 ui.slot({ append: "home.footer", render: () => null })
 
 // @ts-expect-error Epilogue projections are synchronous.
@@ -22,3 +31,7 @@ ui.epilogue.register(() => jsx)
 ui.epilogue.register(() => ({ label: "Bad", value: { type: "html", text: "no" } }))
 // @ts-expect-error One registration contributes at most one row.
 ui.epilogue.register(() => [{ label: "Bad", value: { type: "text", text: "no" } }])
+// @ts-expect-error Selection transforms may only add known rules.
+ui.epilogue.selection.transform((rules) => rules.push({ type: "filter", terminating: true }))
+// @ts-expect-error Retained values are structured rows.
+ui.epilogue.retain("bad", "text")

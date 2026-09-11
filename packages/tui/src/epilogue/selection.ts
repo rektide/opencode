@@ -1,3 +1,5 @@
+import type { EpilogueSelectionRule } from "@opencode/plugin/tui/context"
+
 export type EpilogueSession = {
   readonly sessionID: string
   readonly activity: {
@@ -17,18 +19,53 @@ export type EpilogueSessionSource = {
 type EpilogueDecision = { readonly keep: boolean; readonly terminate?: boolean }
 
 /** Host composition grants authority here; the synchronous predicate's result cannot grant it. */
-export type EpilogueSelectionRule = { readonly terminating: boolean } & (
-  | { readonly type: "membership"; readonly sessionIDs: ReadonlySet<string> }
-  | { readonly type: "activity-within"; readonly within_ms: number }
-  | { readonly type: "limit"; readonly count: number }
-  | {
-      readonly type: "filter"
-      readonly evaluate: (
-        session: EpilogueSession,
-        scope: { readonly index: number; readonly now: number },
-      ) => EpilogueDecision
-    }
-)
+export type EpilogueHostSelectionRule =
+  | EpilogueSelectionRule
+  | ({ readonly terminating: boolean } & (
+      | { readonly type: "membership"; readonly sessionIDs: ReadonlySet<string> }
+      | {
+          readonly type: "filter"
+          readonly evaluate: (
+            session: EpilogueSession,
+            scope: { readonly index: number; readonly now: number },
+          ) => EpilogueDecision
+        }
+    ))
+
+export type EpilogueSelection = "visible-tabs" | "visible-tabs-2d" | readonly EpilogueSelectionRule[]
+
+export function epilogueSelectionRules(selection: EpilogueSelection): readonly EpilogueSelectionRule[] {
+  if (selection === "visible-tabs") return []
+  if (selection === "visible-tabs-2d")
+    return Object.freeze([{ type: "activity-within", within_ms: 172_800_000, terminating: true }])
+  return normalizeEpilogueSelectionRules(selection)
+}
+
+export function normalizeEpilogueSelectionRules(input: unknown): readonly EpilogueSelectionRule[] {
+  if (!Array.isArray(input)) throw new TypeError("Epilogue selection rules must be an array")
+  return Object.freeze(
+    input.map((value) => {
+      if (!record(value)) throw new TypeError("Epilogue selection rule must be a plain object")
+      if (value.type === "activity-within") {
+        exactKeys(value, ["type", "within_ms", "terminating"])
+        if (typeof value.within_ms !== "number" || !Number.isFinite(value.within_ms) || value.within_ms < 0)
+          throw new RangeError("Epilogue activity window must be finite and nonnegative")
+        if (typeof value.terminating !== "boolean")
+          throw new TypeError("Epilogue selection termination grant must be boolean")
+        return Object.freeze({ type: value.type, within_ms: value.within_ms, terminating: value.terminating })
+      }
+      if (value.type === "limit") {
+        exactKeys(value, ["type", "count", "terminating"])
+        if (typeof value.count !== "number" || !Number.isInteger(value.count) || value.count < 0)
+          throw new RangeError("Epilogue limit must be a nonnegative integer")
+        if (typeof value.terminating !== "boolean")
+          throw new TypeError("Epilogue selection termination grant must be boolean")
+        return Object.freeze({ type: value.type, count: value.count, terminating: value.terminating })
+      }
+      throw new TypeError("Epilogue selection rule type is invalid")
+    }),
+  )
+}
 
 /**
  * Scans all supplied metadata before selection; missing entries are omitted and the first ID wins.
@@ -58,7 +95,7 @@ export function orderEpilogueSessions(input: {
 export function* selectEpilogueSessions(input: {
   readonly source: EpilogueSessionSource
   readonly now: number
-  readonly rules?: readonly EpilogueSelectionRule[]
+  readonly rules?: readonly EpilogueHostSelectionRule[]
 }): Generator<EpilogueSession> {
   const rules = input.rules ?? []
   requireSelection(rules, input.now)
@@ -66,7 +103,7 @@ export function* selectEpilogueSessions(input: {
   yield* rules.reduce((sessions, rule) => applyRule(sessions, rule, input.now), input.source.additional)
 }
 
-function requireSelection(rules: readonly EpilogueSelectionRule[], now: number) {
+function requireSelection(rules: readonly EpilogueHostSelectionRule[], now: number) {
   if (!Number.isFinite(now)) throw new RangeError("Epilogue selection requires a finite now")
   rules.forEach((rule) => {
     if (rule.type === "activity-within" && (!Number.isFinite(rule.within_ms) || rule.within_ms < 0))
@@ -76,7 +113,7 @@ function requireSelection(rules: readonly EpilogueSelectionRule[], now: number) 
   })
 }
 
-function* applyRule(sessions: Iterable<EpilogueSession>, rule: EpilogueSelectionRule, now: number) {
+function* applyRule(sessions: Iterable<EpilogueSession>, rule: EpilogueHostSelectionRule, now: number) {
   if (rule.type === "limit" && rule.count === 0 && rule.terminating) return
   let index = 0
   for (const session of sessions) {
@@ -87,7 +124,7 @@ function* applyRule(sessions: Iterable<EpilogueSession>, rule: EpilogueSelection
 }
 
 function evaluateRule(
-  rule: EpilogueSelectionRule,
+  rule: EpilogueHostSelectionRule,
   session: EpilogueSession,
   scope: { readonly index: number; readonly now: number },
 ): EpilogueDecision {
@@ -103,4 +140,15 @@ function evaluateRule(
 
 function lastActivity(session: EpilogueSession) {
   return Math.max(session.activity.updated, session.activity.idle ?? session.activity.updated)
+}
+
+function record(input: unknown): input is Record<string, unknown> {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return false
+  const prototype = Object.getPrototypeOf(input)
+  return prototype === Object.prototype || prototype === null
+}
+
+function exactKeys(input: Record<string, unknown>, keys: readonly string[]) {
+  if (Object.keys(input).some((key) => !keys.includes(key)))
+    throw new TypeError("Epilogue selection rule contains an unknown field")
 }

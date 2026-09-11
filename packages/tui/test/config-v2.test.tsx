@@ -47,6 +47,31 @@ test("validates the session tabs setting", () => {
   expect(() => decode({ session: { new_location: "current" } })).toThrow()
 })
 
+test("validates epilogue selection presets and ordered custom rules", () => {
+  expect(decodeInfo({ epilogue: { selection: "visible-tabs-2d" } })).toEqual({
+    epilogue: { selection: "visible-tabs-2d" },
+  })
+  expect(
+    decodeInfo({
+      epilogue: {
+        selection: [
+          { type: "limit", count: 3, terminating: false },
+          { type: "activity-within", within_ms: 42, terminating: true },
+        ],
+      },
+    }),
+  ).toEqual({
+    epilogue: {
+      selection: [
+        { type: "limit", count: 3, terminating: false },
+        { type: "activity-within", within_ms: 42, terminating: true },
+      ],
+    },
+  })
+  expect(() => decodeInfo({ epilogue: { selection: [{ type: "limit", count: -1, terminating: true }] } })).toThrow()
+  expect(() => decodeInfo({ epilogue: { selection: [{ type: "filter", terminating: true }] } })).toThrow()
+})
+
 test("resolves nested config and keybind defaults", () => {
   const config = resolve(
     {
@@ -71,6 +96,7 @@ test("resolves nested config and keybind defaults", () => {
     layout: "horizontal",
     indicators: "status",
   })
+  expect(config.epilogue).toEqual({ selection: "visible-tabs" })
   expect(config.session.new_location).toBe("launch")
   expect(config.session.tps).toBe(true)
 })
@@ -102,6 +128,15 @@ test("shows resolved tab defaults in settings", () => {
     default: "status",
     values: ["status", "numbers"],
   })
+})
+
+test("shows epilogue presets in settings while identifying custom rules", () => {
+  const setting = settings.find((setting) => setting.path.join(".") === "epilogue.selection")
+  expect(setting).toMatchObject({
+    default: "visible-tabs",
+    values: ["visible-tabs", "visible-tabs-2d"],
+  })
+  expect(setting?.format?.([{ type: "limit", count: 1, terminating: true }])).toBe("custom rules")
 })
 
 test("shows the new session location default in settings", () => {

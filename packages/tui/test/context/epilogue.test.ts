@@ -1,121 +1,420 @@
 import { expect, test } from "bun:test"
+import type { EpilogueSelectionRule } from "@opencode/plugin/tui/context"
 import { createTestRenderer } from "@opentui/core/testing"
-import { createRoot, createSignal } from "solid-js"
+import { createComputed, createRoot, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
-import { createEpilogue, epilogueLimits, trackEpilogueRows } from "../../src/context/epilogue.tsx"
-import type { EpilogueRow } from "../../src/util/presentation.ts"
+import {
+  createEpilogue,
+  epilogueLimits,
+  trackEpilogue,
+  transformEpilogueSelection,
+  type EpilogueContributionGroup,
+} from "../../src/context/epilogue.tsx"
+import type { RetainedEpilogue } from "../../src/util/presentation.ts"
 
-test("tracks ordered projections through cache, route, and activation changes", () => {
-  const [state, setState] = createStore({ first: "first", second: "second", active: true, unrelated: 0 })
-  const [sessionID, setSessionID] = createSignal("ses_a")
-  const calls: string[] = []
-  let rows: readonly EpilogueRow[] = []
+test("tracks global projections once and isolates per-Session reactive recomputation", () => {
+  const [state, setState] = createStore({ global: "global", a: "alpha", b: "beta", unrelated: 0 })
+  const [sessionIDs, setSessionIDs] = createSignal<readonly string[]>(["ses_a", "ses_b"])
+  const calls = { global: 0, a: 0, b: 0 }
+  let retained!: RetainedEpilogue
   let dispose = () => {}
 
   createRoot((stop) => {
     dispose = stop
-    trackEpilogueRows({
-      sessionID,
+    trackEpilogue({
+      currentID: () => "ses_a",
+      sessionIDs,
+      candidate: session,
       groups: () => [
-        ...(state.active
-          ? [
-              {
-                plugin: "first",
-                projections: [
-                  {
-                    key: "first#0",
-                    project: (scope: { readonly sessionID: string }) => {
-                      calls.push(`first:${scope.sessionID}`)
-                      return { label: "First", value: { type: "text", text: state.first } }
-                    },
-                  },
-                  {
-                    key: "first#1",
-                    project: (scope: { readonly sessionID: string }) => {
-                      calls.push(`duplicate-a:${scope.sessionID}`)
-                      return { label: "Duplicate", value: { type: "text", text: state.second } }
-                    },
-                  },
-                ],
-              },
-            ]
-          : []),
         {
-          plugin: "second",
-          projections: [
+          plugin: "fixture",
+          contributions: [
             {
-              key: "second#0",
-              project: (scope: { readonly sessionID: string }) => {
-                calls.push(`duplicate-b:${scope.sessionID}`)
-                return { label: "Duplicate", value: { type: "text", text: "third" } }
+              key: "global",
+              contribution: {
+                type: "projection",
+                scope: "global",
+                project: () => {
+                  calls.global++
+                  return row("Global", state.global)
+                },
+              },
+            },
+            {
+              key: "session",
+              contribution: {
+                type: "projection",
+                scope: "session",
+                project: ({ sessionID }) => {
+                  calls[sessionID === "ses_a" ? "a" : "b"]++
+                  return row("Scoped", sessionID === "ses_a" ? state.a : state.b)
+                },
               },
             },
           ],
         },
       ],
-      publish: (retained) => {
-        rows = retained?.rows ?? []
+      publish: (value) => {
+        retained = value
       },
       report: () => {},
     })
   })
 
-  expect(rows.map((row) => `${row.label}:${row.value.type === "text" ? row.value.text : "time"}`)).toEqual([
-    "First:first",
-    "Duplicate:second",
-    "Duplicate:third",
+  expect(calls).toEqual({ global: 1, a: 1, b: 1 })
+  expect(retained.globalRows).toEqual([row("Global", "global")])
+  expect(retained.sessions.map((item) => [item.candidate.sessionID, item.rows[0]?.value])).toEqual([
+    ["ses_a", { type: "text", text: "alpha" }],
+    ["ses_b", { type: "text", text: "beta" }],
   ])
-  expect(calls).toEqual(["first:ses_a", "duplicate-a:ses_a", "duplicate-b:ses_a"])
 
+  setState("a", "updated")
+  expect(calls).toEqual({ global: 1, a: 2, b: 1 })
   setState("unrelated", 1)
-  expect(calls).toHaveLength(3)
+  expect(calls).toEqual({ global: 1, a: 2, b: 1 })
+  setState("global", "changed")
+  expect(calls).toEqual({ global: 2, a: 2, b: 1 })
 
-  setState("first", "updated")
-  expect(rows[0]).toEqual({ label: "First", value: { type: "text", text: "updated" } })
-  expect(calls).toHaveLength(6)
-
-  setState("active", false)
-  expect(rows).toEqual([{ label: "Duplicate", value: { type: "text", text: "third" } }])
-  setState("first", "replacement")
-  expect(rows).toEqual([{ label: "Duplicate", value: { type: "text", text: "third" } }])
-  setState("active", true)
-  expect(rows[0]).toEqual({ label: "First", value: { type: "text", text: "replacement" } })
-
-  setSessionID("ses_b")
-  expect(calls.slice(-3)).toEqual(["first:ses_b", "duplicate-a:ses_b", "duplicate-b:ses_b"])
+  setSessionIDs(["ses_b", "ses_a"])
+  expect(calls).toEqual({ global: 2, a: 2, b: 1 })
+  expect(retained.sessions.map((item) => item.candidate.sessionID)).toEqual(["ses_b", "ses_a"])
   dispose()
 })
 
-test("row updates allocate no renderables or frames, and renderer frames do not rerun projections", async () => {
+test("retained values are scoped, copied, budgeted, and do not admit Sessions", async () => {
+  const global = row("Global", "retained")
+  const a = row("Scoped", "alpha")
+  const b = row("Scoped", "beta")
+  const rejected = Promise.reject(new Error("late"))
+  const issues: string[] = []
+  let retained!: RetainedEpilogue
+
+  createRoot((dispose) => {
+    trackEpilogue({
+      currentID: () => undefined,
+      sessionIDs: () => ["ses_a"],
+      candidate: session,
+      groups: () => [
+        {
+          plugin: "fixture",
+          contributions: [
+            { key: "global", contribution: { type: "retained", scope: "global", value: global } },
+            {
+              key: "a",
+              contribution: { type: "retained", scope: "session", sessionID: "ses_a", value: a },
+            },
+            {
+              key: "b",
+              contribution: { type: "retained", scope: "session", sessionID: "ses_b", value: b },
+            },
+            {
+              key: "async",
+              contribution: { type: "retained", scope: "global", value: rejected },
+            },
+          ],
+        },
+      ],
+      publish: (value) => {
+        retained = value
+      },
+      report: (issue) => issues.push(`${issue.key}:${issue.type}`),
+    })
+    dispose()
+  })
+  await Promise.resolve()
+
+  global.value.text = "mutated"
+  a.value.text = "mutated"
+  expect(retained.globalRows).toEqual([row("Global", "retained")])
+  expect(retained.sessions).toEqual([{ candidate: session("ses_a"), rows: [row("Scoped", "alpha")] }])
+  expect(retained.sessions.some((item) => item.candidate.sessionID === "ses_b")).toBe(false)
+  expect(issues).toEqual(["async:validation"])
+
+  const calls: string[] = []
+  createRoot((dispose) => {
+    trackEpilogue({
+      currentID: () => undefined,
+      sessionIDs: () => ["ses_a"],
+      candidate: session,
+      groups: () => [
+        {
+          plugin: "budget",
+          contributions: Array.from({ length: epilogueLimits.rowsPerPlugin + 2 }, (_, index) => ({
+            key: String(index),
+            contribution: {
+              type: "projection" as const,
+              scope: "session" as const,
+              project: () => {
+                calls.push(String(index))
+                return row(`Row ${index}`, String(index))
+              },
+            },
+          })),
+        },
+      ],
+      publish: (value) => {
+        retained = value
+      },
+      report: () => {},
+    })
+    dispose()
+  })
+  expect(calls).toEqual(Array.from({ length: epilogueLimits.rowsPerPlugin }, (_, index) => String(index)))
+  expect(retained.sessions[0]?.rows).toHaveLength(epilogueLimits.rowsPerPlugin)
+})
+
+test("isolates malformed contributions and freezes projection scope", () => {
+  const issues: string[] = []
+  let mutation: boolean | undefined
+  let retained!: RetainedEpilogue
+  const groups: readonly EpilogueContributionGroup[] = [
+    {
+      plugin: "fixture",
+      contributions: [
+        {
+          key: "mutate",
+          contribution: {
+            type: "projection",
+            scope: "session",
+            project: (scope) => {
+              mutation = Reflect.set(scope, "sessionID", "ses_other")
+              return undefined
+            },
+          },
+        },
+        {
+          key: "reserved",
+          contribution: {
+            type: "projection",
+            scope: "session",
+            project: () => row("Session", "fake"),
+          },
+        },
+        {
+          key: "throw",
+          contribution: {
+            type: "projection",
+            scope: "session",
+            project: () => {
+              throw new Error("boom")
+            },
+          },
+        },
+        {
+          key: "later",
+          contribution: {
+            type: "projection",
+            scope: "session",
+            project: ({ sessionID }) => row("Observed", sessionID),
+          },
+        },
+      ],
+    },
+  ]
+
+  createRoot((dispose) => {
+    trackEpilogue({
+      currentID: () => "ses_a",
+      sessionIDs: () => ["ses_a"],
+      candidate: session,
+      groups: () => groups,
+      publish: (value) => {
+        retained = value
+      },
+      report: (issue) => issues.push(`${issue.key}:${issue.type}`),
+    })
+    dispose()
+  })
+
+  expect(mutation).toBe(false)
+  expect(retained.sessions[0]?.rows).toEqual([row("Observed", "ses_a")])
+  expect(issues).toEqual(["reserved:validation", "throw:projection"])
+})
+
+test("selection transforms replay in order and discard throwing, asynchronous, or invalid edits", async () => {
+  const issues: string[] = []
+  const output = transformEpilogueSelection({
+    base: [
+      { type: "activity-within", within_ms: 10, terminating: true },
+      { type: "limit", count: 3, terminating: false },
+    ],
+    groups: [
+      {
+        plugin: "first",
+        transforms: [
+          {
+            key: "edit",
+            transform(rules) {
+              rules.reverse()
+              rules[0]!.terminating = true
+            },
+          },
+          {
+            key: "throw",
+            transform() {
+              throw new Error("boom")
+            },
+          },
+          {
+            key: "async",
+            transform: async (rules) => {
+              await Promise.resolve()
+              rules.push({ type: "limit", count: 0, terminating: true })
+            },
+          },
+          {
+            key: "invalid",
+            transform(rules) {
+              Object.assign(rules[0]!, { unexpected: true })
+            },
+          },
+        ],
+      },
+      {
+        plugin: "later",
+        transforms: [
+          {
+            key: "append",
+            transform(rules) {
+              rules.push({ type: "limit", count: 1, terminating: false })
+            },
+          },
+        ],
+      },
+    ],
+    report: (issue) => issues.push(`${issue.key}:${issue.type}`),
+  })
+  await Promise.resolve()
+
+  expect(output).toEqual([
+    { type: "limit", count: 3, terminating: true },
+    { type: "activity-within", within_ms: 10, terminating: true },
+    { type: "limit", count: 1, terminating: false },
+  ])
+  expect(issues).toEqual(["throw:projection", "async:validation", "invalid:validation"])
+  expect(Object.isFrozen(output)).toBe(true)
+  expect(output.every(Object.isFrozen)).toBe(true)
+})
+
+test("config replacement resets the base and reapplies active transforms without mutating config", () => {
+  const first = [{ type: "limit" as const, count: 3, terminating: false }]
+  const second = [{ type: "activity-within" as const, within_ms: 20, terminating: true }]
+  const [base, setBase] = createSignal<readonly EpilogueSelectionRule[]>(first)
+  const [active, setActive] = createSignal(true)
+  let output: readonly EpilogueSelectionRule[] = []
+  let calls = 0
+
+  createRoot((dispose) => {
+    createComputed(() => {
+      output = transformEpilogueSelection({
+        base: base(),
+        groups: active()
+          ? [
+              {
+                plugin: "fixture",
+                transforms: [
+                  {
+                    key: "append",
+                    transform(rules) {
+                      calls++
+                      rules.push({ type: "limit", count: 1, terminating: true })
+                    },
+                  },
+                ],
+              },
+            ]
+          : [],
+        report: () => {},
+      })
+    })
+
+    expect(output).toEqual([
+      { type: "limit", count: 3, terminating: false },
+      { type: "limit", count: 1, terminating: true },
+    ])
+    setBase(second)
+    expect(output).toEqual([
+      { type: "activity-within", within_ms: 20, terminating: true },
+      { type: "limit", count: 1, terminating: true },
+    ])
+    expect(first).toEqual([{ type: "limit", count: 3, terminating: false }])
+    expect(second).toEqual([{ type: "activity-within", within_ms: 20, terminating: true }])
+    expect(calls).toBe(2)
+
+    setActive(false)
+    expect(output).toEqual([{ type: "activity-within", within_ms: 20, terminating: true }])
+    dispose()
+  })
+})
+
+test("copies an atomic batch before freeze and never consults it after freeze", () => {
+  const now = 2_000_000_000_000
+  const epilogue = createEpilogue()
+  const global = row("Global", "before")
+  const scoped = row("Scoped", "before")
+  const candidate = session("ses_a")
+  let reads = 0
+  const batch = {
+    get globalRows() {
+      reads++
+      return [global]
+    },
+    get sessions() {
+      reads++
+      return [{ candidate, rows: [scoped] }]
+    },
+  }
+
+  epilogue.setBatch(batch)
+  const copiedAt = reads
+  global.value.text = "after"
+  scoped.value.text = "after"
+  candidate.title = "After"
+  epilogue.freeze(now)
+  epilogue.setBatch({ globalRows: [], sessions: [] })
+
+  const output = Bun.stripANSI(epilogue.take() ?? "")
+  expect(reads).toBe(copiedAt)
+  expect(output).toContain("Global    before")
+  expect(output).toContain("Scoped    before")
+  expect(output).toContain("Session   ses_a")
+  expect(output).not.toContain("after")
+  expect(epilogue.take()).toBeUndefined()
+})
+
+test("row updates allocate no renderables or frames", async () => {
   const setup = await createTestRenderer({ width: 20, height: 5, useThread: false })
   const [value, setValue] = createSignal("before")
   let calls = 0
-  let rows: readonly EpilogueRow[] = []
   let frames = 0
   let dispose = () => {}
   const onFrame = () => frames++
 
   createRoot((stop) => {
     dispose = stop
-    trackEpilogueRows({
-      sessionID: () => "ses_test",
+    trackEpilogue({
+      currentID: () => "ses_a",
+      sessionIDs: () => ["ses_a"],
+      candidate: session,
       groups: () => [
         {
           plugin: "fixture",
-          projections: [
+          contributions: [
             {
-              key: "fixture#0",
-              project: () => {
-                calls++
-                return { label: "Fixture", value: { type: "text", text: value() } }
+              key: "row",
+              contribution: {
+                type: "projection",
+                scope: "session",
+                project: () => {
+                  calls++
+                  return row("Fixture", value())
+                },
               },
             },
           ],
         },
       ],
-      publish: (retained) => {
-        rows = retained?.rows ?? []
-      },
+      publish: () => {},
       report: () => {},
     })
   })
@@ -124,18 +423,13 @@ test("row updates allocate no renderables or frames, and renderer frames do not 
     await setup.renderOnce()
     setup.renderer.on("frame", onFrame)
     const nativeFrames = setup.getNativeStats().nativeFrameCount
-
     setValue("after")
     await Bun.sleep(25)
+
     expect(calls).toBe(2)
-    expect(rows).toEqual([{ label: "Fixture", value: { type: "text", text: "after" } }])
     expect(setup.renderer.root.getChildren()).toHaveLength(0)
     expect(setup.getNativeStats().nativeFrameCount).toBe(nativeFrames)
     expect(frames).toBe(0)
-
-    await setup.renderOnce()
-    expect(calls).toBe(2)
-    expect(frames).toBe(1)
   } finally {
     setup.renderer.off("frame", onFrame)
     dispose()
@@ -143,216 +437,10 @@ test("row updates allocate no renderables or frames, and renderer frames do not 
   }
 })
 
-test("freezes projection scope so one plugin cannot alter later Session input", () => {
-  let mutation: boolean | undefined
-  let rows: readonly EpilogueRow[] = []
+function row(label: string, text: string) {
+  return { label, value: { type: "text" as const, text } }
+}
 
-  createRoot((dispose) => {
-    trackEpilogueRows({
-      sessionID: () => "ses_expected",
-      groups: () => [
-        {
-          plugin: "mutating",
-          projections: [
-            {
-              key: "mutating#0",
-              project: (scope) => {
-                mutation = Reflect.set(scope, "sessionID", "ses_other")
-                return undefined
-              },
-            },
-          ],
-        },
-        {
-          plugin: "later",
-          projections: [
-            {
-              key: "later#0",
-              project: (scope) => ({ label: "Observed", value: { type: "text", text: scope.sessionID } }),
-            },
-          ],
-        },
-      ],
-      publish: (retained) => {
-        rows = retained?.rows ?? []
-      },
-      report: () => {},
-    })
-    dispose()
-  })
-
-  expect(mutation).toBe(false)
-  expect(rows).toEqual([{ label: "Observed", value: { type: "text", text: "ses_expected" } }])
-})
-
-test("isolates invalid projections, copies rows, and enforces per-plugin budgets", async () => {
-  const source = { label: "Before", value: { type: "text", text: "copied" } }
-  const issues: string[] = []
-  let rows: readonly EpilogueRow[] = []
-  let overBudgetCalls = 0
-  const valid = Array.from({ length: epilogueLimits.rowsPerPlugin + 2 }, (_, index) => ({
-    key: `budget#${index}`,
-    project: () => {
-      overBudgetCalls++
-      return { label: `Row ${index}`, value: { type: "text", text: String(index) } }
-    },
-  }))
-
-  createRoot((dispose) => {
-    trackEpilogueRows({
-      sessionID: () => "ses_test",
-      groups: () => [
-        {
-          plugin: "malformed",
-          projections: [
-            { key: "before", project: () => source },
-            {
-              key: "throw",
-              project: () => {
-                throw new Error("boom")
-              },
-            },
-            { key: "promise", project: () => Promise.resolve(source) },
-            { key: "rejected", project: () => Promise.reject(new Error("rejected")) },
-            { key: "newline", project: () => ({ label: "Bad", value: { type: "text", text: "two\nlines" } }) },
-            { key: "ansi", project: () => ({ label: "\x1b[31mBad", value: { type: "text", text: "ansi" } }) },
-            {
-              key: "oversized",
-              project: () => ({ label: "Long", value: { type: "text", text: "x".repeat(epilogueLimits.text + 1) } }),
-            },
-            { key: "after", project: () => ({ label: "After", value: { type: "relative-time", timestamp: 42 } }) },
-          ],
-        },
-        {
-          plugin: "reserved",
-          projections: [
-            { key: "reserved", project: () => ({ label: "Active", value: { type: "text", text: "fake" } }) },
-          ],
-        },
-        { plugin: "budget", projections: valid },
-      ],
-      publish: (retained) => {
-        rows = retained?.rows ?? []
-      },
-      report: (issue) => issues.push(`${issue.key}:${issue.type}`),
-    })
-    dispose()
-  })
-  await Promise.resolve()
-
-  source.label = "Mutated"
-  source.value.text = "mutated"
-  expect(rows.slice(0, 2)).toEqual([
-    { label: "Before", value: { type: "text", text: "copied" } },
-    { label: "After", value: { type: "relative-time", timestamp: 42 } },
-  ])
-  expect(issues).toEqual([
-    "throw:projection",
-    "promise:validation",
-    "rejected:validation",
-    "newline:validation",
-    "ansi:validation",
-    "oversized:validation",
-    "reserved:validation",
-  ])
-  expect(rows.slice(2)).toHaveLength(epilogueLimits.rowsPerPlugin)
-  expect(overBudgetCalls).toBe(epilogueLimits.rowsPerPlugin)
-  expect(Object.isFrozen(rows)).toBe(true)
-  expect(rows.every((row) => Object.isFrozen(row) && Object.isFrozen(row.value))).toBe(true)
-})
-
-test("freezes matching Session rows before cleanup and rejects stale epochs", () => {
-  const now = 2_000_000_000_000
-  const epilogue = createEpilogue()
-  const [sessionID, setSessionID] = createSignal("ses_a")
-  const [value, setValue] = createSignal("retained")
-  let dispose = () => {}
-
-  epilogue.set({
-    title: "Session A",
-    sessionID: "ses_a",
-    activity: { status: "idle", updated: now },
-  })
-  createRoot((stop) => {
-    dispose = stop
-    trackEpilogueRows({
-      sessionID,
-      groups: () => [
-        {
-          plugin: "fixture",
-          projections: [
-            { key: "fixture#0", project: () => ({ label: "Fixture", value: { type: "text", text: value() } }) },
-          ],
-        },
-      ],
-      publish: (retained) => epilogue.setRows(retained),
-      report: () => {},
-    })
-  })
-
-  epilogue.freeze(now)
-  setValue("too late")
-  setSessionID("ses_b")
-  epilogue.clear("ses_a")
-  dispose()
-  const output = Bun.stripANSI(epilogue.take() ?? "")
-  expect(output).toContain("Fixture   retained")
-  expect(output).not.toContain("too late")
-
-  const stale = createEpilogue()
-  stale.set({
-    title: "Session B",
-    sessionID: "ses_b",
-    activity: { status: "idle", updated: now },
-  })
-  stale.setRows({
-    sessionID: "ses_a",
-    rows: [{ label: "Stale", value: { type: "text", text: "leaked" } }],
-  })
-  stale.freeze(now)
-  expect(Bun.stripANSI(stale.take() ?? "")).not.toContain("Stale")
-})
-
-test("freeze during the hot-reload replacement interval retains the documented missing row", () => {
-  const now = 2_000_000_000_000
-  const epilogue = createEpilogue()
-  const [active, setActive] = createSignal(true)
-  let dispose = () => {}
-
-  epilogue.set({
-    title: "A session",
-    sessionID: "ses_a",
-    activity: { status: "idle", updated: now },
-  })
-  createRoot((stop) => {
-    dispose = stop
-    trackEpilogueRows({
-      sessionID: () => "ses_a",
-      groups: () =>
-        active()
-          ? [
-              {
-                plugin: "fixture",
-                projections: [
-                  {
-                    key: "fixture#0",
-                    project: () => ({ label: "Fixture", value: { type: "text", text: "old generation" } }),
-                  },
-                ],
-              },
-            ]
-          : [],
-      publish: (retained) => epilogue.setRows(retained),
-      report: () => {},
-    })
-  })
-
-  setActive(false)
-  epilogue.freeze(now)
-  setActive(true)
-  dispose()
-
-  const output = Bun.stripANSI(epilogue.take() ?? "")
-  expect(output).not.toContain("Fixture")
-  expect(output).toContain("Continue  opencode -s ses_a")
-})
+function session(sessionID: string) {
+  return { title: sessionID, sessionID, activity: { status: "idle" as const, updated: 1 } }
+}

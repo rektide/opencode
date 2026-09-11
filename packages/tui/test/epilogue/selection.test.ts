@@ -1,10 +1,28 @@
 import { expect, test } from "bun:test"
 import {
+  epilogueSelectionRules,
+  normalizeEpilogueSelectionRules,
   orderEpilogueSessions,
   selectEpilogueSessions,
-  type EpilogueSelectionRule,
+  type EpilogueHostSelectionRule,
   type EpilogueSession,
 } from "../../src/epilogue/selection.ts"
+
+test("expands presets and copies the closed serializable rule vocabulary", () => {
+  expect(epilogueSelectionRules("visible-tabs")).toEqual([])
+  expect(epilogueSelectionRules("visible-tabs-2d")).toEqual([
+    { type: "activity-within", within_ms: 172_800_000, terminating: true },
+  ])
+  const source = [{ type: "limit" as const, count: 2, terminating: false }]
+  const normalized = normalizeEpilogueSelectionRules(source)
+  source[0]!.count = 3
+  expect(normalized).toEqual([{ type: "limit", count: 2, terminating: false }])
+  expect(Object.isFrozen(normalized)).toBe(true)
+  expect(Object.isFrozen(normalized[0])).toBe(true)
+  expect(() => normalizeEpilogueSelectionRules([{ type: "limit", count: 1, terminating: true, extra: true }])).toThrow(
+    "unknown field",
+  )
+})
 
 test("pins current separately and sorts distinct additional sessions by activity and stable ID", () => {
   const source = orderEpilogueSessions({
@@ -191,17 +209,17 @@ test.each([true, false])("the inclusive 2d cutoff stops safely in activity order
 })
 
 test("limit counts preceding-stage inputs so filter then limit differs from limit then filter", () => {
-  const membership: EpilogueSelectionRule = {
+  const membership: EpilogueHostSelectionRule = {
     type: "membership",
     sessionIDs: new Set(["ses_b", "ses_c"]),
     terminating: false,
   }
-  const limit: EpilogueSelectionRule = { type: "limit", count: 1, terminating: true }
+  const limit: EpilogueHostSelectionRule = { type: "limit", count: 1, terminating: true }
   const source = orderEpilogueSessions({
     currentID: "ses_current",
     sessions: [session("ses_a", 3), session("ses_b", 2), session("ses_c", 1), session("ses_current", 0)],
   })
-  const run = (rules: readonly EpilogueSelectionRule[]) => {
+  const run = (rules: readonly EpilogueHostSelectionRule[]) => {
     const visits: string[] = []
     const selected = selectEpilogueSessions({
       source: {
@@ -283,7 +301,7 @@ test.each([
     rules: [{ type: "limit", count: 1.5, terminating: true }],
     error: "Epilogue limit must be a nonnegative integer",
   },
-] satisfies { now: number; rules: EpilogueSelectionRule[]; error: string }[])(
+] satisfies { now: number; rules: EpilogueHostSelectionRule[]; error: string }[])(
   "rejects invalid selection parameters before yielding current",
   (input) => {
     const source = orderEpilogueSessions({ sessions: [session("ses_current", 0)], currentID: "ses_current" })
@@ -298,7 +316,9 @@ test.each([
   { sessions: [session("ses_a", 0)], currentID: undefined, expected: ["ses_a"] },
 ])("empty or missing current metadata never fabricates a pinned session", (input) => {
   const source = orderEpilogueSessions(input)
-  expect(Array.from(selectEpilogueSessions({ source, now: 42 })).map((item) => item.sessionID)).toEqual([...input.expected])
+  expect(Array.from(selectEpilogueSessions({ source, now: 42 })).map((item) => item.sessionID)).toEqual([
+    ...input.expected,
+  ])
 })
 
 test("ties use stable ID order within both running and idle groups without changing timestamps", () => {
@@ -375,7 +395,7 @@ test("zero activity window uses explicit now inclusively, admits future activity
       session("ses_running", 0, "running"),
     ],
   })
-  const rules: readonly EpilogueSelectionRule[] = [{ type: "activity-within", within_ms: 0, terminating: true }]
+  const rules: readonly EpilogueHostSelectionRule[] = [{ type: "activity-within", within_ms: 0, terminating: true }]
   expect(Array.from(selectEpilogueSessions({ source, now: 42, rules })).map((item) => item.sessionID)).toEqual([
     "ses_running",
     "ses_future",

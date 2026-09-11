@@ -1,31 +1,44 @@
-import { createSimpleContext } from "./helper"
-import { createComputed } from "solid-js"
+import type { EpilogueSelectionRule } from "@opencode/plugin/tui/context"
+import { createComputed, createMemo, mapArray } from "solid-js"
 import stripAnsi from "strip-ansi"
+import { normalizeEpilogueSelectionRules } from "../epilogue/selection.ts"
 import { stringWidth } from "../util/string-width.ts"
 import {
-  sessionEpilogue,
+  epilogueOutput,
   type EpilogueRow,
   type EpilogueValue,
+  type RetainedEpilogue,
+  type RetainedSessionEpilogue,
   type SessionEpilogueCandidate,
 } from "../util/presentation.ts"
-
-type RetainedRows = {
-  readonly sessionID: string
-  readonly rows: readonly EpilogueRow[]
-}
+import { createSimpleContext } from "./helper"
 
 type State =
-  | { readonly status: "live"; readonly candidate?: SessionEpilogueCandidate; readonly retained?: RetainedRows }
+  | { readonly status: "live"; readonly batch?: RetainedEpilogue }
   | { readonly status: "frozen"; readonly output?: string }
   | { readonly status: "written" }
 
 export type EpilogueProjection = (scope: { readonly sessionID: string }) => unknown
+export type EpilogueSelectionTransform = (rules: EpilogueSelectionRule[]) => unknown
 
-export type EpilogueProjectionGroup = {
+export type EpilogueContribution =
+  | { readonly type: "projection"; readonly scope: "global" | "session"; readonly project: EpilogueProjection }
+  | { readonly type: "retained"; readonly scope: "global"; readonly value: unknown }
+  | { readonly type: "retained"; readonly scope: "session"; readonly sessionID: string; readonly value: unknown }
+
+export type EpilogueContributionGroup = {
   readonly plugin: string
-  readonly projections: readonly {
+  readonly contributions: readonly {
     readonly key: string
-    readonly project: EpilogueProjection
+    readonly contribution: EpilogueContribution
+  }[]
+}
+
+export type EpilogueSelectionTransformGroup = {
+  readonly plugin: string
+  readonly transforms: readonly {
+    readonly key: string
+    readonly transform: EpilogueSelectionTransform
   }[]
 }
 
@@ -42,36 +55,22 @@ export const epilogueLimits = {
   rowsPerPlugin: 8,
 } as const
 
-const reserved = new Set(["Session", "Active", "Continue"])
+const reserved = new Set(["Session", "Continue"])
 
 class EpilogueValidationError extends Error {}
 
 export function createEpilogue() {
   let state: State = { status: "live" }
   return {
-    set(candidate?: SessionEpilogueCandidate) {
+    setBatch(batch?: RetainedEpilogue) {
       if (state.status !== "live") return
-      state = { ...state, candidate }
-    },
-    clear(sessionID: string) {
-      if (state.status !== "live" || state.candidate?.sessionID !== sessionID) return
-      state = {
-        status: "live",
-        retained: state.retained?.sessionID === sessionID ? undefined : state.retained,
-      }
-    },
-    setRows(retained?: RetainedRows) {
-      if (state.status !== "live") return
-      state = { ...state, retained }
+      state = { status: "live", batch: batch ? copyBatch(batch) : undefined }
     },
     freeze(now: number) {
       if (state.status !== "live") return
-      const retained = state.retained
-      const rows =
-        retained && retained.sessionID === state.candidate?.sessionID ? retained.rows : ([] as readonly EpilogueRow[])
       state = {
         status: "frozen",
-        output: state.candidate ? sessionEpilogue(state.candidate, now, rows) : undefined,
+        output: state.batch ? epilogueOutput(state.batch, now) : undefined,
       }
     },
     take() {
@@ -83,38 +82,118 @@ export function createEpilogue() {
   }
 }
 
-export function trackEpilogueRows(input: {
-  readonly sessionID: () => string | undefined
-  readonly groups: () => readonly EpilogueProjectionGroup[]
-  readonly publish: (retained?: RetainedRows) => void
+export function trackEpilogue(input: {
+  readonly currentID: () => string | undefined
+  readonly sessionIDs: () => readonly string[]
+  readonly candidate: (sessionID: string) => SessionEpilogueCandidate | undefined
+  readonly groups: () => readonly EpilogueContributionGroup[]
+  readonly publish: (retained: RetainedEpilogue) => void
   readonly report: (issue: EpilogueProjectionIssue) => void
 }) {
+  const globalRows = createMemo(() => collectRows(input.groups(), "global", input.currentID(), input.report))
+  const sessions = mapArray(input.sessionIDs, (sessionID) => {
+    const rows = createMemo(() => collectRows(input.groups(), "session", sessionID, input.report))
+    return (): RetainedSessionEpilogue | undefined => {
+      const candidate = input.candidate(sessionID)
+      if (!candidate) return undefined
+      return { candidate, rows: rows() }
+    }
+  })
   createComputed(() => {
-    const sessionID = input.sessionID()
-    if (!sessionID) return input.publish()
-    const scope = Object.freeze({ sessionID })
-    const rows = input.groups().flatMap((group) =>
-      group.projections.slice(0, epilogueLimits.rowsPerPlugin).flatMap((projection) => {
-        try {
-          const candidate = projection.project(scope)
-          if (candidate === undefined) return []
-          return [normalize(candidate)]
-        } catch (error) {
-          input.report({
-            plugin: group.plugin,
-            key: projection.key,
-            type: error instanceof EpilogueValidationError ? "validation" : "projection",
-            error,
-          })
-          return []
-        }
-      }),
-    )
-    input.publish({ sessionID, rows: Object.freeze(rows) })
+    input.publish({
+      globalRows: globalRows(),
+      sessions: Object.freeze(
+        sessions().flatMap((session) => {
+          const value = session()
+          return value ? [value] : []
+        }),
+      ),
+    })
   })
 }
 
-function normalize(input: unknown): EpilogueRow {
+export function transformEpilogueSelection(input: {
+  readonly base: readonly EpilogueSelectionRule[]
+  readonly groups: readonly EpilogueSelectionTransformGroup[]
+  readonly report: (issue: EpilogueProjectionIssue) => void
+}) {
+  return input.groups.reduce((rules, group) => {
+    return group.transforms.reduce((current, item) => {
+      const draft = current.map((rule) => ({ ...rule }))
+      const result = (() => {
+        try {
+          return item.transform(draft)
+        } catch (error) {
+          input.report({ plugin: group.plugin, key: item.key, type: "projection", error })
+          return failedTransform
+        }
+      })()
+      if (result === failedTransform) return current
+      if (thenable(result)) {
+        void Promise.resolve(result).catch(() => undefined)
+        input.report({
+          plugin: group.plugin,
+          key: item.key,
+          type: "validation",
+          error: new EpilogueValidationError("Epilogue selection transform must be synchronous"),
+        })
+        return current
+      }
+      try {
+        return normalizeEpilogueSelectionRules(draft)
+      } catch (error) {
+        input.report({ plugin: group.plugin, key: item.key, type: "validation", error })
+        return current
+      }
+    }, rules)
+  }, normalizeEpilogueSelectionRules(input.base))
+}
+
+const failedTransform = Symbol("failed epilogue selection transform")
+
+function collectRows(
+  groups: readonly EpilogueContributionGroup[],
+  lane: "global" | "session",
+  sessionID: string | undefined,
+  report: (issue: EpilogueProjectionIssue) => void,
+) {
+  return Object.freeze(
+    groups.flatMap((group) =>
+      group.contributions
+        .filter((item) => applies(item.contribution, lane, sessionID))
+        .slice(0, epilogueLimits.rowsPerPlugin)
+        .flatMap((item) => {
+          try {
+            const value = project(item.contribution, sessionID)
+            if (value === undefined) return []
+            return [normalizeEpilogueRow(value)]
+          } catch (error) {
+            report({
+              plugin: group.plugin,
+              key: item.key,
+              type: error instanceof EpilogueValidationError ? "validation" : "projection",
+              error,
+            })
+            return []
+          }
+        }),
+    ),
+  )
+}
+
+function applies(contribution: EpilogueContribution, lane: "global" | "session", sessionID: string | undefined) {
+  if (contribution.scope !== lane) return false
+  if (contribution.type !== "retained" || contribution.scope !== "session") return true
+  return contribution.sessionID === sessionID
+}
+
+function project(contribution: EpilogueContribution, sessionID: string | undefined) {
+  if (contribution.type === "retained") return contribution.value
+  if (!sessionID) return undefined
+  return contribution.project(Object.freeze({ sessionID }))
+}
+
+export function normalizeEpilogueRow(input: unknown): EpilogueRow {
   if (thenable(input)) {
     void Promise.resolve(input).catch(() => undefined)
     throw new EpilogueValidationError("Epilogue projection must be synchronous")
@@ -135,6 +214,32 @@ function normalize(input: unknown): EpilogueRow {
     throw new EpilogueValidationError("Epilogue value type is invalid")
   })()
   return Object.freeze({ label, value })
+}
+
+function copyBatch(input: RetainedEpilogue): RetainedEpilogue {
+  return Object.freeze({
+    globalRows: Object.freeze(input.globalRows.map(copyRow)),
+    sessions: Object.freeze(
+      input.sessions.map((session) =>
+        Object.freeze({
+          candidate: Object.freeze({
+            title: session.candidate.title,
+            sessionID: session.candidate.sessionID,
+            activity: Object.freeze({
+              status: session.candidate.activity.status,
+              updated: session.candidate.activity.updated,
+              idle: session.candidate.activity.idle,
+            }),
+          }),
+          rows: Object.freeze(session.rows.map(copyRow)),
+        }),
+      ),
+    ),
+  })
+}
+
+function copyRow(row: EpilogueRow): EpilogueRow {
+  return Object.freeze({ label: row.label, value: Object.freeze({ ...row.value }) })
 }
 
 function thenable(input: unknown): input is PromiseLike<unknown> {
@@ -177,5 +282,5 @@ function control(value: string) {
 
 export const { use: useEpilogue, provider: EpilogueProvider } = createSimpleContext({
   name: "Epilogue",
-  init: (props: { value: Pick<ReturnType<typeof createEpilogue>, "set" | "clear" | "setRows"> }) => props.value,
+  init: (props: { value: Pick<ReturnType<typeof createEpilogue>, "setBatch"> }) => props.value,
 })

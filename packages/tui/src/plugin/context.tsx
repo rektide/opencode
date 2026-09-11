@@ -34,12 +34,18 @@ import { createPluginSources } from "./source"
 import { isMissingPath } from "../util/config-directories"
 import { createMarkdownRenderer } from "./markdown"
 import {
-  trackEpilogueRows,
+  trackEpilogue,
+  transformEpilogueSelection,
   useEpilogue,
-  type EpilogueProjection,
+  normalizeEpilogueRow,
+  type EpilogueContribution,
   type EpilogueProjectionIssue,
+  type EpilogueSelectionTransform,
 } from "../context/epilogue.tsx"
 import { useLog, type LogTags } from "../context/log"
+import { epilogueSelectionRules, orderEpilogueSessions, selectEpilogueSessions } from "../epilogue/selection.ts"
+import { epilogueInventoryIDs } from "../epilogue/inventory.ts"
+import { Locale } from "../util/locale.ts"
 
 export interface PackageSource {
   readonly prepare: (spec: string, install?: boolean) => Promise<Host.Target>
@@ -82,7 +88,8 @@ type Registration = {
   routes: Record<string, Page>
   slots: Record<string, RegisteredSlot>
   markdown: Record<string, MarkdownCodeBlockRenderer>
-  epilogue: Record<string, EpilogueProjection>
+  epilogue: Record<string, EpilogueContribution>
+  epilogueSelection: Record<string, EpilogueSelectionTransform>
   cleanups: Dispose[]
 }
 
@@ -161,20 +168,114 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
       error: message,
     })
   }
-  trackEpilogueRows({
-    sessionID: () => (host.route.data.type === "session" ? host.route.data.sessionID : undefined),
-    groups: () =>
-      Object.entries(store.registrations).flatMap(([plugin, registration]) =>
-        registration.active
-          ? [
-              {
-                plugin,
-                projections: Object.entries(registration.epilogue).map(([key, project]) => ({ key, project })),
-              },
-            ]
-          : [],
+  const contributionGroups = () =>
+    Object.entries(store.registrations).flatMap(([plugin, registration]) =>
+      registration.active
+        ? [
+            {
+              plugin,
+              contributions: Object.entries(registration.epilogue).map(([key, contribution]) => ({
+                key,
+                contribution,
+              })),
+            },
+          ]
+        : [],
+    )
+  const selectionGroups = () =>
+    Object.entries(store.registrations).flatMap(([plugin, registration]) =>
+      registration.active
+        ? [
+            {
+              plugin,
+              transforms: Object.entries(registration.epilogueSelection).map(([key, transform]) => ({
+                key,
+                transform,
+              })),
+            },
+          ]
+        : [],
+    )
+  const currentRouteID = () => (host.route.data.type === "session" ? host.route.data.sessionID : undefined)
+  const inventoryIDs = createMemo(() =>
+    epilogueInventoryIDs({
+      currentID: currentRouteID(),
+      tabsEnabled: host.sessionTabs.enabled(),
+      visibleTabIDs: host.sessionTabs.tabs().map((tab) => tab.sessionID),
+    }),
+  )
+  const candidate = (sessionID: string) => {
+    const session = data.session.get(sessionID)
+    if (!session) return undefined
+    return {
+      title: Locale.truncate(session.title ?? "", 50),
+      sessionID: session.id,
+      activity: {
+        status: data.session.status(session.id),
+        updated: session.time.updated,
+        idle: session.time.idle,
+      },
+    }
+  }
+  const inventory = createMemo(() =>
+    inventoryIDs()
+      .map(candidate)
+      .filter((session) => session !== undefined),
+  )
+  const rules = createMemo(() =>
+    transformEpilogueSelection({
+      base: epilogueSelectionRules(config.data.epilogue.selection),
+      groups: selectionGroups(),
+      report: reportEpilogue,
+    }),
+  )
+  const [selectionClock, setSelectionClock] = createSignal(0)
+  let selectionTimer: ReturnType<typeof setTimeout> | undefined
+  createEffect(() => {
+    selectionClock()
+    clearTimeout(selectionTimer)
+    selectionTimer = undefined
+    const activityRules = rules().filter((rule) => rule.type === "activity-within")
+    if (activityRules.length === 0) return
+    const now = Date.now()
+    const currentID = currentRouteID()
+    const expires = inventory().flatMap((session) =>
+      session.sessionID === currentID || session.activity.status === "running"
+        ? []
+        : activityRules.map(
+            (rule) =>
+              Math.max(session.activity.updated, session.activity.idle ?? session.activity.updated) +
+              rule.within_ms +
+              1,
+          ),
+    )
+    const next = Math.min(...expires.filter((at) => at > now))
+    if (!Number.isFinite(next)) return
+    selectionTimer = setTimeout(() => setSelectionClock((value) => value + 1), Math.min(next - now, 2_147_483_647))
+  })
+  onCleanup(() => clearTimeout(selectionTimer))
+  const selectedIDs = createMemo(() => {
+    selectionClock()
+    return Object.freeze(
+      Array.from(
+        selectEpilogueSessions({
+          source: orderEpilogueSessions({ sessions: inventory(), currentID: currentRouteID() }),
+          now: Date.now(),
+          rules: rules(),
+        }),
+        (session) => session.sessionID,
       ),
-    publish: (retained) => epilogue.setRows(retained),
+    )
+  })
+  trackEpilogue({
+    currentID: () => {
+      const sessionID = currentRouteID()
+      return sessionID && candidate(sessionID) ? sessionID : undefined
+    },
+    sessionIDs: selectedIDs,
+    candidate,
+    groups: contributionGroups,
+    publish: epilogue.setBatch,
     report: reportEpilogue,
   })
   const clearContributions = (id: string) => {
@@ -182,6 +283,7 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
     setStore("registrations", id, "slots", reconcileStore({}))
     setStore("registrations", id, "markdown", reconcileStore({}))
     setStore("registrations", id, "epilogue", reconcileStore({}))
+    setStore("registrations", id, "epilogueSelection", reconcileStore({}))
   }
 
   const activate = async (id: string) => {
@@ -201,10 +303,25 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
       registry: {
         has: (kind, name) => Boolean(store.registrations[id]?.[kind][name]),
         set: (
-          kind: "routes" | "slots" | "markdown" | "epilogue",
+          kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueSelection",
           name: string,
-          value: Page | RegisteredSlot | MarkdownCodeBlockRenderer | EpilogueProjection,
-        ) => setStore("registrations", id, kind, name, () => value),
+          value: Page | RegisteredSlot | MarkdownCodeBlockRenderer | EpilogueContribution | EpilogueSelectionTransform,
+        ) => {
+          if (kind !== "epilogue") return setStore("registrations", id, kind, name, () => value)
+          if (!isEpilogueContribution(value)) throw new TypeError("Invalid epilogue contribution")
+          const contribution = value
+          if (contribution.type !== "retained") return setStore("registrations", id, kind, name, () => contribution)
+          const retained = (() => {
+            if (contribution.value === undefined) return contribution
+            try {
+              return { ...contribution, value: normalizeEpilogueRow(contribution.value) }
+            } catch (error) {
+              reportEpilogue({ plugin: id, key: name, type: "validation", error })
+              return { ...contribution, value: undefined }
+            }
+          })()
+          setStore("registrations", id, kind, name, () => retained)
+        },
         remove: (kind, name) =>
           setStore(
             "registrations",
@@ -746,6 +863,7 @@ function toRegistration(item: Desired): Registration {
     slots: {},
     markdown: {},
     epilogue: {},
+    epilogueSelection: {},
     cleanups: [],
   }
 }
@@ -785,6 +903,15 @@ function isPlugin(value: unknown): value is Plugin.Definition {
     value.id.length > 0 &&
     "setup" in value &&
     typeof value.setup === "function"
+  )
+}
+
+function isEpilogueContribution(value: unknown): value is EpilogueContribution {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    (value.type === "projection" || value.type === "retained")
   )
 }
 
