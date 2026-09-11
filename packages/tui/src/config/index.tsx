@@ -63,6 +63,24 @@ export const Cursor = Schema.Struct({
   }),
 }).annotate({ description: "Terminal cursor settings" })
 
+export const EpilogueSelectionRule = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("activity-within"),
+    within_ms: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+    terminating: Schema.Boolean,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("limit"),
+    count: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+    terminating: Schema.Boolean,
+  }),
+])
+
+export const EpilogueSelection = Schema.Union([
+  Schema.Literals(["visible-tabs", "visible-tabs-2d"]),
+  Schema.Array(EpilogueSelectionRule),
+])
+
 export const Info = Schema.Struct({
   theme: Schema.optional(
     Schema.Struct({
@@ -190,6 +208,13 @@ export const Info = Schema.Struct({
       }),
     }),
   ).annotate({ description: "Tab strip settings" }),
+  epilogue: Schema.optional(
+    Schema.Struct({
+      selection: Schema.optional(EpilogueSelection).annotate({
+        description: "Visible-Session preset or ordered activity and limit rules for the exit epilogue",
+      }),
+    }),
+  ).annotate({ description: "Exit epilogue settings" }),
   mini: Schema.optional(
     Schema.Struct({
       thinking: Schema.optional(Schema.Literals(["show", "hide"])).annotate({
@@ -259,7 +284,10 @@ export const Info = Schema.Struct({
 })
 export type Info = Schema.Schema.Type<typeof Info>
 
-export type Resolved = Omit<Info, "attention" | "cursor" | "keybinds" | "leader" | "mouse" | "session" | "tabs"> & {
+export type Resolved = Omit<
+  Info,
+  "attention" | "cursor" | "epilogue" | "keybinds" | "leader" | "mouse" | "session" | "tabs"
+> & {
   attention: {
     notifications: boolean
     sound: boolean
@@ -286,6 +314,9 @@ export type Resolved = Omit<Info, "attention" | "cursor" | "keybinds" | "leader"
     scope: "global" | "cwd"
     layout: "horizontal" | "vertical"
     indicators: "status" | "numbers"
+  }
+  epilogue: {
+    selection: Schema.Schema.Type<typeof EpilogueSelection>
   }
 }
 
@@ -341,6 +372,9 @@ export function resolve(
       scope: input.tabs?.scope ?? "cwd",
       layout: input.tabs?.layout ?? "horizontal",
       indicators: input.tabs?.indicators ?? "status",
+    },
+    epilogue: {
+      selection: input.epilogue?.selection ?? "visible-tabs",
     },
   }
 }

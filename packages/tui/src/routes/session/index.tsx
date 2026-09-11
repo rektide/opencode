@@ -71,7 +71,6 @@ import stripAnsi from "strip-ansi"
 import { usePromptRef } from "../../context/prompt"
 import { projectedPromptInput } from "../../prompt/codec"
 import { deduplicateVisibleImages } from "../../prompt/attachment"
-import { useEpilogue } from "../../context/epilogue"
 import { normalizePath } from "../../util/path"
 import { PermissionPrompt } from "./permission"
 import { FormPrompt } from "./form"
@@ -138,7 +137,6 @@ export function Session(props: {
   onTerminalPicker?: (show: (() => void) | undefined) => void
   width?: number
 }) {
-  const epilogue = useEpilogue()
   const clipboard = useClipboard()
   const writeExport = async (file: string, content: string) => {
     await mkdir(path.dirname(file), { recursive: true })
@@ -176,20 +174,6 @@ export function Session(props: {
 
   createEffect(() => currentLocation.set(location()))
 
-  createEffect(() => {
-    const current = session()
-    if (!current) return epilogue.set()
-    epilogue.set({
-      title: Locale.truncate(current.title ?? "", 50),
-      sessionID: current.id,
-      activity: {
-        status: data.session.status(current.id),
-        updated: current.time.updated,
-        idle: current.time.idle,
-      },
-    })
-  })
-  onCleanup(() => epilogue.clear(sessionID))
   const descendantSessionIDs = createMemo(() => {
     if (session()?.parentID) return []
     return data.session.family(route.sessionID).filter((id) => id !== route.sessionID)

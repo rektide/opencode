@@ -153,6 +153,19 @@ export const settings: Setting[] = [
     keywords: ["tab numbers", "number mode", "status icons"],
   },
   {
+    title: "Sessions",
+    category: "Exit epilogue",
+    path: ["epilogue", "selection"],
+    default: "visible-tabs",
+    values: ["visible-tabs", "visible-tabs-2d"],
+    labels: ["visible tabs", "visible tabs active within 2d"],
+    format: (value) => {
+      if (Array.isArray(value)) return "custom rules"
+      return value === "visible-tabs-2d" ? "visible tabs active within 2d" : "visible tabs"
+    },
+    keywords: ["exit", "summary", "sessions", "activity", "recent"],
+  },
+  {
     title: "Layout",
     category: "Diffs",
     path: ["diffs", "view"],

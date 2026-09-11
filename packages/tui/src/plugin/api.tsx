@@ -1,6 +1,15 @@
 import { PluginContextProvider } from "@opencode/plugin/tui"
 import type { JSX } from "solid-js"
-import type { Context, Dialog, Page, SlotClaim, SlotMap, SlotPath, Toast } from "@opencode/plugin/tui/context"
+import type {
+  Context,
+  Dialog,
+  EpilogueRow,
+  Page,
+  SlotClaim,
+  SlotMap,
+  SlotPath,
+  Toast,
+} from "@opencode/plugin/tui/context"
 import type { Placement, PlacementKind } from "./structure"
 import { infoStringToFiletype, type MarkdownCodeBlockRenderer } from "@opentui/core"
 import { useRenderer } from "@opentui/solid"
@@ -22,7 +31,7 @@ import { useStorage } from "../context/storage"
 import { useSessionTabs } from "../context/session-tabs"
 import { useOptionalPanel } from "../context/panel"
 import { abbreviateHome } from "../util/path-format"
-import type { EpilogueProjection } from "../context/epilogue.tsx"
+import type { EpilogueContribution, EpilogueSelectionTransform } from "../context/epilogue.tsx"
 
 export type Dispose = () => Promise<void>
 
@@ -42,12 +51,13 @@ const placements = ["prepend", "append", "before", "after", "replace"] as const 
 // route/slot registration lands there, but ordering and lifecycle stay owned
 // by the provider.
 export type Registry = {
-  has(kind: "routes" | "slots" | "markdown" | "epilogue", name: string): boolean
+  has(kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueSelection", name: string): boolean
   set(kind: "routes", name: string, page: Page): void
   set(kind: "slots", name: string, claim: RegisteredSlot): void
   set(kind: "markdown", name: string, render: MarkdownCodeBlockRenderer): void
-  set(kind: "epilogue", name: string, project: EpilogueProjection): void
-  remove(kind: "routes" | "slots" | "markdown" | "epilogue", name: string): void
+  set(kind: "epilogue", name: string, contribution: EpilogueContribution): void
+  set(kind: "epilogueSelection", name: string, transform: EpilogueSelectionTransform): void
+  remove(kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueSelection", name: string): void
   active(): boolean
 }
 
@@ -90,6 +100,7 @@ export function createPluginContext(input: {
   let context: Context
   let claims = 0
   let epilogues = 0
+  let epilogueSelections = 0
   // Every dialog and registered render is wrapped so plugin components can
   // reach their own context through usePlugin().
   const provide = (render: () => JSX.Element) => (
@@ -123,7 +134,7 @@ export function createPluginContext(input: {
   }
   // Unregistering after deactivation is a no-op: deactivate already resets
   // the registration's routes and slots wholesale.
-  const registration = (kind: "routes" | "slots" | "markdown" | "epilogue", name: string) => {
+  const registration = (kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueSelection", name: string) => {
     let registered = true
     const unregister = () => {
       if (!registered) return
@@ -132,7 +143,26 @@ export function createPluginContext(input: {
       input.registry.remove(kind, name)
     }
     input.owned.push(async () => unregister())
-    return unregister
+    return { active: () => registered, dispose: unregister }
+  }
+  const retain = (options: {
+    name: string
+    identity: string
+    contribution: (value: unknown) => EpilogueContribution
+    initial: EpilogueRow | undefined
+  }) => {
+    if (!options.identity.trim()) throw new Error("Epilogue retained identity is required")
+    if (input.registry.has("epilogue", options.name))
+      throw new Error(`Epilogue retained identity already registered: ${options.identity}`)
+    input.registry.set("epilogue", options.name, options.contribution(options.initial))
+    const lease = registration("epilogue", options.name)
+    return {
+      set(row: EpilogueRow | undefined) {
+        if (!lease.active()) return
+        input.registry.set("epilogue", options.name, options.contribution(row))
+      },
+      dispose: lease.dispose,
+    }
   }
   context = {
     options: input.options ?? {},
@@ -158,7 +188,7 @@ export function createPluginContext(input: {
           throw new Error(`Markdown code-block renderer already registered: ${name}`)
         }
         input.registry.set("markdown", name, render)
-        return registration("markdown", name)
+        return registration("markdown", name).dispose
       },
     },
     keymap: {
@@ -179,9 +209,38 @@ export function createPluginContext(input: {
       toast: toastApi,
       epilogue: {
         register(project) {
-          const key = `epilogue#${epilogues++}`
-          input.registry.set("epilogue", key, project)
-          return registration("epilogue", key)
+          const key = `projection#${epilogues++}`
+          input.registry.set("epilogue", key, { type: "projection", scope: "global", project })
+          return registration("epilogue", key).dispose
+        },
+        registerSession(project) {
+          const key = `projection#${epilogues++}`
+          input.registry.set("epilogue", key, { type: "projection", scope: "session", project })
+          return registration("epilogue", key).dispose
+        },
+        retain(key, initial) {
+          return retain({
+            name: `retained-global:${key}`,
+            identity: key,
+            contribution: (value) => ({ type: "retained", scope: "global", value }),
+            initial,
+          })
+        },
+        retainSession(sessionID, key, initial) {
+          if (!sessionID.trim()) throw new Error("Epilogue retained Session ID is required")
+          return retain({
+            name: `retained-session:${JSON.stringify([sessionID, key])}`,
+            identity: `${sessionID}/${key}`,
+            contribution: (value) => ({ type: "retained", scope: "session", sessionID, value }),
+            initial,
+          })
+        },
+        selection: {
+          transform(edit) {
+            const key = `selection#${epilogueSelections++}`
+            input.registry.set("epilogueSelection", key, edit)
+            return registration("epilogueSelection", key).dispose
+          },
         },
       },
       format: {
@@ -194,7 +253,7 @@ export function createPluginContext(input: {
             ...page,
             render: (data) => provide(() => page.render(data)),
           })
-          return registration("routes", page.name)
+          return registration("routes", page.name).dispose
         },
         navigate(destination) {
           if (destination.type === "plugin") {
@@ -272,7 +331,7 @@ export function createPluginContext(input: {
           // The registration map erases the path-specific input type.
           render: (slotInput) => provide(() => (value.render as SlotRender)(slotInput)),
         })
-        return registration("slots", key)
+        return registration("slots", key).dispose
       },
     },
   }

@@ -75,7 +75,7 @@ test("sidebar plugin contributes cached Session cost to the epilogue", async () 
     data: { session: { cost: (sessionID: string) => (sessionID === "paid" ? 1.25 : 0) } },
     ui: {
       epilogue: {
-        register(value: typeof project) {
+        registerSession(value: typeof project) {
           project = value
           return () => {}
         },

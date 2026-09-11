@@ -1,103 +1,76 @@
 import { expect, test } from "bun:test"
-import { sessionEpilogue } from "../../src/util/presentation"
+import { epilogueOutput, sessionEpilogue } from "../../src/util/presentation.ts"
 
-test("formats session continuation summary", () => {
+test("formats one Session envelope with ordered retained rows", () => {
   const now = 2_000_000_000_000
-  const epilogue = sessionEpilogue(
-    {
-      title: "A session",
-      sessionID: "ses_123",
-      activity: {
-        status: "idle",
-        updated: now - (3 * 24 + 4) * 60 * 60_000,
-      },
-    },
-    now,
-  )
-  expect(epilogue).toContain("A session")
-  expect(Bun.stripANSI(epilogue)).toContain("Active    3d 4hr ago")
-  expect(epilogue).toContain("opencode -s ses_123")
-})
-
-test("formats supplemental rows before Continue with one freeze clock", () => {
-  const now = new Date(2026, 7, 31, 9, 15).getTime()
   const epilogue = Bun.stripANSI(
     sessionEpilogue(
       {
         title: "A session",
         sessionID: "ses_123",
-        activity: { status: "idle", updated: now },
+        activity: { status: "idle", updated: now - 17 * 60_000 },
       },
       now,
       [
+        { label: "Last active", value: { type: "relative-time", timestamp: now - 17 * 60_000 } },
         { label: "Cost", value: { type: "text", text: "$1.25" } },
-        { label: "Last synchronized", value: { type: "relative-time", timestamp: now - 17 * 60_000 } },
       ],
     ),
   )
-  const rows = epilogue.split("\n").filter((line) => /Session|Active|Cost|Last synchronized|Continue/.test(line))
 
-  expect(rows).toEqual([
+  expect(epilogue.split("\n").filter((line) => /Session|Last active|Cost|Continue/.test(line))).toEqual([
     "  Session   A session",
-    "  Active    now · 2026-08-31 09:15",
+    "  Last active 17m ago",
     "  Cost      $1.25",
-    "  Last synchronized 17m ago",
     "  Continue  opencode -s ses_123",
   ])
-  expect(epilogue.match(/Active/g)).toHaveLength(1)
 })
 
-test("appends the local date of the last idle activity", () => {
-  const updated = new Date(2026, 7, 20, 9, 5).getTime()
-  const idle = new Date(2026, 7, 28, 14, 32).getTime()
-  const epilogues = [
-    sessionEpilogue(
-      { title: "A session", sessionID: "ses_123", activity: { status: "idle", updated, idle } },
-      idle + 3 * 60_000,
-    ),
-    sessionEpilogue(
-      { title: "A session", sessionID: "ses_123", activity: { status: "idle", updated: idle } },
-      idle + 17 * 60_000,
-    ),
-  ]
-  expect(Bun.stripANSI(epilogues[0]).split("\n")).toContain("  Active    3m ago · 2026-08-28 14:32")
-  expect(Bun.stripANSI(epilogues[1]).split("\n")).toContain("  Active    17m ago · 2026-08-28 14:32")
-})
-
-test("running activity prints no date", () => {
-  const epilogue = sessionEpilogue(
-    {
-      title: "A session",
-      sessionID: "ses_123",
-      activity: { status: "running", updated: new Date(2026, 7, 28, 14, 32).getTime() },
-    },
-    2_000_000_000_000,
+test("prints global rows once before distinct Session envelopes and one wordmark", () => {
+  const now = 2_000_000_000_000
+  const output = Bun.stripANSI(
+    epilogueOutput(
+      {
+        globalRows: [{ label: "Client", value: { type: "text", text: "retained" } }],
+        sessions: [
+          {
+            candidate: { title: "Current", sessionID: "ses_current", activity: { status: "idle", updated: now } },
+            rows: [{ label: "Field", value: { type: "text", text: "current" } }],
+          },
+          {
+            candidate: { title: "Other", sessionID: "ses_other", activity: { status: "running", updated: 0 } },
+            rows: [{ label: "Field", value: { type: "text", text: "other" } }],
+          },
+        ],
+      },
+      now,
+    ) ?? "",
   )
-  expect(Bun.stripANSI(epilogue).split("\n")).toContain("  Active    running")
+
+  expect(output.match(/█▀▀█ █▀▀█ █▀▀█/g) ?? []).toHaveLength(2)
+  expect(output.match(/Client\s+retained/g) ?? []).toHaveLength(1)
+  expect(output.match(/Session\s+/g) ?? []).toHaveLength(2)
+  expect(output.match(/Continue\s+opencode -s/g) ?? []).toHaveLength(2)
+  expect(output.indexOf("Client")).toBeLessThan(output.indexOf("Current"))
+  expect(output.indexOf("Current")).toBeLessThan(output.indexOf("Other"))
 })
 
 test.each([
-  ["running activity", "running", 17 * 60_000, undefined, "running"],
-  ["current activity", "idle", 0, undefined, "now"],
-  ["minutes", "idle", 17 * 60_000, undefined, "17m ago"],
-  ["later idle time", "idle", 17 * 60_000, 3 * 60_000, "3m ago"],
-  ["later updated time", "idle", 3 * 60_000, 17 * 60_000, "3m ago"],
-  ["hours and minutes", "idle", (4 * 60 + 17) * 60_000, undefined, "4hr 17m ago"],
-  ["whole days", "idle", 3 * 24 * 60 * 60_000, undefined, "3d ago"],
-  ["future activity", "idle", -60_000, undefined, "now"],
-] as const)("formats %s", (_, status, updated, idle, expected) => {
+  [0, "now"],
+  [17 * 60_000, "17m ago"],
+  [(4 * 60 + 17) * 60_000, "4hr 17m ago"],
+  [3 * 24 * 60 * 60_000, "3d ago"],
+  [-60_000, "now"],
+] as const)("formats semantic relative time offset %s", (offset, expected) => {
   const now = 2_000_000_000_000
   const epilogue = sessionEpilogue(
-    {
-      title: "A session",
-      sessionID: "ses_123",
-      activity: {
-        status,
-        updated: now - updated,
-        idle: idle === undefined ? undefined : now - idle,
-      },
-    },
+    { title: "A session", sessionID: "ses_123", activity: { status: "idle", updated: now } },
     now,
+    [{ label: "Observed", value: { type: "relative-time", timestamp: now - offset } }],
   )
-  expect(Bun.stripANSI(epilogue)).toContain(`Active    ${expected}`)
+  expect(Bun.stripANSI(epilogue)).toContain(`Observed  ${expected}`)
+})
+
+test("omits an entirely empty batch", () => {
+  expect(epilogueOutput({ globalRows: [], sessions: [] }, Date.now())).toBeUndefined()
 })
