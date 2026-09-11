@@ -28,6 +28,12 @@ test.skipIf(process.platform === "win32")(
   30_000,
 )
 
+test.skipIf(process.platform === "win32").each([40, 120])(
+  "app.exit keeps the complete multi-Session epilogue at width %s",
+  (width) => runCase("fixture", "app.exit", 0, false, width),
+  30_000,
+)
+
 test.skipIf(process.platform === "win32")(
   "destroy during hot reload freezes the documented missing-row interval",
   () => runCase("fixture", "app.exit", 0, true),
@@ -45,6 +51,7 @@ async function runCase(
   trigger: (typeof signals)[number][0] | "app.exit",
   expectedExit: number,
   reload = false,
+  width = 80,
 ) {
   await using tmp = await tmpdir()
   const ready = path.join(tmp.path, "ready")
@@ -215,6 +222,7 @@ export default {
       OPENCODE_EPILOGUE_PLUGIN: tuiPlugin,
       OPENCODE_EPILOGUE_STATE: tmp.path,
       OPENCODE_EPILOGUE_EXIT: exit,
+      OPENCODE_EPILOGUE_WIDTH: String(width),
       OPENCODE_TUI_CHANNEL: "test",
       OPENCODE_CONFIG_DIR: path.join(tmp.path, "config"),
       XDG_CACHE_HOME: path.join(tmp.path, "cache"),
