@@ -405,6 +405,37 @@ This is separate from `opencode.json`, which configures server/runtime behavior.
 
 Use `OPENCODE_TUI_CONFIG` to load a custom TUI config path.
 
+### Exit epilogue
+
+By default, the exit epilogue includes the current session and every session in the visible shared tab strip. Choose the two-day activity preset in settings or configure it directly:
+
+```json title="cli.json"
+{
+  "epilogue": {
+    "selection": "visible-tabs-2d"
+  }
+}
+```
+
+`visible-tabs` is the default and applies no narrowing rules. `visible-tabs-2d` keeps running sessions and sessions whose cached `max(time.updated, time.idle)` is within two days. The current session is always pinned outside these rules.
+
+Use an array to define a custom ordered rule program:
+
+```json title="cli.json"
+{
+  "epilogue": {
+    "selection": [
+      { "type": "activity-within", "within_ms": 172800000, "terminating": true },
+      { "type": "limit", "count": 3, "terminating": true }
+    ]
+  }
+}
+```
+
+Rules run exactly in array order. An `activity-within` rule narrows by cached activity; a `limit` counts the sessions that reach that stage. `terminating` grants that stage permission to stop scanning after its result proves the remaining input is unnecessary. It does not change whether the current item is kept.
+
+Visible tabs use the configured shared tab storage, so they may also appear in another TUI window. OpenCode does not query all server sessions or fetch missing metadata for the epilogue. With tabs disabled only the current session is included; on Home, loaded visible tabs remain available even though there is no current session.
+
 ### Attention
 
 The TUI can request attention for questions, permissions, session errors, and completed sessions. Enable it with `attention.enabled`; built-in events play sounds when triggered, and non-subagent events request desktop notifications only when the terminal is blurred.

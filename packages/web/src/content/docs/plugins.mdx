@@ -141,7 +141,7 @@ export const MyPlugin: Plugin = async ({ project, client, $, directory, worktree
 
 ## TUI exit epilogue
 
-CLI plugins can add one structured row to the session summary printed after the terminal is restored. The projection must be cheap and synchronous: read live cached data, return `undefined` when no row applies, and do not fetch or start other work.
+The epilogue prints one wordmark, global rows, and one envelope for every selected session. Global projections retain the existing current-route behavior and appear once before all session envelopes.
 
 ```ts
 return context.ui.epilogue.register(({ sessionID }) => {
@@ -154,9 +154,66 @@ return context.ui.epilogue.register(({ sessionID }) => {
 })
 ```
 
-Rows stay in plugin setup order after OpenCode's core rows. Re-registering the same key replaces the projection without moving it; disposing a registration removes it. Each plugin may contribute through its first eight registrations. Labels are limited to 24 display columns and text values to 48; invalid or failing results omit only that registration and are logged without affecting other rows.
+Register a per-session projection when the row should repeat for each selected session:
 
-OpenCode tracks, validates, and copies projection results while the TUI is live. Shutdown freezes those retained values before ordinary plugin cleanup and prints them afterward, so no plugin code runs to compose the epilogue during shutdown.
+```ts
+return context.ui.epilogue.registerSession(({ sessionID }) => {
+  const cost = context.data.session.cost(sessionID)
+  if (cost === 0) return
+  return { label: "Cost", value: { type: "text", text: `$${cost.toFixed(2)}` } }
+})
+```
+
+Both projection forms must be cheap and synchronous: read live cached data, return `undefined` when no row applies, and do not fetch or start other work. A global projection runs only while the current route has hydrated session metadata. A per-session projection runs only for loaded sessions selected from the current session and visible shared tabs.
+
+### Publish retained rows
+
+Use a retained handle for event-driven values that should not rerun a projection. Global retained rows do not require a current session.
+
+```ts
+const connection = context.ui.epilogue.retain("connection")
+const unsubscribe = context.data.on("server.connected", () => {
+  connection.set({ label: "Server", value: { type: "text", text: "connected" } })
+})
+return () => {
+  unsubscribe()
+  connection.dispose()
+}
+```
+
+Target one session explicitly for a scoped event value:
+
+```ts
+const route = context.ui.router.current()
+if (route.type === "session") {
+  const outcome = context.ui.epilogue.retainSession(route.sessionID, "outcome")
+  outcome.set({ label: "Outcome", value: { type: "text", text: "reviewed" } })
+}
+```
+
+The session ID scopes the value but does not add that session to the epilogue inventory. `set(undefined)` omits the row; `dispose()` removes the entry and makes later writes no-ops. Keys are plugin-local and must be unique within the same global or session scope.
+
+### Transform session selection
+
+Plugins can synchronously edit the configured rule array while active. Edits replay in plugin enable order and registration order whenever the config base or active plugin generation changes.
+
+```ts
+return context.ui.epilogue.selection.transform((rules) => {
+  rules.unshift({ type: "limit", count: 5, terminating: false })
+})
+```
+
+Transforms may add, remove, reorder, or modify only `activity-within` and `limit` rules. The `terminating` field is the stage's explicit stopping grant. A transform never edits `cli.json`; disposal and hot reload rebuild from the configured base rather than applying inverse mutations. Throwing, asynchronous, or invalid transforms are discarded independently, and later transforms still run.
+
+### Values, ordering, and lifecycle
+
+Use `{ type: "text", text }` for already-formatted values. `relative-time` keeps the timestamp semantic so OpenCode can format every row against the same shutdown clock.
+
+Global rows appear once before the session envelopes. Per-session rows follow plugin enable order and then registration order within each plugin. Duplicate plugin labels are allowed, while `Session` and `Continue` are reserved for OpenCode. The built-in `Last active` reporter uses cached `max(time.updated, time.idle)` even while a session is running; running status is a separate row rather than a fabricated current activity timestamp.
+
+Each plugin may contribute through its first eight applicable registrations in the global lane and in each session lane. Labels are limited to 24 display columns and text values to 48; invalid or failing results omit only that registration and are logged without affecting other rows.
+
+OpenCode tracks, validates, and copies projection results while the TUI is live. Shutdown freezes those retained values before ordinary plugin cleanup and prints them afterward. Selection transforms, projections, and retained setters do not run to compose the epilogue during shutdown.
 
 ---
 
