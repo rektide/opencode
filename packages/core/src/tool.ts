@@ -16,6 +16,7 @@ import { SessionMessage } from "./session/message.js"
 import { SessionSchema } from "./session/schema.js"
 import { State } from "./state.js"
 import { definition, effectiveName, execute, normalizedName, normalizeContent } from "./tool/runtime.js"
+import { QuestionTool } from "./tool/plugin/question.js"
 import { Wildcard } from "./util/wildcard.js"
 
 export class RegistrationError extends Schema.TaggedError<RegistrationError>()("Tool.RegistrationError", {
@@ -117,6 +118,20 @@ const layer = Layer.effect(
       context: Tool.Context,
     ) {
       const execution = yield* execute(tool, input, context).pipe(
+        // Defects keep propagating after the log; this only gives an otherwise
+        // drain-attributed failure tool-level attribution. Declines and question
+        // cancellations are deliberate defect tunnels for user-driven control flow
+        // and stay quiet.
+        Effect.tapDefect((defect) => {
+          if (defect instanceof Permission.DeclinedError || defect instanceof QuestionTool.CancelledError)
+            return Effect.void
+          return Effect.logError("Tool execution died", {
+            tool: name,
+            sessionID: context.sessionID,
+            id: context.id,
+            error: defect instanceof globalThis.Error ? defect.message : String(defect),
+          })
+        }),
         Effect.map((value) => ({ value })),
         Effect.catchTag("Tool.Error", (failure) => Effect.succeed({ failure })),
       )
@@ -129,6 +144,14 @@ const layer = Layer.effect(
         input,
       }
       if ("failure" in execution) {
+        // The failure is normal control flow the model sees as tool output and often
+        // recovers from; one WARN line makes it greppable without inflating ERROR.
+        yield* Effect.logWarning("Tool execution failed", {
+          tool: name,
+          sessionID: context.sessionID,
+          id: context.id,
+          error: execution.failure.message,
+        })
         const afterEvent: PluginHooks.Domains["tool"]["execute.after"] = {
           ...base,
           status: "error",

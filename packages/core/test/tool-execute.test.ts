@@ -7,6 +7,7 @@ import { Session } from "@opencode/schema/session"
 import { SessionMessage } from "@opencode/schema/session-message"
 import type { Info } from "@opencode/schema/tool"
 import { Effect, Schema } from "effect"
+import { TestConsole } from "effect/testing"
 
 const context = {
   sessionID: Session.ID.make("ses_execute"),
@@ -108,6 +109,27 @@ test("foreign typed failures settle as Tool.Error at the untrusted boundary", as
   const error = await Effect.runPromise(execute(lying, {}, context).pipe(Effect.flip))
   expect(error).toBeInstanceOf(Tool.Error)
   expect(error.message).toBe("transport died")
+})
+
+test("foreign typed failures announce at ERROR before coercion to Tool.Error", async () => {
+  const lying: Info = {
+    name: "lying",
+    description: "Fails with a non-Tool.Error typed failure",
+    input: Schema.Struct({}),
+    execute: () => Effect.fail(new Error("transport died")),
+  }
+
+  const lines = await Effect.runPromise(
+    Effect.gen(function* () {
+      yield* Effect.flip(execute(lying, {}, context))
+      return yield* TestConsole.logLines
+    }).pipe(Effect.provide(TestConsole.layer)),
+  )
+
+  const at = lines.indexOf("Tool errored outside its declared error channel")
+  expect(at).toBeGreaterThan(-1)
+  expect(String(lines[at - 1])).toContain("ERROR")
+  expect(lines[at + 1]).toMatchObject({ tool: "lying", sessionID: context.sessionID, id: context.id })
 })
 
 test("execute supports callable namespace tools", async () => {
