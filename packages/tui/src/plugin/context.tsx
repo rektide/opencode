@@ -16,7 +16,7 @@ import {
 import path from "path"
 import { stat } from "fs/promises"
 import { fileURLToPath } from "url"
-import type { Page } from "@opencode/plugin/tui/context"
+import type { EpilogueCollector, Page } from "@opencode/plugin/tui/context"
 import { Host } from "@opencode/plugin/host"
 import { resolveSlots, type Claim } from "./structure"
 import { createStore, produce, reconcile as reconcileStore, unwrap } from "solid-js/store"
@@ -41,6 +41,7 @@ import {
   normalizeEpilogueTitle,
   type EpilogueContribution,
   type EpilogueContributionInput,
+  type EpilogueCollectorGroup,
   type EpilogueProjectionIssue,
   type EpilogueSelectionTransform,
 } from "../context/epilogue.tsx"
@@ -91,6 +92,7 @@ type Registration = {
   slots: Record<string, RegisteredSlot>
   markdown: Record<string, MarkdownCodeBlockRenderer>
   epilogue: Record<string, EpilogueContribution>
+  epilogueCollector: Record<string, EpilogueCollector>
   epilogueSelection: Record<string, EpilogueSelectionTransform>
   cleanups: Dispose[]
 }
@@ -164,11 +166,14 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
     const key = `${issue.plugin}/${issue.key}/${issue.type}/${message}`
     if (reported.has(key)) return
     reported.add(key)
-    log[issue.type === "validation" ? "debug" : "warn"]("Plugin epilogue row omitted", {
-      plugin: issue.plugin,
-      registration: issue.key,
-      error: message,
-    })
+    log[issue.type === "validation" ? "debug" : "warn"](
+      issue.type === "collection" ? "Plugin epilogue collection failed" : "Plugin epilogue row omitted",
+      {
+        plugin: issue.plugin,
+        registration: issue.key,
+        error: message,
+      },
+    )
   }
   const contributionGroups = () =>
     Object.entries(store.registrations).flatMap(([plugin, registration]) =>
@@ -194,6 +199,17 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
                 key,
                 transform,
               })),
+            },
+          ]
+        : [],
+    )
+  const collectorGroups = (): readonly EpilogueCollectorGroup[] =>
+    Object.entries(store.registrations).flatMap(([plugin, registration]) =>
+      registration.active
+        ? [
+            {
+              plugin,
+              collectors: Object.entries(registration.epilogueCollector).map(([key, collect]) => ({ key, collect })),
             },
           ]
         : [],
@@ -264,25 +280,49 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
       ),
     )
   })
+  const [collectionScope, setCollectionScope] = createSignal<{
+    readonly currentID: string | undefined
+    readonly sessionIDs: readonly string[]
+  }>()
+  const hydratedCurrentID = () => {
+    const sessionID = currentRouteID()
+    return hydratedEpilogueSessionID({
+      currentID: sessionID,
+      session: sessionID ? data.session.get(sessionID) : undefined,
+    })
+  }
   trackEpilogue({
     currentID: () => {
-      const sessionID = currentRouteID()
-      return hydratedEpilogueSessionID({
-        currentID: sessionID,
-        session: sessionID ? data.session.get(sessionID) : undefined,
-      })
+      const scope = collectionScope()
+      return scope ? scope.currentID : hydratedCurrentID()
     },
-    sessionIDs: selectedIDs,
+    sessionIDs: () => collectionScope()?.sessionIDs ?? selectedIDs(),
     candidate,
     groups: contributionGroups,
     publish: epilogue.setBatch,
     report: reportEpilogue,
   })
+  epilogue.setCollection(() => {
+    shuttingDown = true
+    stopWatching()
+    const scope = Object.freeze({
+      currentID: hydratedCurrentID(),
+      sessionIDs: Object.freeze([...selectedIDs()]),
+    })
+    setCollectionScope(scope)
+    return {
+      sessionIDs: scope.sessionIDs,
+      groups: collectorGroups(),
+      report: reportEpilogue,
+    }
+  })
+  onCleanup(() => epilogue.setCollection(undefined))
   const clearContributions = (id: string) => {
     setStore("registrations", id, "routes", reconcileStore({}))
     setStore("registrations", id, "slots", reconcileStore({}))
     setStore("registrations", id, "markdown", reconcileStore({}))
     setStore("registrations", id, "epilogue", reconcileStore({}))
+    setStore("registrations", id, "epilogueCollector", reconcileStore({}))
     setStore("registrations", id, "epilogueSelection", reconcileStore({}))
   }
 
@@ -303,13 +343,14 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
       registry: {
         has: (kind, name) => Boolean(store.registrations[id]?.[kind][name]),
         set: (
-          kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueSelection",
+          kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueCollector" | "epilogueSelection",
           name: string,
           value:
             | Page
             | RegisteredSlot
             | MarkdownCodeBlockRenderer
             | EpilogueContributionInput
+            | EpilogueCollector
             | EpilogueSelectionTransform,
         ) => {
           if (kind !== "epilogue") return setStore("registrations", id, kind, name, () => value)
@@ -397,6 +438,7 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
 
   // Every lifecycle mutation — reconciles, manual dialog toggles, shutdown —
   // is serialized through one chain so generations can never interleave.
+  let shuttingDown = false
   let loading = Promise.resolve()
   const enqueue = <T,>(task: () => Promise<T>) => {
     const result = loading.catch(() => undefined).then(task)
@@ -412,6 +454,7 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
   // serialized reconcile so bursts of events rebuild the generation once.
   let pending: ReturnType<typeof setTimeout> | undefined
   const watcher = createSourceWatcher(() => {
+    if (shuttingDown) return
     clearTimeout(pending)
     pending = setTimeout(() => {
       // Observe failures immediately: a plugin cleanup that throws would
@@ -437,6 +480,7 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
   const npmFailures = new Map<string, string>()
   let reconciliationID = 0
   const reconcile = async () => {
+    if (shuttingDown) return
     const id = ++reconciliationID
     const started = Date.now()
     log.info("plugin reconciliation started", { id })
@@ -554,6 +598,8 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
         enabled: true,
       })
     }
+
+    if (shuttingDown) return
 
     // Compare: unchanged plugins are never touched, and a fully unchanged
     // generation is a no-op, so spurious watch events cost nothing.
@@ -746,8 +792,7 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
     }
     const unregister = lifecycle.add(dispose)
     onCleanup(() => {
-      unregister()
-      void dispose()
+      void dispose().finally(unregister)
     })
   })
 
@@ -768,8 +813,8 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
         markdown,
         // Manual dialog toggles join the same chain as reconciles so a
         // toggle mid-reload cannot mix registrations across generations.
-        activate: (id) => enqueue(() => activate(id)),
-        deactivate: (id) => enqueue(() => deactivate(id)),
+        activate: (id) => (shuttingDown ? Promise.resolve(false) : enqueue(() => activate(id))),
+        deactivate: (id) => (shuttingDown ? Promise.resolve(false) : enqueue(() => deactivate(id))),
       }}
     >
       {props.children}
@@ -867,6 +912,7 @@ function toRegistration(item: Desired): Registration {
     slots: {},
     markdown: {},
     epilogue: {},
+    epilogueCollector: {},
     epilogueSelection: {},
     cleanups: [],
   }

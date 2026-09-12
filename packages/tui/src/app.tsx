@@ -236,6 +236,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
         targetFps: typeof config.animations === "number" ? config.animations : 8,
         gatherStats: false,
         exitOnCtrlC: false,
+        exitSignals: [],
         useKittyKeyboard: {},
         autoFocus: false,
         openConsoleOnError: false,
@@ -273,26 +274,41 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
           ),
       )
       const finalizers = new Set<() => Promise<void>>()
-      yield* Effect.addFinalizer(() =>
-        Effect.promise(async () => {
-          const results = await Promise.allSettled([...finalizers].reverse().map((finalizer) => finalizer()))
+      let disposing: Promise<void> | undefined
+      const disposeResources = () =>
+        (disposing ??= (async () => {
+          const resources = [...finalizers].reverse()
+          finalizers.clear()
+          const results = await Promise.allSettled(resources.map((finalizer) => finalizer()))
           results
             .filter((result): result is PromiseRejectedResult => result.status === "rejected")
             .forEach((result) => log("error", "Failed to dispose TUI resource", { error: result.reason }))
-        }),
-      )
+        })())
+      yield* Effect.addFinalizer(() => Effect.promise(disposeResources))
       const shutdown = yield* Latch.make()
       const signals = ["SIGHUP", "SIGINT", "SIGTERM"] as const
-      const shutdownRenderer = () => destroyRenderer(renderer)
+      const requestShutdown = () => shutdown.openUnsafe()
       yield* Effect.acquireRelease(
-        Effect.sync(() => signals.forEach((signal) => process.on(signal, shutdownRenderer))),
-        () => Effect.sync(() => signals.forEach((signal) => process.off(signal, shutdownRenderer))),
+        Effect.sync(() => signals.forEach((signal) => process.on(signal, requestShutdown))),
+        () => Effect.sync(() => signals.forEach((signal) => process.off(signal, requestShutdown))),
       )
       renderer.once("destroy", () => {
         renderer.setTerminalTitle("")
         epilogue.freeze(Date.now())
         shutdown.openUnsafe()
       })
+      yield* Effect.addFinalizer(() =>
+        Effect.promise(async () => {
+          try {
+            await epilogue.collect()
+          } finally {
+            epilogue.freeze(Date.now())
+            const cleanup = disposeResources()
+            destroyRenderer(renderer)
+            await cleanup
+          }
+        }),
+      )
       yield* Effect.tryPromise(async () => {
         const mode = handoff?.mode ?? (await renderer.waitForThemeMode(1000)) ?? "dark"
         if (renderer.isDestroyed) return
@@ -304,7 +320,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                 exit={(reason) => {
                   if (renderer.isDestroyed) return
                   exit.reason = reason
-                  destroyRenderer(renderer)
+                  requestShutdown()
                 }}
               >
                 <EpilogueProvider value={epilogue}>

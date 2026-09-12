@@ -17,6 +17,7 @@ const setup = await createTestRenderer({
   width: Number(process.env.OPENCODE_EPILOGUE_WIDTH ?? 80),
   height: 24,
   useThread: false,
+  exitSignals: [],
 })
 const setTitle = setup.renderer.setTerminalTitle.bind(setup.renderer)
 setup.renderer.setTerminalTitle = (title) => {

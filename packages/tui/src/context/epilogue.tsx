@@ -1,4 +1,4 @@
-import type { EpilogueSelectionRule } from "@opencode/plugin/tui/context"
+import type { EpilogueCollectionEvent, EpilogueSelectionRule } from "@opencode/plugin/tui/context"
 import { createComputed, createMemo, mapArray } from "solid-js"
 import stripAnsi from "strip-ansi"
 import { normalizeEpilogueSelectionRules } from "../epilogue/selection.ts"
@@ -21,6 +21,7 @@ type State =
 
 export type EpilogueProjection = (scope: { readonly sessionID: string }) => unknown
 export type EpilogueSelectionTransform = (rules: EpilogueSelectionRule[]) => unknown
+export type EpilogueCollector = (event: EpilogueCollectionEvent) => unknown
 
 type EpilogueProjectionContribution = {
   readonly type: "projection"
@@ -53,10 +54,24 @@ export type EpilogueSelectionTransformGroup = {
   }[]
 }
 
+export type EpilogueCollectorGroup = {
+  readonly plugin: string
+  readonly collectors: readonly {
+    readonly key: string
+    readonly collect: EpilogueCollector
+  }[]
+}
+
+export type EpilogueCollectionPlan = {
+  readonly sessionIDs: readonly string[]
+  readonly groups: readonly EpilogueCollectorGroup[]
+  readonly report: (issue: EpilogueProjectionIssue) => void
+}
+
 export type EpilogueProjectionIssue = {
   readonly plugin: string
   readonly key: string
-  readonly type: "projection" | "validation"
+  readonly type: "projection" | "validation" | "collection"
   readonly error: unknown
 }
 
@@ -64,6 +79,7 @@ export const epilogueLimits = {
   label: 24,
   text: 48,
   rowsPerPlugin: 8,
+  collectionMs: 4_000,
 } as const
 
 const reserved = new Set(["Session", "Continue"])
@@ -72,13 +88,31 @@ class EpilogueValidationError extends Error {}
 
 export function createEpilogue() {
   let state: State = { status: "live" }
+  let collection: (() => EpilogueCollectionPlan) | undefined
+  let controller: AbortController | undefined
+  let running: Promise<void> | undefined
   return {
     setBatch(batch?: RetainedEpilogue) {
       if (state.status !== "live") return
       state = { status: "live", batch: batch ? copyBatch(batch) : undefined }
     },
+    setCollection(source?: () => EpilogueCollectionPlan) {
+      if (state.status !== "live") return
+      collection = source
+    },
+    collect(timeout: number = epilogueLimits.collectionMs) {
+      if (state.status !== "live" || !collection) return Promise.resolve()
+      if (running) return running
+      controller = new AbortController()
+      const current = controller
+      running = collectEpilogue(collection(), current, timeout).finally(() => {
+        if (controller === current) controller = undefined
+      })
+      return running
+    },
     freeze(now: number) {
       if (state.status !== "live") return
+      controller?.abort()
       state = {
         status: "frozen",
         output: state.batch ? epilogueOutput(state.batch, now) : undefined,
@@ -90,6 +124,45 @@ export function createEpilogue() {
       state = { status: "written" }
       return output
     },
+  }
+}
+
+async function collectEpilogue(plan: EpilogueCollectionPlan, controller: AbortController, timeout: number) {
+  const sessionIDs = Object.freeze([...plan.sessionIDs])
+  const pending: Promise<void>[] = []
+  const aborted = Promise.withResolvers<void>()
+  const stop = () => aborted.resolve()
+  controller.signal.addEventListener("abort", stop, { once: true })
+  const timer = setTimeout(() => controller.abort(), timeout)
+
+  try {
+    plan.groups.forEach((group) =>
+      group.collectors.forEach((item) => {
+        let accepting = true
+        const waitUntil = (work: PromiseLike<unknown>) => {
+          if (!accepting) throw new Error("Epilogue waitUntil must be called during collection dispatch")
+          pending.push(
+            Promise.resolve(work).then(
+              () => undefined,
+              (error) => plan.report({ plugin: group.plugin, key: item.key, type: "collection", error }),
+            ),
+          )
+        }
+        try {
+          const result = item.collect(Object.freeze({ sessionIDs, signal: controller.signal, waitUntil }))
+          if (thenable(result)) waitUntil(result)
+        } catch (error) {
+          plan.report({ plugin: group.plugin, key: item.key, type: "collection", error })
+        } finally {
+          accepting = false
+        }
+      }),
+    )
+    if (pending.length === 0) return
+    await Promise.race([Promise.all(pending), aborted.promise])
+  } finally {
+    clearTimeout(timer)
+    controller.signal.removeEventListener("abort", stop)
   }
 }
 
@@ -308,5 +381,5 @@ function control(value: string) {
 
 export const { use: useEpilogue, provider: EpilogueProvider } = createSimpleContext({
   name: "Epilogue",
-  init: (props: { value: Pick<ReturnType<typeof createEpilogue>, "setBatch"> }) => props.value,
+  init: (props: { value: Pick<ReturnType<typeof createEpilogue>, "setBatch" | "setCollection"> }) => props.value,
 })

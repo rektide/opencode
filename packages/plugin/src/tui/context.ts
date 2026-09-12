@@ -478,6 +478,17 @@ export interface RetainedEpilogueRow {
   dispose(): void
 }
 
+export interface EpilogueCollectionEvent {
+  /** Session IDs selected before collection began, in final presentation order. */
+  readonly sessionIDs: readonly string[]
+  /** Aborted when the shared collection window closes. */
+  readonly signal: AbortSignal
+  /** Keeps collection open for this work, within the shared collection window. */
+  waitUntil(work: PromiseLike<unknown>): void
+}
+
+export type EpilogueCollector = (event: EpilogueCollectionEvent) => void | PromiseLike<void>
+
 export interface Epilogue {
   /**
    * Registers one global row projected from the current live cached Session.
@@ -491,6 +502,13 @@ export interface Epilogue {
   retain(key: string, initial?: EpilogueRow): RetainedEpilogueRow
   /** Publishes an event-driven row for one Session without admitting it to the epilogue inventory. */
   retainSession(sessionID: string, key: string, initial?: EpilogueRow): RetainedEpilogueRow
+  /**
+   * Registers one callback for the bounded collection phase before teardown.
+   * The callback receives the complete selected Session batch and publishes
+   * results through retain or retainSession handles. Use waitUntil, or return
+   * a Promise, to keep collection open while asynchronous work completes.
+   */
+  onCollect(collect: EpilogueCollector): () => void
   readonly selection: {
     /**
      * Registers a live replayable edit over the configured ordered rule program.

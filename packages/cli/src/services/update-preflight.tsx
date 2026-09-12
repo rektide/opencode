@@ -84,6 +84,7 @@ async function open(from?: string): Promise<Session> {
     autoFocus: false,
     openConsoleOnError: false,
     exitOnCtrlC: false,
+    exitSignals: [],
     screenMode: "split-footer",
     footerHeight: 4,
     targetFps: 60,

@@ -463,6 +463,103 @@ test("copies an atomic batch before freeze and never consults it after freeze", 
   expect(epilogue.take()).toBeUndefined()
 })
 
+test("waits for batched collection and isolates callback failures", async () => {
+  const epilogue = createEpilogue()
+  const issues: string[] = []
+  const seen: (readonly string[])[] = []
+  epilogue.setBatch({
+    globalRows: [row("Collected", "before")],
+    sessions: [{ candidate: session("ses_a"), rows: [] }],
+  })
+  epilogue.setCollection(() => ({
+    sessionIDs: ["ses_a", "ses_b"],
+    groups: [
+      {
+        plugin: "first",
+        collectors: [
+          {
+            key: "batch",
+            collect(event) {
+              seen.push(event.sessionIDs)
+              event.waitUntil(
+                Promise.resolve().then(() =>
+                  epilogue.setBatch({
+                    globalRows: [row("Collected", "after")],
+                    sessions: [{ candidate: session("ses_a"), rows: [] }],
+                  }),
+                ),
+              )
+            },
+          },
+          {
+            key: "rejected",
+            collect: (event) => event.waitUntil(Promise.reject(new Error("no result"))),
+          },
+        ],
+      },
+      {
+        plugin: "later",
+        collectors: [
+          {
+            key: "throwing",
+            collect() {
+              throw new Error("broken collector")
+            },
+          },
+        ],
+      },
+    ],
+    report: (issue) => issues.push(`${issue.plugin}/${issue.key}:${issue.type}`),
+  }))
+
+  await epilogue.collect(100)
+  epilogue.freeze(2)
+
+  expect(seen).toEqual([["ses_a", "ses_b"]])
+  expect(Object.isFrozen(seen[0])).toBe(true)
+  expect(issues).toEqual(["later/throwing:collection", "first/rejected:collection"])
+  expect(Bun.stripANSI(epilogue.take() ?? "")).toContain("Collected after")
+})
+
+test("aborts the shared collection window and ignores late publication", async () => {
+  const epilogue = createEpilogue()
+  const late = Promise.withResolvers<void>()
+  let signal!: AbortSignal
+  epilogue.setBatch({ globalRows: [row("Collected", "retained")], sessions: [] })
+  epilogue.setCollection(() => ({
+    sessionIDs: [],
+    groups: [
+      {
+        plugin: "slow",
+        collectors: [
+          {
+            key: "slow",
+            collect(event) {
+              signal = event.signal
+              event.waitUntil(
+                late.promise.then(() =>
+                  epilogue.setBatch({ globalRows: [row("Collected", "too late")], sessions: [] }),
+                ),
+              )
+            },
+          },
+        ],
+      },
+    ],
+    report: () => {},
+  }))
+
+  await epilogue.collect(10)
+  expect(signal.aborted).toBe(true)
+  epilogue.freeze(2)
+  late.resolve()
+  await late.promise
+
+  const output = Bun.stripANSI(epilogue.take() ?? "")
+  expect(output).toContain("Collected retained")
+  expect(output).not.toContain("too late")
+})
+
 test("flattens unsafe Session titles without discarding identity or readable Unicode", () => {
   expect(normalizeEpilogueTitle("Normal title")).toBe("Normal title")
   expect(normalizeEpilogueTitle("  Café 👩🏽‍💻\nمرحبا  ")).toBe("Café 👩🏽‍💻 مرحبا")

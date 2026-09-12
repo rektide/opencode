@@ -109,6 +109,22 @@ export default {
         reject(new Error("invalid retained value"))
       },
     })
+    const collect = context.ui.epilogue.onCollect((event) => {
+      const outputs = event.sessionIDs.map((sessionID) => ({
+        sessionID,
+        output: context.ui.epilogue.retainSession(sessionID, "collected"),
+      }))
+      event.waitUntil(
+        Bun.sleep(25).then(async () => {
+          global.set({ label: "Pushed global", value: { type: "text", text: "collected" } })
+          outputs.forEach(({ sessionID, output }) =>
+            output.set({ label: "Collected", value: { type: "text", text: sessionID } }),
+          )
+          await appendFile(${JSON.stringify(cleanup)}, "collect:" + event.sessionIDs.join(",") + "\\n")
+        }),
+      )
+      event.waitUntil(Promise.reject(new Error("isolated collection failure")))
+    })
     const dispose = [
       context.ui.epilogue.register(() => {
         if (context.renderer.isDestroyed) shutdownProjections++
@@ -130,6 +146,7 @@ export default {
       context.ui.epilogue.selection.transform((rules) => {
         rules.push({ type: "limit", count: 5, terminating: true })
       }),
+      collect,
       global.dispose,
       first.dispose,
       second.dispose,
@@ -340,6 +357,7 @@ export default {
     }
     if (trigger !== "app.exit") child.kill(trigger)
     if (!reload) await waitForText(cleanup, "cleanup:start\n", "plugin cleanup did not start")
+    const requestsAfterCollection = requests.length
     await Bun.sleep(trigger === "app.exit" ? 3_000 : 150)
     if (mode === "fixture") expect(stdout.join("")).toBe("")
     if (mode === "cli") expect(Bun.stripANSI(stdout.join(""))).not.toContain("opencode -s dummy")
@@ -381,7 +399,7 @@ export default {
     } else {
       expect(output).toContain("Fixture   retained")
       expect(output).toContain("Observed")
-      expect(output).toContain("Pushed global retained")
+      expect(output).toContain("Pushed global collected")
       expect(output.match(/Fixture\s+retained/g) ?? []).toHaveLength(1)
       expect(output.match(/Observed\s+/g) ?? []).toHaveLength(1)
       expect(output.match(/Scoped\s+/g) ?? []).toHaveLength(2)
@@ -391,6 +409,9 @@ export default {
       expect(output.includes("Scoped    running")).toBe(expire)
       expect(output).toContain("Pushed    dummy")
       expect(output.includes("Pushed    other")).toBe(!expire)
+      expect(output).toContain("Collected dummy")
+      expect(output.includes("Collected other")).toBe(!expire)
+      expect(output.includes("Collected running")).toBe(expire)
       expect(output.indexOf("Pushed global")).toBeLessThan(output.indexOf("Session"))
       expect(output.indexOf("Last active")).toBeLessThan(output.indexOf("Cost"))
       expect(output.indexOf("Cost")).toBeLessThan(output.indexOf("Pushed    dummy"))
@@ -404,9 +425,10 @@ export default {
     if (mode === "fixture") expect(output.endsWith("\n\n")).toBe(true)
     if (mode === "cli") expect(raw).toContain("\x1b]0;\x07")
     expect(stderr.join("")).toBe("")
-    expect(requests).toHaveLength(requestsAtShutdown)
+    expect(requests.length).toBeGreaterThanOrEqual(requestsAtShutdown)
+    expect(requests).toHaveLength(requestsAfterCollection)
     expect(await Bun.file(cleanup).text()).toBe(
-      `setup\ncleanup:start\ncleanup:end\nshutdown:0\nseen:${expire ? "111" : "100"}\n`,
+      `setup\n${reload ? "" : `collect:dummy,${expire ? "running" : "other"}\n`}cleanup:start\ncleanup:end\nshutdown:0\nseen:${expire ? "111" : "100"}\n`,
     )
   } finally {
     await Bun.write(gate, "continue\n")

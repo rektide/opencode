@@ -216,7 +216,7 @@ test.each(["dismissed", "refreshing"])(
 )
 
 test("termination signals clear title and dispose scoped resources once", async () => {
-  const setup = await createTestRenderer({ width: 80, height: 24, useThread: false })
+  const setup = await createTestRenderer({ width: 80, height: 24, useThread: false, exitSignals: [] })
   const titles: string[] = []
   let started!: () => void
   const ready = new Promise<void>((resolve) => {
@@ -263,7 +263,7 @@ test("termination signals clear title and dispose scoped resources once", async 
 
 test("SIGINT prints the session epilogue after cleanup", async () => {
   await using state = await tmpdir()
-  const setup = await createTestRenderer({ width: 80, height: 24, useThread: false })
+  const setup = await createTestRenderer({ width: 80, height: 24, useThread: false, exitSignals: [] })
   let initialTitle!: () => void
   const initialTitleSet = new Promise<void>((resolve) => {
     initialTitle = resolve
