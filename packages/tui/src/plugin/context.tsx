@@ -27,7 +27,14 @@ import { useTuiLifecycle } from "../context/runtime"
 import { useClient } from "../context/client"
 import { useData } from "../context/data"
 import { errorMessage } from "../util/error"
-import { createPluginContext, usePluginHost, type Dispose, type RegisteredSlot, type SlotRender } from "./api"
+import {
+  createPluginContext,
+  usePluginHost,
+  type Dispose,
+  type RegisteredSlot,
+  type RegistryKind,
+  type SlotRender,
+} from "./api"
 import { createSourceWatcher } from "./watch"
 import { discoverPluginTargets, localSource, mergePluginTargets } from "./discovery"
 import { createPluginSources } from "./source"
@@ -42,7 +49,7 @@ import {
   type EpilogueContribution,
   type EpilogueContributionInput,
   type EpilogueCollectorGroup,
-  type EpilogueProjectionIssue,
+  type EpilogueIssue,
   type EpilogueSelectionTransform,
 } from "../context/epilogue.tsx"
 import { useLog, type LogTags } from "../context/log"
@@ -161,7 +168,7 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
     Object.values(store.registrations).flatMap((registration) => (registration.active ? [registration.markdown] : [])),
   )
   const reported = new Set<string>()
-  const reportEpilogue = (issue: EpilogueProjectionIssue) => {
+  const reportEpilogue = (issue: EpilogueIssue) => {
     const message = errorMessage(issue.error)
     const key = `${issue.plugin}/${issue.key}/${issue.type}/${message}`
     if (reported.has(key)) return
@@ -280,10 +287,6 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
       ),
     )
   })
-  const [collectionScope, setCollectionScope] = createSignal<{
-    readonly currentID: string | undefined
-    readonly sessionIDs: readonly string[]
-  }>()
   const hydratedCurrentID = () => {
     const sessionID = currentRouteID()
     return hydratedEpilogueSessionID({
@@ -291,12 +294,9 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
       session: sessionID ? data.session.get(sessionID) : undefined,
     })
   }
-  trackEpilogue({
-    currentID: () => {
-      const scope = collectionScope()
-      return scope ? scope.currentID : hydratedCurrentID()
-    },
-    sessionIDs: () => collectionScope()?.sessionIDs ?? selectedIDs(),
+  const tracked = trackEpilogue({
+    currentID: hydratedCurrentID,
+    sessionIDs: selectedIDs,
     candidate,
     groups: contributionGroups,
     publish: epilogue.setBatch,
@@ -305,13 +305,8 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
   epilogue.setCollection(() => {
     shuttingDown = true
     stopWatching()
-    const scope = Object.freeze({
-      currentID: hydratedCurrentID(),
-      sessionIDs: Object.freeze([...selectedIDs()]),
-    })
-    setCollectionScope(scope)
     return {
-      sessionIDs: scope.sessionIDs,
+      sessionIDs: tracked.beginCollection(),
       groups: collectorGroups(),
       report: reportEpilogue,
     }
@@ -328,8 +323,9 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
 
   const activate = async (id: string) => {
     const item = store.registrations[id]
-    if (!item) return false
+    if (!item || shuttingDown) return false
     await deactivate(id)
+    if (shuttingDown) return false
     batch(() => {
       clearContributions(id)
       setStore("registrations", id, "cleanups", [])
@@ -343,7 +339,7 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
       registry: {
         has: (kind, name) => Boolean(store.registrations[id]?.[kind][name]),
         set: (
-          kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueCollector" | "epilogueSelection",
+          kind: RegistryKind,
           name: string,
           value:
             | Page
@@ -391,6 +387,11 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
       throw error
     })
     if (cleanup) owned.push(async () => cleanup())
+    if (shuttingDown) {
+      await disposeAll(owned).catch(() => undefined)
+      clearContributions(id)
+      return false
+    }
     if (item.target && sameGeneration(setupFailures.get(item.target), item)) setupFailures.delete(item.target)
     batch(() => {
       setStore("registrations", id, "cleanups", owned)
@@ -613,6 +614,7 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
           .filter(([, registration]) => registration.active)
           .map(([id]) => deactivateNoisily(id)),
       )
+      if (shuttingDown) return
       setStore("registrations", reconcileStore({}))
     }
     const changed = structural
@@ -639,15 +641,18 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
       const fallback = replaced && registration ? toDesired(registration) : undefined
       if (replaced) {
         if (registration) await deactivateNoisily(id)
+        if (shuttingDown) return
         // In-place replacement keeps the registration's key position, which
         // slot ordering (mode "replace" takes the last one) depends on.
         setStore("registrations", id, toRegistration(item))
       }
       if (!item.enabled) {
         await deactivateNoisily(id)
+        if (shuttingDown) return
         continue
       }
       const error = await activate(id).then(() => undefined, errorMessage)
+      if (shuttingDown) return
       if (!error) continue
       errors.set(id, error)
       if (!fallback) continue
@@ -813,8 +818,10 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
         markdown,
         // Manual dialog toggles join the same chain as reconciles so a
         // toggle mid-reload cannot mix registrations across generations.
-        activate: (id) => (shuttingDown ? Promise.resolve(false) : enqueue(() => activate(id))),
-        deactivate: (id) => (shuttingDown ? Promise.resolve(false) : enqueue(() => deactivate(id))),
+        activate: (id) =>
+          shuttingDown ? Promise.resolve(false) : enqueue(async () => (shuttingDown ? false : activate(id))),
+        deactivate: (id) =>
+          shuttingDown ? Promise.resolve(false) : enqueue(async () => (shuttingDown ? false : deactivate(id))),
       }}
     >
       {props.children}

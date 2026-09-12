@@ -50,6 +50,11 @@ reload admission stops at that point, callbacks finish or time out while their
 generation remains active, freeze precedes renderer and plugin teardown, and the
 existing writer still emits only after cleanup.
 
+Entering collection also fixes the selected Session envelopes and the last valid
+live projection rows. Retained setters remain reactive during the window, but
+their updates reuse those cached projection results rather than invoking live
+projection callbacks as hidden exit work.
+
 ## Implementation
 
 [`createEpilogue`](/packages/tui/src/context/epilogue.tsx) owns the shared timer,
@@ -69,10 +74,9 @@ so they cannot destroy the callback environment before collection.
 - The twelve-case process matrix passes for fixture and actual CLI normal exits
   and all supported signals, gated cleanup, narrow/wide output, live expiry, and
   the documented hot-reload gap.
-- Plugin tests and typecheck pass; CLI typecheck passes.
-- The focused TUI lifecycle family reported 33 passes plus its known Ctrl-O
-  timeout, which passed immediately when rerun alone. TUI typecheck still reaches
-  only the pre-existing Core FFI pointer diagnostic.
+- The full TUI suite passes: 1,306 passed, 4 skipped, 0 failed across 143 files.
+- Plugin tests and typecheck pass; CLI typecheck passes. TUI typecheck still
+  reaches only the pre-existing Core FFI pointer diagnostic.
 
 ## Cross-references
 

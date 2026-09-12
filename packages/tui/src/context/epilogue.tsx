@@ -1,5 +1,5 @@
 import type { EpilogueCollectionEvent, EpilogueSelectionRule } from "@opencode/plugin/tui/context"
-import { createComputed, createMemo, mapArray } from "solid-js"
+import { createComputed, createMemo, createSignal, mapArray } from "solid-js"
 import stripAnsi from "strip-ansi"
 import { normalizeEpilogueSelectionRules } from "../epilogue/selection.ts"
 import { Locale } from "../util/locale.ts"
@@ -65,10 +65,10 @@ export type EpilogueCollectorGroup = {
 export type EpilogueCollectionPlan = {
   readonly sessionIDs: readonly string[]
   readonly groups: readonly EpilogueCollectorGroup[]
-  readonly report: (issue: EpilogueProjectionIssue) => void
+  readonly report: (issue: EpilogueIssue) => void
 }
 
-export type EpilogueProjectionIssue = {
+export type EpilogueIssue = {
   readonly plugin: string
   readonly key: string
   readonly type: "projection" | "validation" | "collection"
@@ -133,11 +133,16 @@ async function collectEpilogue(plan: EpilogueCollectionPlan, controller: AbortCo
   const aborted = Promise.withResolvers<void>()
   const stop = () => aborted.resolve()
   controller.signal.addEventListener("abort", stop, { once: true })
-  const timer = setTimeout(() => controller.abort(), timeout)
+  const deadline = Date.now() + Math.max(0, timeout)
+  const timer = setTimeout(() => controller.abort(), Math.max(0, deadline - Date.now()))
 
   try {
     plan.groups.forEach((group) =>
       group.collectors.forEach((item) => {
+        if (controller.signal.aborted || Date.now() >= deadline) {
+          controller.abort()
+          return
+        }
         let accepting = true
         const waitUntil = (work: PromiseLike<unknown>) => {
           if (!accepting) throw new Error("Epilogue waitUntil must be called during collection dispatch")
@@ -156,6 +161,7 @@ async function collectEpilogue(plan: EpilogueCollectionPlan, controller: AbortCo
         } finally {
           accepting = false
         }
+        if (Date.now() >= deadline) controller.abort()
       }),
     )
     if (pending.length === 0) return
@@ -172,17 +178,39 @@ export function trackEpilogue(input: {
   readonly candidate: (sessionID: string) => SessionEpilogueCandidate | undefined
   readonly groups: () => readonly EpilogueContributionGroup[]
   readonly publish: (retained: RetainedEpilogue) => void
-  readonly report: (issue: EpilogueProjectionIssue) => void
+  readonly report: (issue: EpilogueIssue) => void
 }) {
-  const globalRows = createMemo(() => collectRows(input.groups(), "global", input.currentID(), input.report))
-  const sessions = mapArray(input.sessionIDs, (sessionID) => {
-    const rows = createMemo(() => collectRows(input.groups(), "session", sessionID, input.report))
-    return (): RetainedSessionEpilogue | undefined => {
-      const candidate = input.candidate(sessionID)
-      if (!candidate) return undefined
-      return { candidate, rows: rows() }
-    }
+  const [collection, setCollection] = createSignal<{
+    readonly currentID: string | undefined
+    readonly sessionIDs: readonly string[]
+    readonly candidates: ReadonlyMap<string, SessionEpilogueCandidate>
+  }>()
+  const projections = new Map<string, EpilogueRow | undefined>()
+  const globalRows = createMemo(() => {
+    const snapshot = collection()
+    return collectRows(
+      input.groups(),
+      "global",
+      snapshot ? snapshot.currentID : input.currentID(),
+      input.report,
+      projections,
+      !snapshot,
+    )
   })
+  const sessions = mapArray(
+    () => collection()?.sessionIDs ?? input.sessionIDs(),
+    (sessionID) => {
+      const rows = createMemo(() =>
+        collectRows(input.groups(), "session", sessionID, input.report, projections, !collection()),
+      )
+      return (): RetainedSessionEpilogue | undefined => {
+        const snapshot = collection()
+        const candidate = snapshot ? snapshot.candidates.get(sessionID) : input.candidate(sessionID)
+        if (!candidate) return undefined
+        return { candidate, rows: rows() }
+      }
+    },
+  )
   createComputed(() => {
     input.publish({
       globalRows: globalRows(),
@@ -194,12 +222,30 @@ export function trackEpilogue(input: {
       ),
     })
   })
+  return {
+    beginCollection() {
+      const sessionIDs = Object.freeze([...input.sessionIDs()])
+      setCollection(
+        Object.freeze({
+          currentID: input.currentID(),
+          sessionIDs,
+          candidates: new Map(
+            sessionIDs.flatMap((sessionID) => {
+              const value = input.candidate(sessionID)
+              return value ? ([[sessionID, value]] as const) : []
+            }),
+          ),
+        }),
+      )
+      return sessionIDs
+    },
+  }
 }
 
 export function transformEpilogueSelection(input: {
   readonly base: readonly EpilogueSelectionRule[]
   readonly groups: readonly EpilogueSelectionTransformGroup[]
-  readonly report: (issue: EpilogueProjectionIssue) => void
+  readonly report: (issue: EpilogueIssue) => void
 }) {
   return input.groups.reduce((rules, group) => {
     return group.transforms.reduce((current, item) => {
@@ -233,7 +279,9 @@ function collectRows(
   groups: readonly EpilogueContributionGroup[],
   lane: "global" | "session",
   sessionID: string | undefined,
-  report: (issue: EpilogueProjectionIssue) => void,
+  report: (issue: EpilogueIssue) => void,
+  projections: Map<string, EpilogueRow | undefined>,
+  evaluate: boolean,
 ) {
   return Object.freeze(
     groups.flatMap((group) =>
@@ -243,11 +291,18 @@ function collectRows(
         .flatMap((item) => {
           if (item.contribution.type === "retained")
             return item.contribution.value === undefined ? [] : [item.contribution.value]
+          const identity = JSON.stringify([group.plugin, item.key, lane, sessionID])
+          if (!evaluate) {
+            const value = projections.get(identity)
+            return value === undefined ? [] : [value]
+          }
           try {
             const value = project(item.contribution.project, sessionID)
-            if (value === undefined) return []
-            return [normalizeEpilogueRow(value)]
+            const row = value === undefined ? undefined : normalizeEpilogueRow(value)
+            projections.set(identity, row)
+            return row ? [row] : []
           } catch (error) {
+            projections.set(identity, undefined)
             report({
               plugin: group.plugin,
               key: item.key,

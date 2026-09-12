@@ -51,21 +51,17 @@ const placements = ["prepend", "append", "before", "after", "replace"] as const 
 // The provider's registration store, narrowed to what a plugin context needs:
 // route/slot registration lands there, but ordering and lifecycle stay owned
 // by the provider.
+export type RegistryKind = "routes" | "slots" | "markdown" | "epilogue" | "epilogueCollector" | "epilogueSelection"
+
 export type Registry = {
-  has(
-    kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueCollector" | "epilogueSelection",
-    name: string,
-  ): boolean
+  has(kind: RegistryKind, name: string): boolean
   set(kind: "routes", name: string, page: Page): void
   set(kind: "slots", name: string, claim: RegisteredSlot): void
   set(kind: "markdown", name: string, render: MarkdownCodeBlockRenderer): void
   set(kind: "epilogue", name: string, contribution: EpilogueContributionInput): void
   set(kind: "epilogueCollector", name: string, collect: EpilogueCollector): void
   set(kind: "epilogueSelection", name: string, transform: EpilogueSelectionTransform): void
-  remove(
-    kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueCollector" | "epilogueSelection",
-    name: string,
-  ): void
+  remove(kind: RegistryKind, name: string): void
   active(): boolean
 }
 
@@ -143,10 +139,7 @@ export function createPluginContext(input: {
   }
   // Unregistering after deactivation is a no-op: deactivate already resets
   // the registration's routes and slots wholesale.
-  const registration = (
-    kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueCollector" | "epilogueSelection",
-    name: string,
-  ) => {
+  const registration = (kind: RegistryKind, name: string) => {
     let registered = true
     const unregister = () => {
       if (!registered) return

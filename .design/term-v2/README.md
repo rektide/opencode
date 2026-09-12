@@ -85,6 +85,12 @@ involved; the plugin package typecheck is part of the line's verification.
 
 ## Verification
 
+- **2026-09-11 bounded collection callbacks**: full TUI suite 1,306 passed,
+  4 skipped, 0 failed; the 12-case real process matrix passed for normal exit,
+  supported signals, retained-handle updates, isolated rejection, gated cleanup,
+  widths, expiry, and reload. Plugin/CLI/Website checks passed; TUI typecheck
+  remains blocked only by the unchanged Core FFI diagnostic recorded in the
+  [callback receipt](/.design/term-v2/callbacks-implementation0.gpt6a.md#verification).
 - **2026-09-11 retained multi-Session implementation**: focused inventory,
   selection, retention, config, presentation, built-in, and lifecycle checks
   108/108; full TUI suite 1,302 passed, 4 skipped, 0 failed; 12-case real
