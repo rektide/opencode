@@ -12,6 +12,7 @@ import type { Info } from "@opencode-ai/schema/tool"
 import { LayerNode } from "@opencode-ai/util/effect/layer-node"
 import { codeModeListings, executeTool, toolDefinitions } from "./lib/tool"
 import { Deferred, Effect, Exit, Fiber, Layer, Logger, Schema, SchemaGetter, SchemaIssue, Scope } from "effect"
+import { TestConsole } from "effect/testing"
 import { z } from "zod"
 import { testEffect } from "./lib/effect"
 
@@ -1158,6 +1159,61 @@ describe("Tool", () => {
         { stage: "old" },
         { toolCalls: [{ tool: "echo", status: "completed", input: { text: "request" } }] },
       ])
+    }),
+  )
+
+  it.effect("failed executions log one WARN line with call attribution", () =>
+    Effect.gen(function* () {
+      const service = yield* Tool.Service
+      yield* transform(
+        service,
+        {
+          failing: {
+            name: "failing",
+            description: "Fail with its declared error",
+            input: Schema.Struct({ text: Schema.String }),
+            execute: () => new Tool.Error({ message: "no matches" }),
+          },
+        },
+        { codemode: false },
+      )
+
+      const outcome = yield* executeTool(service, call("failing"))
+      expect(outcome.status).toBe("error")
+
+      const lines = yield* TestConsole.logLines
+      const at = lines.indexOf("Tool execution failed")
+      expect(at).toBeGreaterThan(-1)
+      expect(String(lines[at - 1])).toContain("WARN")
+      expect(lines[at + 1]).toMatchObject({ tool: "failing", sessionID, id: "call-failing", error: "no matches" })
+      expect(lines.indexOf("Tool execution died")).toBe(-1)
+    }),
+  )
+
+  it.effect("implementation defects log an ERROR line and keep propagating", () =>
+    Effect.gen(function* () {
+      const service = yield* Tool.Service
+      yield* transform(
+        service,
+        {
+          crashing: {
+            name: "crashing",
+            description: "Die outside its declared errors",
+            input: Schema.Struct({ text: Schema.String }),
+            execute: () => Effect.die(new Error("imploded")),
+          },
+        },
+        { codemode: false },
+      )
+
+      const exit = yield* Effect.exit(executeTool(service, call("crashing")))
+      expect(Exit.isFailure(exit)).toBe(true)
+
+      const lines = yield* TestConsole.logLines
+      const at = lines.indexOf("Tool execution died")
+      expect(at).toBeGreaterThan(-1)
+      expect(String(lines[at - 1])).toContain("ERROR")
+      expect(lines[at + 1]).toMatchObject({ tool: "crashing", sessionID, id: "call-crashing", error: "imploded" })
     }),
   )
 })

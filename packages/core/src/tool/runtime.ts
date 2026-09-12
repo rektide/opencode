@@ -34,6 +34,20 @@ export const execute = (tool: Tool.Info<any, any>, input: unknown, context: Tool
     // enforced here at the untrusted boundary. Declines tunnel through as defects and
     // interrupts are not errors; neither is touched.
     const result = yield* tool.execute(decoded, context).pipe(
+      // The coercion below erases the difference between a declared failure and an
+      // implementation defect. Announce the defect at ERROR while it is still
+      // identifiable; afterwards it is indistinguishable from ordinary tool output
+      // the model is expected to recover from.
+      Effect.tapError((error: unknown) =>
+        error instanceof Tool.Error
+          ? Effect.void
+          : Effect.logError("Tool errored outside its declared error channel", {
+              tool: effectiveName(tool),
+              sessionID: context.sessionID,
+              id: context.id,
+              error: error instanceof globalThis.Error ? error.message : String(error),
+            }),
+      ),
       Effect.mapError((error: unknown) =>
         error instanceof Tool.Error
           ? error
