@@ -116,7 +116,7 @@ test("foreign typed failures announce at ERROR before coercion to Tool.Error", a
     name: "lying",
     description: "Fails with a non-Tool.Error typed failure",
     input: Schema.Struct({}),
-    execute: () => Effect.fail(new Error("transport died")),
+    execute: () => Effect.fail(new Error("transport died")) as never,
   }
 
   const lines = await Effect.runPromise(
