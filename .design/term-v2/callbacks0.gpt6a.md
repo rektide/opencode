@@ -188,6 +188,9 @@ is useful now; callback collection remains a separately chosen future extension.
 
 ## Cross-references
 
+- [Bounded callback implementation](/.design/term-v2/callbacks-implementation0.gpt6a.md)
+  — later authorization resolved this deferred direction with one batched event,
+  retained-handle publication, and a shared four-second abort window.
 - [Retained implementation](/.design/term-v2/multi-session-implementation0.gpt56sx.md)
   — actual interfaces, fixes and verification that this note follows.
 - [Original retained registry rationale](/.design/term-v2/epilogue-registry-implementation0.gpt56s.md)

@@ -117,8 +117,8 @@ export default {
       event.waitUntil(
         Bun.sleep(25).then(async () => {
           global.set({ label: "Pushed global", value: { type: "text", text: "collected" } })
-          outputs.forEach(({ sessionID, output }) =>
-            output.set({ label: "Collected", value: { type: "text", text: sessionID } }),
+          outputs.forEach((item) =>
+            item.output.set({ label: "Collected", value: { type: "text", text: item.sessionID } }),
           )
           await appendFile(${JSON.stringify(cleanup)}, "collect:" + event.sessionIDs.join(",") + "\\n")
         }),

@@ -83,6 +83,66 @@ test("tracks global projections once and isolates per-Session reactive recomputa
   dispose()
 })
 
+test("freezes selected candidates and cached projections while retained rows keep updating", () => {
+  const [value, setValue] = createSignal("before")
+  const [available, setAvailable] = createSignal(true)
+  const [sessionIDs, setSessionIDs] = createSignal<readonly string[]>(["ses_a"])
+  let calls = 0
+  let retained!: RetainedEpilogue
+  let dispose = () => {}
+  const projection = {
+    key: "projection",
+    contribution: {
+      type: "projection" as const,
+      scope: "session" as const,
+      project: () => {
+        calls++
+        return row("Projected", value())
+      },
+    },
+  }
+  const [groups, setGroups] = createSignal<readonly EpilogueContributionGroup[]>([
+    { plugin: "fixture", contributions: [projection] },
+  ])
+
+  createRoot((stop) => {
+    dispose = stop
+    const tracked = trackEpilogue({
+      currentID: () => "ses_a",
+      sessionIDs,
+      candidate: (sessionID) => (available() ? session(sessionID) : undefined),
+      groups,
+      publish: (value) => {
+        retained = value
+      },
+      report: () => {},
+    })
+
+    expect(tracked.beginCollection()).toEqual(["ses_a"])
+    setValue("too late")
+    setAvailable(false)
+    setSessionIDs(["ses_b"])
+    setGroups([
+      {
+        plugin: "fixture",
+        contributions: [
+          projection,
+          {
+            key: "retained",
+            contribution: { type: "retained", scope: "session", sessionID: "ses_a", value: row("Retained", "new") },
+          },
+        ],
+      },
+    ])
+  })
+
+  expect(calls).toBe(1)
+  expect(retained.sessions).toEqual([
+    { candidate: session("ses_a"), rows: [row("Projected", "before"), row("Retained", "new")] },
+  ])
+  dispose()
+})
+
 test("retained values normalize once at publication, remain scoped, and do not admit Sessions", async () => {
   const global = row("Global", "retained")
   const a = row("Scoped", "alpha")
@@ -558,6 +618,42 @@ test("aborts the shared collection window and ignores late publication", async (
   const output = Bun.stripANSI(epilogue.take() ?? "")
   expect(output).toContain("Collected retained")
   expect(output).not.toContain("too late")
+})
+
+test("does not dispatch later collectors after synchronous work exhausts the window", async () => {
+  const epilogue = createEpilogue()
+  let signal!: AbortSignal
+  let later = false
+  epilogue.setCollection(() => ({
+    sessionIDs: [],
+    groups: [
+      {
+        plugin: "blocking",
+        collectors: [
+          {
+            key: "first",
+            collect(event) {
+              signal = event.signal
+              const until = Date.now() + 10
+              while (Date.now() < until) {}
+            },
+          },
+          {
+            key: "later",
+            collect() {
+              later = true
+            },
+          },
+        ],
+      },
+    ],
+    report: () => {},
+  }))
+
+  await epilogue.collect(1)
+
+  expect(signal.aborted).toBe(true)
+  expect(later).toBe(false)
 })
 
 test("flattens unsafe Session titles without discarding identity or readable Unicode", () => {

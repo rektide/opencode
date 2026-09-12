@@ -212,7 +212,15 @@ return context.ui.epilogue.onCollect((event) => {
 })
 ```
 
-All collectors share one four-second collection window across normal exit, `SIGHUP`, `SIGINT`, and `SIGTERM`. Pass asynchronous work to `waitUntil` during callback dispatch, or return one promise. When the window closes, OpenCode aborts `event.signal`, freezes whatever retained values have arrived, restores the terminal, completes plugin cleanup, and then prints. A throw or rejection affects only that collector; unfinished and late work cannot change frozen output.
+Collection has one shared lifecycle:
+
+- Normal exit, `SIGHUP`, `SIGINT`, and `SIGTERM` all run collectors.
+- All callbacks share one four-second window.
+- Pass asynchronous work to `waitUntil` during callback dispatch, or return one promise.
+- A throw or rejection affects only that collector.
+- At the deadline, OpenCode aborts `event.signal` and freezes whatever retained values have arrived.
+- Terminal restoration and plugin cleanup finish before OpenCode prints.
+- Unfinished and late work cannot change frozen output.
 
 The deadline is cooperative: it cannot interrupt synchronous JavaScript or SQLite work that blocks the event loop.
 
@@ -236,7 +244,14 @@ Global rows appear once before the session envelopes. Per-session rows follow pl
 
 Each plugin may contribute through its first eight applicable registrations in the global lane and in each session lane. Labels are limited to 24 display columns and text values to 48; invalid or failing results omit only that registration and are logged without affecting other rows.
 
-OpenCode tracks, validates, and copies projection results while the TUI is live. On exit, registered collectors may update retained rows before OpenCode freezes them. Ordinary plugin cleanup follows, and printing happens afterward. Selection transforms and projections do not run during collection or teardown, and no collector or retained setter can change the frozen output.
+OpenCode tracks, validates, and copies projection results while the TUI is live. The exit sequence is:
+
+1. Registered collectors may update retained rows.
+2. OpenCode freezes the rows.
+3. Ordinary plugin cleanup runs.
+4. OpenCode prints the immutable result.
+
+Selection transforms and projections do not run during collection or teardown. No collector or retained setter can change the frozen output.
 
 ---
 
