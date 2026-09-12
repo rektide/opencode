@@ -87,22 +87,33 @@ test("freezes selected candidates and cached projections while retained rows kee
   const [value, setValue] = createSignal("before")
   const [available, setAvailable] = createSignal(true)
   const [sessionIDs, setSessionIDs] = createSignal<readonly string[]>(["ses_a"])
-  let calls = 0
+  const calls = { global: 0, session: 0 }
   let retained!: RetainedEpilogue
   let dispose = () => {}
+  const globalProjection = {
+    key: "global",
+    contribution: {
+      type: "projection" as const,
+      scope: "global" as const,
+      project: () => {
+        calls.global++
+        return row("Global", value())
+      },
+    },
+  }
   const projection = {
     key: "projection",
     contribution: {
       type: "projection" as const,
       scope: "session" as const,
       project: () => {
-        calls++
+        calls.session++
         return row("Projected", value())
       },
     },
   }
   const [groups, setGroups] = createSignal<readonly EpilogueContributionGroup[]>([
-    { plugin: "fixture", contributions: [projection] },
+    { plugin: "fixture", contributions: [globalProjection, projection] },
   ])
 
   createRoot((stop) => {
@@ -126,6 +137,7 @@ test("freezes selected candidates and cached projections while retained rows kee
       {
         plugin: "fixture",
         contributions: [
+          globalProjection,
           projection,
           {
             key: "retained",
@@ -136,7 +148,8 @@ test("freezes selected candidates and cached projections while retained rows kee
     ])
   })
 
-  expect(calls).toBe(1)
+  expect(calls).toEqual({ global: 1, session: 1 })
+  expect(retained.globalRows).toEqual([row("Global", "before")])
   expect(retained.sessions).toEqual([
     { candidate: session("ses_a"), rows: [row("Projected", "before"), row("Retained", "new")] },
   ])
