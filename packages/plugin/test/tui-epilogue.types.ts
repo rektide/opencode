@@ -17,6 +17,12 @@ const retained = ui.epilogue.retain("client", { label: "Client", value: { type: 
 retained.set(undefined)
 retained.dispose()
 ui.epilogue.retainSession("ses_123", "event").set({ label: "Event", value: { type: "text", text: "seen" } })
+ui.epilogue.onCollect((event) => {
+  event.sessionIDs.forEach((sessionID) => ui.epilogue.retainSession(sessionID, "collected"))
+  event.waitUntil(Promise.resolve())
+  event.signal.throwIfAborted()
+})
+ui.epilogue.onCollect(async () => {})
 ui.epilogue.selection.transform((rules) => {
   rules.reverse()
   rules.push({ type: "limit", count: 3, terminating: true })

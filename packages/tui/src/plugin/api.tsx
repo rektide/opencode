@@ -3,6 +3,7 @@ import type { JSX } from "solid-js"
 import type {
   Context,
   Dialog,
+  EpilogueCollector,
   EpilogueRow,
   Page,
   SlotClaim,
@@ -51,13 +52,20 @@ const placements = ["prepend", "append", "before", "after", "replace"] as const 
 // route/slot registration lands there, but ordering and lifecycle stay owned
 // by the provider.
 export type Registry = {
-  has(kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueSelection", name: string): boolean
+  has(
+    kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueCollector" | "epilogueSelection",
+    name: string,
+  ): boolean
   set(kind: "routes", name: string, page: Page): void
   set(kind: "slots", name: string, claim: RegisteredSlot): void
   set(kind: "markdown", name: string, render: MarkdownCodeBlockRenderer): void
   set(kind: "epilogue", name: string, contribution: EpilogueContributionInput): void
+  set(kind: "epilogueCollector", name: string, collect: EpilogueCollector): void
   set(kind: "epilogueSelection", name: string, transform: EpilogueSelectionTransform): void
-  remove(kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueSelection", name: string): void
+  remove(
+    kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueCollector" | "epilogueSelection",
+    name: string,
+  ): void
   active(): boolean
 }
 
@@ -100,6 +108,7 @@ export function createPluginContext(input: {
   let context: Context
   let claims = 0
   let epilogues = 0
+  let epilogueCollectors = 0
   let epilogueSelections = 0
   // Every dialog and registered render is wrapped so plugin components can
   // reach their own context through usePlugin().
@@ -134,7 +143,10 @@ export function createPluginContext(input: {
   }
   // Unregistering after deactivation is a no-op: deactivate already resets
   // the registration's routes and slots wholesale.
-  const registration = (kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueSelection", name: string) => {
+  const registration = (
+    kind: "routes" | "slots" | "markdown" | "epilogue" | "epilogueCollector" | "epilogueSelection",
+    name: string,
+  ) => {
     let registered = true
     const unregister = () => {
       if (!registered) return
@@ -235,6 +247,11 @@ export function createPluginContext(input: {
             contribution: (value) => ({ type: "retained", scope: "session", sessionID, value }),
             initial,
           })
+        },
+        onCollect(collect) {
+          const key = `collector#${epilogueCollectors++}`
+          input.registry.set("epilogueCollector", key, collect)
+          return registration("epilogueCollector", key).dispose
         },
         selection: {
           transform(edit) {
