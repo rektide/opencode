@@ -38,7 +38,7 @@ export const execute = (tool: Tool.Info<any, any>, input: unknown, context: Tool
       // implementation defect. Announce the defect at ERROR while it is still
       // identifiable; afterwards it is indistinguishable from ordinary tool output
       // the model is expected to recover from.
-      Effect.tapError((error) =>
+      Effect.tapError((error: unknown) =>
         error instanceof Tool.Error
           ? Effect.void
           : Effect.logError("Tool errored outside its declared error channel", {
