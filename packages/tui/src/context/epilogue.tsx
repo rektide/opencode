@@ -185,7 +185,7 @@ export function trackEpilogue(input: {
     readonly sessionIDs: readonly string[]
     readonly candidates: ReadonlyMap<string, SessionEpilogueCandidate>
   }>()
-  const projections = new Map<string, EpilogueRow | undefined>()
+  const globalProjections = new Map<string, EpilogueRow | undefined>()
   const globalRows = createMemo(() => {
     const snapshot = collection()
     return collectRows(
@@ -193,13 +193,14 @@ export function trackEpilogue(input: {
       "global",
       snapshot ? snapshot.currentID : input.currentID(),
       input.report,
-      projections,
+      globalProjections,
       !snapshot,
     )
   })
   const sessions = mapArray(
     () => collection()?.sessionIDs ?? input.sessionIDs(),
     (sessionID) => {
+      const projections = new Map<string, EpilogueRow | undefined>()
       const rows = createMemo(() =>
         collectRows(input.groups(), "session", sessionID, input.report, projections, !collection()),
       )
@@ -291,7 +292,7 @@ function collectRows(
         .flatMap((item) => {
           if (item.contribution.type === "retained")
             return item.contribution.value === undefined ? [] : [item.contribution.value]
-          const identity = JSON.stringify([group.plugin, item.key, lane, sessionID])
+          const identity = JSON.stringify([group.plugin, item.key])
           if (!evaluate) {
             const value = projections.get(identity)
             return value === undefined ? [] : [value]
