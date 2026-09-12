@@ -193,6 +193,29 @@ if (route.type === "session") {
 
 The session ID scopes the value but does not add that session to the epilogue inventory. `set(undefined)` omits the row; `dispose()` removes the entry and makes later writes no-ops. Keys are plugin-local and must be unique within the same global or session scope.
 
+### Collect before exit
+
+Register one batched collector when producing retained rows continuously would waste work. It receives the session IDs already selected for the epilogue and publishes through the same retained handles.
+
+```ts
+return context.ui.epilogue.onCollect((event) => {
+  const outputs = new Map(
+    event.sessionIDs.map((sessionID) => [sessionID, context.ui.epilogue.retainSession(sessionID, "summary")]),
+  )
+  event.waitUntil(
+    readSummaries(event.sessionIDs, event.signal).then((summaries) => {
+      summaries.forEach((text, sessionID) => {
+        outputs.get(sessionID)?.set({ label: "Summary", value: { type: "text", text } })
+      })
+    }),
+  )
+})
+```
+
+All collectors share one four-second collection window across normal exit, `SIGHUP`, `SIGINT`, and `SIGTERM`. Pass asynchronous work to `waitUntil` during callback dispatch, or return one promise. When the window closes, OpenCode aborts `event.signal`, freezes whatever retained values have arrived, restores the terminal, completes plugin cleanup, and then prints. A throw or rejection affects only that collector; unfinished and late work cannot change frozen output.
+
+The deadline is cooperative: it cannot interrupt synchronous JavaScript or SQLite work that blocks the event loop.
+
 ### Transform session selection
 
 Plugins can synchronously edit the configured rule array while active. Edits replay in plugin enable order and registration order whenever the config base or active plugin generation changes.
@@ -213,7 +236,7 @@ Global rows appear once before the session envelopes. Per-session rows follow pl
 
 Each plugin may contribute through its first eight applicable registrations in the global lane and in each session lane. Labels are limited to 24 display columns and text values to 48; invalid or failing results omit only that registration and are logged without affecting other rows.
 
-OpenCode tracks, validates, and copies projection results while the TUI is live. Shutdown freezes those retained values before ordinary plugin cleanup and prints them afterward. Selection transforms, projections, and retained setters do not run to compose the epilogue during shutdown.
+OpenCode tracks, validates, and copies projection results while the TUI is live. On exit, registered collectors may update retained rows before OpenCode freezes them. Ordinary plugin cleanup follows, and printing happens afterward. Selection transforms and projections do not run during collection or teardown, and no collector or retained setter can change the frozen output.
 
 ---
 

@@ -39,12 +39,12 @@ The 2026-09-03 freshen recreated the line afresh per operator direction
 (precedent: the 2026-09-02 jj-vcs port). The four commits group the same
 content by concern:
 
-| Commit | Subject | Scope |
-| --- | --- | --- |
-| `e28d1d20` | feat(tui): graceful signal termination and core session epilogue | Route `SIGHUP`/`SIGINT`/`SIGTERM` through normal scoped TUI cleanup: restore terminal state/title, remove listeners, preserve and print the session epilogue exactly once; session-activity core row; hardening. Folds the old signals-fix + activity-row + preserve + hardening commits. `SIGQUIT` remains unhandled; `SIGKILL` cannot be caught by any process. |
-| `70439dd7` | feat(plugin): expose TUI epilogue rows | ⚡ pluggable row registry exposed to plugins: supplemental rows, session-cost and last-activity adapter rows beside the core `Active` row, invalid-projection containment, www docs. Folds the old registry + ⚡ surface + adapter-row commits. |
-| `f1df1712` | test(tui): cover epilogue lifecycle, signal process matrix, and reload | Lifecycle/route-ownership tests, real-process signal matrix, render isolation, reload cadence, `@effect/platform-node` devDep, `bun.lock`. Fixtures adapted to upstream's `PackageSource.prepare` contract. |
-| `0731ad28` | docs(term-v2): add feature design docs | The full `.design/term-v2` corpus. |
+| Commit     | Subject                                                                | Scope                                                                                                                                                                                                                                                                                                                                                             |
+| ---------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `e28d1d20` | feat(tui): graceful signal termination and core session epilogue       | Route `SIGHUP`/`SIGINT`/`SIGTERM` through normal scoped TUI cleanup: restore terminal state/title, remove listeners, preserve and print the session epilogue exactly once; session-activity core row; hardening. Folds the old signals-fix + activity-row + preserve + hardening commits. `SIGQUIT` remains unhandled; `SIGKILL` cannot be caught by any process. |
+| `70439dd7` | feat(plugin): expose TUI epilogue rows                                 | ⚡ pluggable row registry exposed to plugins: supplemental rows, session-cost and last-activity adapter rows beside the core `Active` row, invalid-projection containment, www docs. Folds the old registry + ⚡ surface + adapter-row commits.                                                                                                                   |
+| `f1df1712` | test(tui): cover epilogue lifecycle, signal process matrix, and reload | Lifecycle/route-ownership tests, real-process signal matrix, render isolation, reload cadence, `@effect/platform-node` devDep, `bun.lock`. Fixtures adapted to upstream's `PackageSource.prepare` contract.                                                                                                                                                       |
+| `0731ad28` | docs(term-v2): add feature design docs                                 | The full `.design/term-v2` corpus.                                                                                                                                                                                                                                                                                                                                |
 
 The prior 25-commit line (freshened 2026-09-01 onto `43d09b9d`) plus its
 README commit remain preserved under `term-v2-20260901` (`71b797d2`) and the
@@ -123,11 +123,12 @@ the feature.
   now implements visible shared tabs, ordered rules with terminating authority,
   global and per-Session reporters, direct retained publication, and atomic
   batches. Rekon's `rekon-session-mementos` still owns the separately gated visit
-  record, excerpts, Cotail bookmarks, and deferred exit-time callback contract.
+  record, excerpts, and Cotail bookmarks.
   This extends the display model, not the general JSX slot algebra.
-- [Deferred collection callbacks](/.design/term-v2/callbacks0.gpt6a.md) records the
-  future global/per-session callback direction after the retained implementation.
-  No new shutdown phase or exit-time callback execution has been added.
+- [Bounded collection callbacks](/.design/term-v2/callbacks-implementation0.gpt6a.md)
+  now dispatch one preselected-Session batch before teardown, wait up to four
+  shared seconds, and reuse retained handles for output. The preceding
+  [deferred design](/.design/term-v2/callbacks0.gpt6a.md) remains historical context.
 - Should `SIGQUIT` also route through scoped cleanup, or keep core-dump
   semantics for diagnosability?
 - The manifest's recorded performance-suspicion order names the
