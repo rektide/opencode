@@ -14,6 +14,8 @@ export class Failure extends Schema.TaggedError<Failure>()("WatchmanSessionFailu
 
 export interface Interface {
   readonly request: (command: WatchmanProtocol.Command) => Effect.Effect<WatchmanProtocol.Reply, Failure>
+  /** Writes one final command without waiting for its reply. No later request is accepted. */
+  readonly send: (command: WatchmanProtocol.Command) => Effect.Effect<void, Failure>
   readonly close: () => Effect.Effect<void>
 }
 
@@ -41,6 +43,7 @@ export const open = (
       let active: Pending | undefined
       let input = Buffer.alloc(0)
       let connected = false
+      let draining = false
       let returned = false
       let terminal: Failure | undefined
       let resolveClosed: () => void
@@ -56,9 +59,9 @@ export const open = (
           active.resume(Effect.fail(failure))
           active = undefined
         }
-        for (const pending of queued.splice(0)) pending.resume(Effect.fail(failure))
+        queued.splice(0).forEach((pending) => pending.resume(Effect.fail(failure)))
         if (!returned) resume(Effect.fail(failure))
-        else if (!explicit) lost(failure)
+        if (returned && !explicit) lost(failure)
         socket.destroy()
       }
 
@@ -82,6 +85,7 @@ export const open = (
       }
 
       const frame = (bytes: Buffer) => {
+        if (draining) return
         let text: string
         try {
           text = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
@@ -129,7 +133,11 @@ export const open = (
             finish(new Failure({ reason: "protocol", message: "Watchman frame exceeded 16 MiB" }))
             return
           }
-          if (end > start) frame(bytes.subarray(start, end))
+          if (end === start) {
+            finish(new Failure({ reason: "protocol", message: "Watchman sent a blank frame" }))
+            return
+          }
+          frame(bytes.subarray(start, end))
           if (terminal) return
           start = end + 1
         }
@@ -143,7 +151,11 @@ export const open = (
           Effect.callback<WatchmanProtocol.Reply, Failure>((resumeRequest) => {
             if (terminal) {
               resumeRequest(Effect.fail(terminal))
-              return
+              return Effect.void
+            }
+            if (draining) {
+              resumeRequest(Effect.fail(new Failure({ reason: "closed", message: "Watchman session is closing" })))
+              return Effect.void
             }
             const pending: Pending = { command, resume: resumeRequest, submitted: false }
             queued.push(pending)
@@ -156,6 +168,23 @@ export const open = (
               const index = queued.indexOf(pending)
               if (index >= 0) queued.splice(index, 1)
             })
+          }),
+        send: (command) =>
+          Effect.callback<void, Failure>((resumeSend) => {
+            if (terminal) {
+              resumeSend(Effect.fail(terminal))
+              return
+            }
+            if (draining || active || queued.length > 0) {
+              resumeSend(
+                Effect.fail(new Failure({ reason: "closed", message: "Watchman session is not idle for final send" })),
+              )
+              return
+            }
+            draining = true
+            socket.write(`${JSON.stringify(WatchmanProtocol.encode(command))}\n`, (error) =>
+              resumeSend(error ? Effect.fail(new Failure({ reason: "closed", message: error.message })) : Effect.void),
+            )
           }),
         close: () =>
           Effect.sync(() => finish(new Failure({ reason: "closed", message: "Watchman session closed" }), true)).pipe(

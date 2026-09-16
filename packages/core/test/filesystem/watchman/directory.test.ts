@@ -1,14 +1,14 @@
 import { expect } from "bun:test"
 import fs from "node:fs/promises"
 import path from "node:path"
-import { Deferred, Effect, Queue } from "effect"
+import { Deferred, Effect, Option, Queue } from "effect"
 import { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import { WatchmanDirectory } from "@opencode-ai/core/filesystem/watcher/watchman/directory"
 import { WatchmanProtocol } from "@opencode-ai/core/filesystem/watcher/watchman/protocol"
 import { WatchmanSession } from "@opencode-ai/core/filesystem/watcher/watchman/session"
-import { tmpdirScoped } from "../../fixture/tmpdir"
-import { advance } from "../../lib/clock"
-import { it } from "../../lib/effect"
+import { tmpdirScoped } from "../../fixture/tmpdir.ts"
+import { advance } from "../../lib/clock.ts"
+import { it } from "../../lib/effect.ts"
 
 it.effect("returns immediately, invalidates on install, and maps later rows", () =>
   Effect.gen(function* () {
@@ -35,6 +35,7 @@ it.effect("returns immediately, invalidates on install, and maps later rows", ()
             return Effect.succeed({ type: "subscribe", subscribe: command.name, clock: "c:1:2:3:4" })
           return Effect.succeed({ type: "unsubscribe", subscription: command.name, deleted: true })
         },
+        send: (command) => Effect.sync(() => commands.push(command)).pipe(Effect.asVoid),
         close: () => Effect.sync(() => closes++),
       }
       return Effect.acquireRelease(Effect.succeed(session), (session) => session.close())
@@ -62,9 +63,17 @@ it.effect("returns immediately, invalidates on install, and maps later rows", ()
     yield* Deferred.await(installed)
     expect(commands.map((command) => command.type)).toEqual(["version", "watch", "clock", "subscribe"])
 
+    const subscribed = commands.find(
+      (command): command is Extract<WatchmanProtocol.Command, { readonly type: "subscribe" }> =>
+        command.type === "subscribe",
+    )
+    if (!subscribed) {
+      yield* Effect.die("subscription was not requested")
+      return
+    }
     deliver?.({
       type: "batch",
-      subscription: (commands[3] as Extract<WatchmanProtocol.Command, { readonly type: "subscribe" }>).name,
+      subscription: subscribed.name,
       clock: "c:1:2:3:5",
       fresh: false,
       files: [
@@ -80,6 +89,105 @@ it.effect("returns immediately, invalidates on install, and maps later rows", ()
 
     yield* Effect.promise(() => subscription?.unsubscribe() ?? Promise.resolve())
     yield* Effect.yieldNow
+    expect(closes).toBe(1)
+    expect(commands.at(-1)).toMatchObject({ type: "unsubscribe" })
+  }),
+)
+
+it.effect("retries when cancellation arrives before installation", () =>
+  Effect.gen(function* () {
+    const directory = yield* tmpdirScoped()
+    const invalidations = yield* Queue.unbounded<void>()
+    const closes = [0, 0]
+    let opens = 0
+    const open: WatchmanSession.Open = (_options, receive) => {
+      const index = opens++
+      const session: WatchmanSession.Interface = {
+        request: (command) => {
+          if (command.type === "version")
+            return Effect.succeed({
+              type: "version",
+              version: "2026.09.05",
+              capabilities: Object.fromEntries(WatchmanDirectory.capabilities.map((capability) => [capability, true])),
+            })
+          if (command.type === "watch") return Effect.succeed({ type: "watch", watch: directory.path })
+          if (command.type === "clock") return Effect.succeed({ type: "clock", clock: "c:1:2:3:4" })
+          if (command.type === "subscribe") {
+            if (index === 0) receive({ type: "canceled", subscription: command.name })
+            return Effect.succeed({ type: "subscribe", subscribe: command.name, clock: "c:1:2:3:4" })
+          }
+          return Effect.succeed({ type: "unsubscribe", subscription: command.name, deleted: true })
+        },
+        send: () => Effect.void,
+        close: () => Effect.sync(() => closes[index]++),
+      }
+      return Effect.acquireRelease(Effect.succeed(session), (session) => session.close())
+    }
+    const native = yield* WatchmanDirectory.make(
+      Watcher.Native.of({ subscribe: () => Effect.succeed(undefined) }),
+      { socket: "/private/watchman.sock", commandTimeoutMs: 1_000 },
+      open,
+    )
+    const subscription = yield* native.subscribe({
+      type: "directory",
+      target: directory.path,
+      ignore: [],
+      names: [],
+      publish: () => {},
+      invalidate: () => Queue.offerUnsafe(invalidations, undefined),
+    })
+
+    yield* advance(() => opens === 2)
+    yield* Queue.take(invalidations)
+    expect(closes[0]).toBe(1)
+    yield* Effect.promise(() => subscription?.unsubscribe() ?? Promise.resolve())
+  }),
+)
+
+it.effect("fences a held attachment before release returns", () =>
+  Effect.gen(function* () {
+    const directory = yield* tmpdirScoped()
+    const version = yield* Deferred.make<WatchmanProtocol.Reply>()
+    const requested = yield* Deferred.make<void>()
+    const invalidations = yield* Queue.unbounded<void>()
+    let closes = 0
+    const open: WatchmanSession.Open = () => {
+      const session: WatchmanSession.Interface = {
+        request: (command) => {
+          if (command.type === "version") {
+            Deferred.doneUnsafe(requested, Effect.void)
+            return Deferred.await(version)
+          }
+          return Effect.die("request advanced after release")
+        },
+        send: () => Effect.void,
+        close: () => Effect.sync(() => closes++),
+      }
+      return Effect.acquireRelease(Effect.succeed(session), (session) => session.close())
+    }
+    const native = yield* WatchmanDirectory.make(
+      Watcher.Native.of({ subscribe: () => Effect.succeed(undefined) }),
+      { socket: "/private/watchman.sock", commandTimeoutMs: 1_000 },
+      open,
+    )
+    const subscription = yield* native.subscribe({
+      type: "directory",
+      target: directory.path,
+      ignore: [],
+      names: [],
+      publish: () => {},
+      invalidate: () => Queue.offerUnsafe(invalidations, undefined),
+    })
+    yield* Deferred.await(requested)
+    yield* Effect.promise(() => subscription?.unsubscribe() ?? Promise.resolve())
+    yield* Deferred.succeed(version, {
+      type: "version",
+      version: "late",
+      capabilities: Object.fromEntries(WatchmanDirectory.capabilities.map((capability) => [capability, true])),
+    })
+    yield* Effect.yieldNow
+
+    expect(Option.isNone(yield* Queue.poll(invalidations))).toBe(true)
     expect(closes).toBe(1)
   }),
 )
@@ -112,6 +220,7 @@ it.effect("reconnects with a new name and fences the retired generation", () =>
             return Effect.succeed({ type: "subscribe", subscribe: command.name, clock: "c:1:2:3:4" })
           return Effect.succeed({ type: "unsubscribe", subscription: command.name, deleted: true })
         },
+        send: (command) => Effect.sync(() => commands[index]?.push(command)).pipe(Effect.asVoid),
         close: () => Effect.sync(() => closes[index]++),
       }
       return Effect.acquireRelease(Effect.succeed(session), (session) => session.close())
@@ -138,7 +247,10 @@ it.effect("reconnects with a new name and fences the retired generation", () =>
       (command): command is Extract<WatchmanProtocol.Command, { readonly type: "subscribe" }> =>
         command.type === "subscribe",
     )
-    if (!first) return yield* Effect.die("first subscription was not requested")
+    if (!first) {
+      yield* Effect.die("first subscription was not requested")
+      return
+    }
     receives[0]?.({ type: "canceled", subscription: first.name })
     yield* advance(() => commands.length === 2)
     yield* Queue.take(invalidations)
@@ -146,7 +258,10 @@ it.effect("reconnects with a new name and fences the retired generation", () =>
       (command): command is Extract<WatchmanProtocol.Command, { readonly type: "subscribe" }> =>
         command.type === "subscribe",
     )
-    if (!second) return yield* Effect.die("second subscription was not requested")
+    if (!second) {
+      yield* Effect.die("second subscription was not requested")
+      return
+    }
     expect(second.name).not.toBe(first.name)
     expect(closes[0]).toBe(1)
 
@@ -184,8 +299,8 @@ it.effect("serializes attachment for keys sharing one canonical root", () =>
       const session: WatchmanSession.Interface = {
         request: (command) => {
           if (command.type === "version") {
-            Deferred.doneUnsafe(requested[index]!, Effect.void)
-            return Deferred.await(versions[index]!)
+            Deferred.doneUnsafe(requested[index], Effect.void)
+            return Deferred.await(versions[index])
           }
           if (command.type === "watch") return Effect.succeed({ type: "watch", watch: directory.path })
           if (command.type === "clock") return Effect.succeed({ type: "clock", clock: "c:1:2:3:4" })
@@ -193,6 +308,7 @@ it.effect("serializes attachment for keys sharing one canonical root", () =>
             return Effect.succeed({ type: "subscribe", subscribe: command.name, clock: "c:1:2:3:4" })
           return Effect.succeed({ type: "unsubscribe", subscription: command.name, deleted: true })
         },
+        send: () => Effect.void,
         close: () => Effect.sync(() => closes[index]++),
       }
       return Effect.acquireRelease(Effect.succeed(session), (session) => session.close())
@@ -214,18 +330,18 @@ it.effect("serializes attachment for keys sharing one canonical root", () =>
     const first = yield* subscribe([])
     const second = yield* subscribe(["node_modules"])
 
-    yield* Deferred.await(requested[0]!)
+    yield* Deferred.await(requested[0])
     yield* Effect.yieldNow
     expect(opens).toBe(1)
-    yield* Deferred.succeed(versions[0]!, {
+    yield* Deferred.succeed(versions[0], {
       type: "version",
       version: "2026.09.05",
       capabilities: Object.fromEntries(WatchmanDirectory.capabilities.map((capability) => [capability, true])),
     })
     yield* Queue.take(invalidations)
-    yield* Deferred.await(requested[1]!)
+    yield* Deferred.await(requested[1])
     expect(opens).toBe(2)
-    yield* Deferred.succeed(versions[1]!, {
+    yield* Deferred.succeed(versions[1], {
       type: "version",
       version: "2026.09.05",
       capabilities: Object.fromEntries(WatchmanDirectory.capabilities.map((capability) => [capability, true])),
@@ -265,6 +381,7 @@ it.effect("reconnects when the heartbeat observes a new root identity", () =>
             return Effect.succeed({ type: "subscribe", subscribe: command.name, clock: "c:1:2:3:4" })
           return Effect.succeed({ type: "unsubscribe", subscription: command.name, deleted: true })
         },
+        send: () => Effect.void,
         close: () => Effect.void,
       }
       return Effect.succeed(session)
@@ -358,7 +475,12 @@ restartLive("recovers after a private daemon restart", () =>
       invalidate: () => Queue.offerUnsafe(invalidations, undefined),
     })
     yield* Queue.take(invalidations).pipe(Effect.timeout("10 seconds"))
-    yield* Effect.promise(() => fs.writeFile(process.env.OPENCODE_TEST_WATCHMAN_RESTART_MARKER!, directory.path))
+    const marker = process.env.OPENCODE_TEST_WATCHMAN_RESTART_MARKER
+    if (!marker) {
+      yield* Effect.die("restart marker was not configured")
+      return
+    }
+    yield* Effect.promise(() => fs.writeFile(marker, directory.path))
     yield* Queue.take(invalidations).pipe(Effect.timeout("20 seconds"))
 
     const file = path.join(directory.path, "after-restart.txt")

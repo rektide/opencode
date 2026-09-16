@@ -3,8 +3,8 @@ import { createServer, type Server, type Socket } from "node:net"
 import path from "node:path"
 import { Effect, Fiber } from "effect"
 import { WatchmanSession } from "@opencode-ai/core/filesystem/watcher/watchman/session"
-import { tmpdirScoped } from "../../fixture/tmpdir"
-import { it } from "../../lib/effect"
+import { tmpdirScoped } from "../../fixture/tmpdir.ts"
+import { it } from "../../lib/effect.ts"
 
 it.live("keeps unilateral pushes out of the pending command slot", () =>
   Effect.gen(function* () {
@@ -191,6 +191,45 @@ it.live("times out a submitted command and closes its socket", () =>
     })
     yield* Effect.promise(() => closed)
     expect(losses.map((failure) => failure.reason)).toEqual(["timeout"])
+  }),
+)
+
+it.live("rejects blank protocol frames", () =>
+  Effect.gen(function* () {
+    const directory = yield* tmpdirScoped()
+    const listener = yield* listen(path.join(directory.path, "watchman.sock"))
+    const session = yield* WatchmanSession.open(
+      { socket: listener.path, commandTimeoutMs: 1_000 },
+      () => {},
+      () => {},
+    )
+    const peer = yield* Effect.promise(() => listener.accepted)
+    const request = yield* session.request({ type: "clock", root: "/repo" }).pipe(Effect.forkScoped)
+    yield* Effect.promise(() => peer.next())
+    peer.socket.write("\n")
+    expect(yield* Fiber.join(request).pipe(Effect.flip)).toMatchObject({ reason: "protocol" })
+  }),
+)
+
+it.live("sends a final command without waiting for its reply", () =>
+  Effect.gen(function* () {
+    const directory = yield* tmpdirScoped()
+    const listener = yield* listen(path.join(directory.path, "watchman.sock"))
+    const losses: WatchmanSession.Failure[] = []
+    const session = yield* WatchmanSession.open(
+      { socket: listener.path, commandTimeoutMs: 1_000 },
+      () => {},
+      (failure) => losses.push(failure),
+    )
+    const peer = yield* Effect.promise(() => listener.accepted)
+    yield* session.send({ type: "unsubscribe", root: "/repo", name: "final" })
+    expect(JSON.parse(yield* Effect.promise(() => peer.next()))).toEqual(["unsubscribe", "/repo", "final"])
+    expect(yield* session.request({ type: "clock", root: "/repo" }).pipe(Effect.flip)).toMatchObject({
+      reason: "closed",
+    })
+    peer.send({ unsubscribe: "final", deleted: true })
+    yield* Effect.yieldNow
+    expect(losses).toEqual([])
   }),
 )
 

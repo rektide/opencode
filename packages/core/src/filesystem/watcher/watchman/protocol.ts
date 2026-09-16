@@ -11,7 +11,6 @@ export type Command =
       readonly root: string
       readonly name: string
       readonly since: string
-      readonly expression?: readonly unknown[]
     }
   | { readonly type: "unsubscribe"; readonly root: string; readonly name: string }
 
@@ -99,7 +98,6 @@ export function encode(command: Command): readonly unknown[] {
     {
       since: command.since,
       fields: ["name", "exists", "type"],
-      ...(command.expression ? { expression: command.expression } : {}),
     },
   ]
 }
