@@ -3,7 +3,7 @@ import { TuiKeybind } from "../../src/config/keybind"
 
 type ResolvedInput = Omit<Info, "attention" | "keybinds" | "leader"> & {
   attention?: Partial<Resolved["attention"]>
-  keybinds?: Partial<TuiKeybind.Keybinds>
+  keybinds?: TuiKeybind.KeybindOverrides
   leader?: { timeout?: number }
 }
 

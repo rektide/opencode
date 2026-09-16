@@ -176,7 +176,7 @@ export function migrateV1(legacy: TuiConfigV1.Info | undefined, kv: Record<strin
       : Object.fromEntries(
           Object.entries(legacy.keybinds).flatMap(([name, value]) => {
             const target = TuiKeybind.CommandMap[name as keyof typeof TuiKeybind.CommandMap] ?? name
-            if (!(target in Definitions)) return []
+            if (value === undefined || !(target in Definitions)) return []
             return [[target, value]]
           }),
         )
