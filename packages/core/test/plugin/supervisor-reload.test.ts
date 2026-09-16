@@ -75,14 +75,17 @@ const instances = Layer.effect(
     ]
     return map
   }),
-)
+).pipe(Layer.provideMerge(Watcher.testLayer))
 
 const it = testEffect(
-  AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node, SdkPlugins.node, LocationServiceMap.node]), [
-    Global.node.replace(tempGlobalLayer),
-    offlineModels,
-    LocationServiceMap.node.replace(instances),
-  ]).pipe(Layer.provideMerge(Watcher.testLayer)),
+  Layer.merge(
+    AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node, SdkPlugins.node, LocationServiceMap.node]), [
+      Global.node.replace(tempGlobalLayer),
+      offlineModels,
+      LocationServiceMap.node.replace(instances),
+    ]),
+    instances,
+  ),
 )
 
 const greeter = (command: string) => `export default {
