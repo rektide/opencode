@@ -75,7 +75,7 @@ const instances = Layer.effect(
     ]
     return map
   }),
-).pipe(Layer.provide(Watcher.testLayer))
+)
 
 const it = testEffect(
   AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node, SdkPlugins.node, LocationServiceMap.node]), [
@@ -180,10 +180,17 @@ describe("PluginSupervisor reload", () => {
       const watcher = yield* Watcher.Test
       const locations = yield* LocationServiceMap.Service
       yield* Effect.gen(function* () {
-        const plugins = yield* Plugin.Service
         const commands = yield* Command.Service
-        yield* plugins.awaitActivation
+        const wait = (name: string, attempts = 200): Effect.Effect<void, string> =>
+          Effect.gen(function* () {
+            if (yield* commands.get(name)) return
+            if (attempts === 0) return yield* Effect.fail(`configured plugin command ${name} did not settle`)
+            yield* Effect.promise(() => Bun.sleep(10))
+            return yield* wait(name, attempts - 1)
+          })
+        yield* wait("greet-v1")
         expect(yield* commands.get("greet-v1")).toBeDefined()
+        expect(yield* watcher.subscriptions()).toContainEqual({ path: path.dirname(file), type: "directory" })
 
         // The direct configured-directory watch reports readiness after
         // reacquisition: the authoritative reread must run without a path event.
@@ -191,14 +198,11 @@ describe("PluginSupervisor reload", () => {
           await Bun.write(file, greeter("greet-v2"))
           await fs.utimes(file, new Date(), new Date())
         })
-        yield* watcher
-          .invalidate()
-          .pipe(
-            Effect.andThen(commands.get("greet-v2")),
-            Effect.flatMap((command) => (command ? Effect.void : Effect.fail("pending"))),
-            Effect.retry({ times: 200, schedule: Schedule.spaced("10 millis") }),
-          )
-        expect(yield* commands.get("greet-v1")).toBeDefined()
+        const reloaded = yield* wait("greet-v2").pipe(Effect.forkScoped({ startImmediately: true }))
+        yield* watcher.invalidate()
+        yield* advance(() => reloaded.pollUnsafe() !== undefined)
+        yield* Fiber.join(reloaded)
+        expect(yield* commands.get("greet-v1")).toBeUndefined()
       }).pipe(
         Effect.scoped,
         Effect.provide(locations.get(Location.Ref.make({ directory: AbsolutePath.make(directory.path) }))),
