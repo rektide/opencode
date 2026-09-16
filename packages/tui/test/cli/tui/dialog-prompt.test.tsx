@@ -20,7 +20,7 @@ async function wait(fn: () => boolean, timeout = 2000) {
 
 async function mountPrompt(input: {
   root: string
-  keybinds: Partial<TuiKeybind.Keybinds>
+  keybinds: TuiKeybind.KeybindOverrides
   onConfirm: (value: string) => void
 }) {
   const state = path.join(input.root, "state")

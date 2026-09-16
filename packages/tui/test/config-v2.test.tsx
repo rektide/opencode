@@ -137,12 +137,29 @@ test("uses command IDs as keybind keys", () => {
   const config = resolve({ keybinds: { "session.list": "ctrl+l" } }, { terminalSuspend: true })
 
   expect(config.keybinds.get("session.list")).toMatchObject([{ key: "ctrl+l" }])
-  expect(TuiKeybind.unknownKeys({ session_list: "ctrl+l" })).toEqual(["session_list"])
+  expect(config.keybinds.get("session_list")).toEqual([])
   expect(
     Object.keys(TuiKeybind.Definitions)
       .filter((key) => key !== "leader")
       .every((key) => key.includes(".")),
   ).toBe(true)
+})
+
+test("retains plugin command keybind overrides for registered keymap commands", () => {
+  expect(decodeInfo({ keybinds: { "plugin.action": "ctrl+alt+p" } })).toEqual({
+    keybinds: { "plugin.action": "ctrl+alt+p" },
+  })
+  // Values are still binding values: anything else fails schema validation.
+  expect(() => decodeInfo({ keybinds: { "plugin.action": 42 } })).toThrow()
+
+  const config = resolve({ keybinds: { "plugin.action": "ctrl+alt+p" } }, { terminalSuspend: true })
+
+  // The keymap seam (Keymap.createLayer) reads config.keybinds.get(command.id)
+  // before a layer's declared bind, so a reachable lookup entry is the override.
+  expect(config.keybinds.get("plugin.action")).toMatchObject([{ key: "ctrl+alt+p" }])
+  expect(config.keybinds.has("plugin.action")).toBe(true)
+  // Built-in defaults resolve unchanged beside the plugin entry.
+  expect(config.keybinds.get("app.exit")).toMatchObject([{ key: "ctrl+c,ctrl+d,<leader>q" }])
 })
 
 test("preserves current navigation defaults", () => {
@@ -255,8 +272,15 @@ test("retired diff tree keybinds remain accepted but have no default bindings", 
   ids.forEach((id) => expect(defaults.keybinds.get(id)).toEqual([]))
 })
 
-test("rejects orphaned keybind definitions", () => {
-  expect(decodeInfo({ keybinds: { "app.heap_snapshot": "ctrl+h" } })).toEqual({ keybinds: {} })
+test("keeps orphaned keybind definitions inert rather than rejecting them", () => {
+  // Unknown ids (retired built-ins or not-yet-registered plugin commands) decode and
+  // resolve into the lookup, but stay inert because no keymap command claims them.
+  const config = resolve({ keybinds: { "app.heap_snapshot": "ctrl+h" } }, { terminalSuspend: true })
+  expect(decodeInfo({ keybinds: { "app.heap_snapshot": "ctrl+h" } })).toEqual({
+    keybinds: { "app.heap_snapshot": "ctrl+h" },
+  })
+  expect(config.keybinds.has("app.heap_snapshot")).toBe(true)
+  expect("app.heap_snapshot" in TuiKeybind.Definitions).toBe(false)
 })
 
 test("uses ctrl+z for input undo when terminal suspend is unavailable", () => {

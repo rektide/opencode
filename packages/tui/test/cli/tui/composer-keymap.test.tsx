@@ -27,7 +27,7 @@ const shells = [shell("sh-a", "bun test"), shell("sh-b", "bun dev"), shell("sh-c
 
 async function renderComposer(
   defaultTab: "subagents" | "shell",
-  keybinds: Partial<TuiKeybind.Keybinds>,
+  keybinds: TuiKeybind.KeybindOverrides,
   focusedTextarea = false,
 ) {
   const events = createEventStream()
