@@ -177,11 +177,13 @@ function runGeneration(
 
       installed()
       yield* Effect.sync(() => input.invalidate?.())
+      yield* Effect.sleep("30 seconds").pipe(
+        Effect.andThen(Queue.offer(attached.signals, { type: "heartbeat" })),
+        Effect.forever,
+        Effect.forkScoped({ startImmediately: true }),
+      )
       for (;;) {
-        const signal = yield* Effect.race(
-          Queue.take(attached.signals),
-          Effect.sleep("30 seconds").pipe(Effect.as({ type: "heartbeat" } as const)),
-        )
+        const signal = yield* Queue.take(attached.signals)
         if (signal.type === "lost") return yield* Effect.fail(sessionFailure(signal.failure))
         if (signal.type === "heartbeat") {
           const reply = yield* attached.session.request({ type: "clock", root: attached.canonicalRoot }).pipe(

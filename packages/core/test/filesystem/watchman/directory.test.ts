@@ -242,9 +242,11 @@ it.effect("reconnects when the heartbeat observes a new root identity", () =>
     const directory = yield* tmpdirScoped()
     const invalidations = yield* Queue.unbounded<void>()
     const clocks = [0, 0]
+    const receives: Array<(push: WatchmanProtocol.Push) => void> = []
     let opens = 0
-    const open: WatchmanSession.Open = () => {
+    const open: WatchmanSession.Open = (_options, receive) => {
       const index = opens++
+      receives.push(receive)
       const session: WatchmanSession.Interface = {
         request: (command) => {
           if (command.type === "version")
@@ -282,6 +284,20 @@ it.effect("reconnects when the heartbeat observes a new root identity", () =>
     })
 
     yield* Queue.take(invalidations)
+    yield* Effect.sleep("1 second").pipe(
+      Effect.andThen(
+        Effect.sync(() =>
+          receives[0]?.({
+            type: "batch",
+            subscription: "unrelated",
+            fresh: false,
+            files: [],
+          }),
+        ),
+      ),
+      Effect.forever,
+      Effect.forkScoped({ startImmediately: true }),
+    )
     yield* advance(() => opens === 2)
     yield* Queue.take(invalidations)
     expect(clocks).toEqual([2, 1])
