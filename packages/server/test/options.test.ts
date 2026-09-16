@@ -25,6 +25,16 @@ test("accepts durable event persistence configuration", () => {
   expect(Option.getOrThrow(decode({ events: { persist: true } })).events).toEqual({ persist: true })
 })
 
+test("validates Watchman filesystem options", () => {
+  expect(
+    Option.getOrThrow(decode({ fs: { watchman: { socket: "/run/watchman.sock", commandTimeoutMs: 5_000 } } })).fs
+      ?.watchman,
+  ).toEqual({ socket: "/run/watchman.sock", commandTimeoutMs: 5_000 })
+  expect(Option.isNone(decode({ fs: { watchman: { socket: "/run/watchman.sock", commandTimeoutMs: 0 } } }))).toBe(
+    true,
+  )
+})
+
 test("accepts an optional CORS allowlist", () => {
   expect(Option.getOrThrow(decode({})).cors).toBeUndefined()
   expect(Option.getOrThrow(decode({ cors: [] })).cors).toEqual([])

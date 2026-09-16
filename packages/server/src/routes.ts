@@ -114,7 +114,7 @@ function makeRoutes<AuthError, AuthServices>(
     Bus.node.replace(Bus.configured({ persist: options.events?.persist })),
     App.node.replace(App.configured(options.app)),
     ModelsDev.node.replace(ModelsDev.configured(options.models)),
-    Watcher.node.replace(Watcher.configured({ enabled: options.fs?.filewatcher })),
+    Watcher.node.replace(Watcher.configured({ enabled: options.fs?.filewatcher, watchman: options.fs?.watchman })),
     FileSystemSearch.node.replace(FileSystemSearch.configured({ fff: options.fs?.fff })),
     Global.node.replace(Global.layerWith(options.config?.directory ? { config: options.config.directory } : {})),
     Config.node.replace(

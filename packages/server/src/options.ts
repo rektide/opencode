@@ -1,6 +1,7 @@
 import { Database } from "@opencode-ai/core/database/database"
 import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { PersistentPty } from "@opencode-ai/core/persistent-pty"
+import { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import { Schema } from "effect"
 
 export const ServerOptions = Schema.Struct({
@@ -41,6 +42,7 @@ export const ServerOptions = Schema.Struct({
     Schema.Struct({
       filewatcher: Schema.optional(Schema.Boolean),
       fff: Schema.optional(Schema.Boolean),
+      watchman: Schema.optional(Watcher.WatchmanOptions),
     }),
   ),
 })
