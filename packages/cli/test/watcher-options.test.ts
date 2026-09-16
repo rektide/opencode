@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { ServerProcess } from "../src/server-process"
+import { ServerProcess } from "../src/server-process.ts"
 
 test("requires explicit Watchman selection and resolves its socket", () => {
   expect(ServerProcess.watchmanOptions({ WATCHMAN_SOCK: "/run/ambient.sock" })).toBeUndefined()
@@ -38,5 +38,5 @@ test("rejects invalid Watchman environment configuration", () => {
       OPENCODE_WATCHMAN_SOCKET: "/run/watchman.sock",
       OPENCODE_WATCHMAN_COMMAND_TIMEOUT_MS: "0",
     }),
-  ).toThrow(/timeout/i)
+  ).toThrow(/commandTimeoutMs|integer/i)
 })

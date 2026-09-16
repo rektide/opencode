@@ -33,6 +33,7 @@ test("validates Watchman filesystem options", () => {
   expect(Option.isNone(decode({ fs: { watchman: { socket: "/run/watchman.sock", commandTimeoutMs: 0 } } }))).toBe(
     true,
   )
+  expect(Option.isNone(decode({ fs: { watchman: { socket: "relative" } } }))).toBe(true)
 })
 
 test("accepts an optional CORS allowlist", () => {

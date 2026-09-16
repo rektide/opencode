@@ -70,7 +70,11 @@ export interface Interface {
 }
 
 export const WatchmanOptions = Schema.Struct({
-  socket: Schema.String,
+  socket: Schema.String.check(
+    Schema.makeFilter((value) =>
+      path.isAbsolute(value) && !value.includes("\0") ? undefined : "an absolute NUL-free path",
+    ),
+  ),
   commandTimeoutMs: Schema.optional(
     Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 600_000 })),
   ),
@@ -226,7 +230,7 @@ export const testLayer = Layer.effectContext(
         }),
       invalidate: () =>
         Effect.sync(() => {
-          for (const invalidate of invalidates) invalidate()
+          invalidates.forEach((invalidate) => invalidate())
         }),
       subscriptions: () => Effect.sync(() => [...subscriptions]),
     })
@@ -263,13 +267,11 @@ export const nativeNode = makeGlobalNode({ service: Native, layer: nativeLayer, 
 
 export function configured(options?: Options) {
   if (!options?.watchman) return makeGlobalNode({ service: Service, layer: layer(options), deps: [nativeNode] })
-  const watchman = options.watchman
+  const watchman = Schema.decodeUnknownSync(WatchmanOptions)(options.watchman)
   const selected = makeGlobalNode({
     service: Native,
     layer: Layer.unwrap(
       Effect.gen(function* () {
-        if (!path.isAbsolute(watchman.socket) || watchman.socket.includes("\0"))
-          return yield* Effect.die("Watchman socket must be an absolute NUL-free path")
         const { WatchmanDirectory } = yield* Effect.promise(() => import("./watcher/watchman/directory.js"))
         return WatchmanDirectory.layer({
           socket: watchman.socket,
