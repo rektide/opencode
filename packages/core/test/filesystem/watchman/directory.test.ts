@@ -1,4 +1,6 @@
 import { expect } from "bun:test"
+import fs from "node:fs/promises"
+import path from "node:path"
 import { Deferred, Effect, Queue } from "effect"
 import { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import { WatchmanDirectory } from "@opencode-ai/core/filesystem/watcher/watchman/directory"
@@ -284,6 +286,37 @@ it.effect("reconnects when the heartbeat observes a new root identity", () =>
     yield* Queue.take(invalidations)
     expect(clocks).toEqual([2, 1])
 
+    yield* Effect.promise(() => subscription?.unsubscribe() ?? Promise.resolve())
+  }),
+)
+
+const live = process.env.OPENCODE_TEST_WATCHMAN_SOCK ? it.live : it.live.skip
+
+live("observes real file updates and deletes", () =>
+  Effect.gen(function* () {
+    const directory = yield* tmpdirScoped()
+    const updates = yield* Queue.unbounded<Watcher.Update>()
+    const installed = yield* Deferred.make<void>()
+    const native = yield* WatchmanDirectory.make(
+      Watcher.Native.of({ subscribe: () => Effect.succeed(undefined) }),
+      { socket: process.env.OPENCODE_TEST_WATCHMAN_SOCK!, commandTimeoutMs: 10_000 },
+    )
+    const subscription = yield* native.subscribe({
+      type: "directory",
+      target: directory.path,
+      ignore: [],
+      names: [],
+      publish: (update) => Queue.offerUnsafe(updates, update),
+      invalidate: () => Deferred.doneUnsafe(installed, Effect.void),
+    })
+    yield* Deferred.await(installed).pipe(Effect.timeout("10 seconds"))
+
+    const file = path.join(directory.path, "live.txt")
+    yield* Effect.promise(() => fs.writeFile(file, "one"))
+    expect(yield* Queue.take(updates).pipe(Effect.timeout("10 seconds"))).toEqual({ path: file, type: "update" })
+
+    yield* Effect.promise(() => fs.rm(file))
+    expect(yield* Queue.take(updates).pipe(Effect.timeout("10 seconds"))).toEqual({ path: file, type: "delete" })
     yield* Effect.promise(() => subscription?.unsubscribe() ?? Promise.resolve())
   }),
 )
