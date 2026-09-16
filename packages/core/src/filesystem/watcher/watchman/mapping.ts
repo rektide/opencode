@@ -1,14 +1,10 @@
 export * as WatchmanMapping from "./mapping.js"
 
-import { createRequire } from "node:module"
 import path from "node:path"
 import type { Watcher } from "../../watcher.js"
 
-const parcelRequire = createRequire(import.meta.resolve("@parcel/watcher/wrapper"))
-const isGlob: (value: string) => boolean = parcelRequire("is-glob")
-const micromatch: {
-  readonly makeRe: (value: string, options: { readonly dot: boolean; readonly lookbehinds: boolean }) => RegExp
-} = parcelRequire("micromatch")
+// @ts-ignore @parcel/watcher does not publish declarations for its wrapper entrypoint.
+import { createWrapper } from "@parcel/watcher/wrapper"
 
 export type Options = {
   readonly logicalRoot: string
@@ -35,13 +31,12 @@ export type Result =
 
 export function compile(options: Options): Compiled {
   const logicalRoot = path.resolve(options.logicalRoot)
+  const normalized = normalizeIgnores(logicalRoot, options.ignore)
   return {
     logicalRoot,
     canonicalRoot: path.resolve(options.canonicalRoot),
-    literals: options.ignore.filter((value) => !isGlob(value)).map((value) => path.resolve(logicalRoot, value)),
-    globs: options.ignore
-      .filter(isGlob)
-      .map((value) => micromatch.makeRe(value, { dot: true, lookbehinds: false })),
+    literals: normalized.ignorePaths ?? [],
+    globs: (normalized.ignoreGlobs ?? []).map((value) => new RegExp(value)),
   }
 }
 
@@ -66,4 +61,19 @@ export function map(compiled: Compiled, row: Row): Result {
 function contains(parent: string, target: string) {
   const relative = path.relative(parent, target)
   return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+}
+
+type NormalizedIgnores = {
+  readonly ignorePaths?: readonly string[]
+  readonly ignoreGlobs?: readonly string[]
+}
+
+function normalizeIgnores(root: string, ignore: readonly string[]): NormalizedIgnores {
+  let normalized: NormalizedIgnores = {}
+  createWrapper({
+    writeSnapshot: (_directory: string, _snapshot: string, options: NormalizedIgnores) => {
+      normalized = options
+    },
+  }).writeSnapshot(root, root, { ignore: [...ignore] })
+  return normalized
 }
