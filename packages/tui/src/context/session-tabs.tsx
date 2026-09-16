@@ -430,10 +430,12 @@ export const { use: useSessionTabs, provider: SessionTabsProvider } = createSimp
           draft.tabs = moveSessionTab(draft.tabs, session, index)
         })
       },
-      cycle(direction: 1 | -1) {
+      // Returns the session navigated to, or undefined when no tab was selected.
+      cycle(direction: 1 | -1): string | undefined {
         if (!enabled()) return
         const tab = cycleSessionTab(state().tabs, current(), direction)
         if (tab) route.navigate({ type: "session", sessionID: tab.sessionID })
+        return tab?.sessionID
       },
       cycleUnread(direction: 1 | -1) {
         if (!enabled()) return

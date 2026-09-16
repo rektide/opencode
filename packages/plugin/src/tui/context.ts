@@ -556,6 +556,12 @@ export interface UI {
     focus(sessionID: string): boolean
     /** Moves an open tab to an index and returns false when it is not open. */
     move(sessionID: string, index: number): boolean
+    /** Moves the active tab one slot in a direction, clamping at the ends without wrapping. Returns false when tabs are disabled or the tab is not open. */
+    moveBy(direction: 1 | -1): boolean
+    /** Moves an open tab one slot in a direction, clamping at the ends without wrapping. Returns false when tabs are disabled or the tab is not open. */
+    moveBy(sessionID: string, direction: 1 | -1): boolean
+    /** Switches to the next or previous open tab, wrapping around. Returns false when tabs are disabled or none are open. */
+    cycle(direction: 1 | -1): boolean
     /** Closes an open tab, or the active tab when omitted, and returns false when no tab matched. */
     close(sessionID?: string): boolean
   }
