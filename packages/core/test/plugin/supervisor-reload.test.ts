@@ -155,7 +155,7 @@ describe("PluginSupervisor reload", () => {
           yield* watcher.emit({ path: file, type: "update" })
           const ready = yield* plugins.awaitActivation.pipe(Effect.forkScoped({ startImmediately: true }))
           yield* Deferred.succeed(gate, undefined)
-          yield* advance(() => ready.pollUnsafe() !== undefined)
+          yield* advance(() => ready.pollUnsafe() !== undefined, 500)
           yield* Fiber.join(ready)
 
           expect(yield* commands.get("greet-v1")).toBeUndefined()

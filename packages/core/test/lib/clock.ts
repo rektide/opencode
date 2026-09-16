@@ -17,12 +17,12 @@ const tick = Effect.gen(function* () {
  * loop alternates real-macrotask settles with adjusts until the condition
  * holds. Extra adjusts are harmless when nothing is pending.
  */
-export const advance = Effect.fnUntraced(function* (condition: () => boolean) {
-  for (let attempt = 0; attempt < 100; attempt++) {
+export const advance = Effect.fnUntraced(function* (condition: () => boolean, attempts = 100) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
     if (condition()) return
     yield* tick
   }
-  return yield* Effect.die(new Error("condition never became true after 100 advances"))
+  return yield* Effect.die(new Error(`condition never became true after ${attempts} advances`))
 })
 
 /**
