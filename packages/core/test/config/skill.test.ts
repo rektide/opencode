@@ -113,6 +113,22 @@ function emitAndWait(update: Watcher.Update) {
   })
 }
 
+function invalidateAndWait() {
+  return Effect.gen(function* () {
+    const watcher = yield* Watcher.Test
+    const bus = yield* Bus.Service
+    const deferred = yield* Deferred.make<void>()
+    const fiber = yield* bus.subscribe(Skill.Event.Updated).pipe(
+      Stream.runForEach(() => Deferred.succeed(deferred, undefined).pipe(Effect.asVoid)),
+      Effect.forkScoped,
+    )
+    yield* Effect.yieldNow
+    yield* watcher.invalidate()
+    yield* Deferred.await(deferred).pipe(Effect.timeout("2 seconds"))
+    yield* Fiber.interrupt(fiber)
+  })
+}
+
 describe("SkillFile.parse", () => {
   test("parses root and nested skill ids and metadata flags", () => {
     const directory = "/repo/skills"
@@ -290,12 +306,20 @@ describe("ConfigSkillPlugin.Plugin", () => {
             await write(tmp.path, "deploy", "Initial")
           })
           const skill = yield* start([tmp.path], tmp.path)
+          const watcher = yield* Watcher.Test
           expect((yield* skill.list()).find((item) => item.id === "deploy")?.description).toBe("Initial")
+          expect(yield* watcher.subscriptions()).toEqual([{ path: tmp.path, type: "directory" }])
 
           const deploy = path.join(tmp.path, "deploy", "SKILL.md")
           yield* Effect.promise(() => write(tmp.path, "deploy", "Updated"))
           yield* emitAndWait({ type: "update", path: deploy })
           expect((yield* skill.list()).find((item) => item.id === "deploy")?.description).toBe("Updated")
+          expect(yield* watcher.subscriptions()).toEqual([{ path: tmp.path, type: "directory" }])
+
+          yield* Effect.promise(() => write(tmp.path, "deploy", "Reacquired"))
+          yield* invalidateAndWait()
+          expect((yield* skill.list()).find((item) => item.id === "deploy")?.description).toBe("Reacquired")
+          expect(yield* watcher.subscriptions()).toEqual([{ path: tmp.path, type: "directory" }])
 
           yield* Effect.promise(async () => {
             await fs.mkdir(path.join(tmp.path, "review"), { recursive: true })
@@ -376,7 +400,6 @@ describe("ConfigSkillPlugin.Plugin", () => {
             { path: first, type: "directory" },
             { path: source, type: "file" },
             { path: second, type: "directory" },
-            { path: source, type: "file" },
           ])
         }),
       ),

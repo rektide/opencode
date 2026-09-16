@@ -33,13 +33,20 @@ export const Plugin = define({
     const changes = yield* PubSub.sliding<string>(1)
     const lock = Semaphore.makeUnsafe(1)
 
-    const watch = Effect.fn("ConfigSkillPlugin.watch")(function* (directory: string, type: "file" | "directory") {
+    const watch = Effect.fn("ConfigSkillPlugin.watch")(function* (
+      desired: Set<string>,
+      directory: string,
+      type: "file" | "directory",
+    ) {
       const target = path.resolve(directory)
-      const updates = yield* watcher.subscribe({ path: target, type })
+      const key = `${type}:${target}`
+      desired.add(key)
+      const notify = (file: string) => PubSub.publish(changes, file).pipe(Effect.asVoid)
+      const updates = yield* watcher.subscribe({ path: target, type }, notify(target))
       yield* FiberMap.run(
         watches,
-        `${type}:${target}`,
-        updates.pipe(Stream.runForEach((update) => PubSub.publish(changes, update.path).pipe(Effect.asVoid))),
+        key,
+        updates.pipe(Stream.runForEach((update) => notify(update.path))),
         { onlyIfMissing: true, startImmediately: true },
       )
     })
@@ -50,26 +57,25 @@ export const Plugin = define({
       return fs.isDir(parent).pipe(Effect.flatMap((exists) => (exists ? Effect.succeed(target) : firstMissing(parent))))
     }
 
-    const watchDirectory: (directory: string) => Effect.Effect<string[]> = Effect.fn(
+    const watchDirectory: (desired: Set<string>, directory: string) => Effect.Effect<string[]> = Effect.fn(
       "ConfigSkillPlugin.watchDirectory",
-    )(function* (directory: string) {
+    )(function* (desired: Set<string>, directory: string) {
       const target = path.resolve(directory)
       const resolved = yield* fs.realPath(directory).pipe(Effect.orElseSucceed(() => undefined))
       if (resolved) {
-        yield* watch(resolved, "directory")
-        if (resolved !== target) yield* watch(target, "file")
+        yield* watch(desired, resolved, "directory")
+        if (resolved !== target) yield* watch(desired, target, "file")
         return resolved === target ? [target] : [target, resolved]
       }
       const missing = yield* firstMissing(target)
-      if (missing) yield* watch(missing, "file")
+      if (missing) yield* watch(desired, missing, "file")
       if (
         yield* fs.realPath(directory).pipe(
           Effect.as(true),
           Effect.orElseSucceed(() => false),
         )
       ) {
-        if (missing) yield* FiberMap.remove(watches, `file:${path.resolve(missing)}`)
-        return yield* watchDirectory(directory)
+        return yield* watchDirectory(desired, directory)
       }
       return [target]
     })
@@ -107,7 +113,7 @@ export const Plugin = define({
       return result
     }
 
-    const load = Effect.fn("ConfigSkillPlugin.load")(function* (source: Source) {
+    const load = Effect.fn("ConfigSkillPlugin.load")(function* (desired: Set<string>, source: Source) {
       const directories =
         source.type === "directory"
           ? [source.path]
@@ -119,7 +125,7 @@ export const Plugin = define({
                 }).pipe(Effect.as([] as AbsolutePath[])),
               ),
             )
-      const roots = (yield* Effect.forEach(directories, watchDirectory)).flat()
+      const roots = (yield* Effect.forEach(directories, (directory) => watchDirectory(desired, directory))).flat()
       const skills: Skill.Info[] = []
       for (const directory of directories) {
         const files = yield* fs
@@ -127,7 +133,8 @@ export const Plugin = define({
           .pipe(Effect.orElseSucceed(() => [] as string[]))
         for (const filepath of files.toSorted()) {
           const resolved = yield* fs.realPath(filepath).pipe(Effect.orElseSucceed(() => filepath))
-          if (!roots.some((root) => FSUtil.contains(root, resolved))) yield* watch(path.dirname(resolved), "directory")
+          if (!roots.some((root) => FSUtil.contains(root, resolved)))
+            yield* watch(desired, path.dirname(resolved), "directory")
           const content = yield* fs.readFileStringSafe(filepath).pipe(Effect.orElseSucceed(() => undefined))
           if (!content) continue
           const parsed = SkillFile.parse(directory, filepath, content)
@@ -153,11 +160,14 @@ export const Plugin = define({
 
     const refresh = Effect.fn("ConfigSkillPlugin.refresh")(
       function* (file?: string) {
-        yield* FiberMap.clear(watches)
+        const desired = new Set<string>()
         const skills = new Map<Skill.ID, Skill.Info>()
         const current = sources()
         for (const source of current) {
-          for (const skill of yield* load(source)) skills.set(skill.id, skill)
+          for (const skill of yield* load(desired, source)) skills.set(skill.id, skill)
+        }
+        for (const [key] of watches) {
+          if (!desired.has(key)) yield* FiberMap.remove(watches, key)
         }
         loaded.skills = Array.from(skills.values())
         if (file) {
