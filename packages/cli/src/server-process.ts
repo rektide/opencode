@@ -7,6 +7,7 @@ import { Global } from "@opencode-ai/util/global"
 import { OPENCODE_ARTIFACT, OPENCODE_CHANNEL, OPENCODE_VERSION } from "./version"
 import { AppProcess } from "@opencode-ai/util/process"
 import { randomBytes, randomUUID } from "node:crypto"
+import path from "node:path"
 import { Effect, Option, Redacted, Schedule, Schema } from "effect"
 import { PersistentPty } from "@opencode-ai/schema/persistent-pty"
 import { HttpServer } from "effect/unstable/http"
@@ -124,6 +125,7 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
               process.env.OPENCODE_DISABLE_FFF === undefined
                 ? process.platform !== "win32"
                 : !truthy(process.env.OPENCODE_DISABLE_FFF),
+            watchman: watchmanOptions(),
           },
         },
         serviceOptions === undefined
@@ -187,6 +189,23 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
     }).pipe(Effect.annotateLogs({ role: "server" })),
   )
 })
+
+export function watchmanOptions(environment: NodeJS.ProcessEnv = process.env) {
+  const backend = environment.OPENCODE_WATCHER_BACKEND
+  if (backend === undefined || backend === "parcel") return
+  if (backend !== "watchman") throw new Error(`Unknown watcher backend: ${backend}`)
+  if (environment.OPENCODE_WATCHMAN_BINARY)
+    throw new Error("OPENCODE_WATCHMAN_BINARY is unsupported; configure an explicit Watchman socket")
+  const socket = environment.OPENCODE_WATCHMAN_SOCKET ?? environment.WATCHMAN_SOCK
+  if (!socket) throw new Error("Watchman selection requires OPENCODE_WATCHMAN_SOCKET or WATCHMAN_SOCK")
+  if (!path.isAbsolute(socket) || socket.includes("\0")) throw new Error("Watchman socket must be an absolute NUL-free path")
+  const raw = environment.OPENCODE_WATCHMAN_COMMAND_TIMEOUT_MS
+  if (raw === undefined) return { socket }
+  const commandTimeoutMs = Number(raw)
+  if (!Number.isInteger(commandTimeoutMs) || commandTimeoutMs < 1 || commandTimeoutMs > 600_000)
+    throw new Error("Watchman command timeout must be an integer from 1 to 600000 milliseconds")
+  return { socket, commandTimeoutMs }
+}
 
 const recognizeIncumbent = Effect.fnUntraced(function* (options: DiscoverOptions, hostname: string, port: number) {
   const found = yield* Service.incumbent({ ...options, url: serviceURL(hostname, port) }).pipe(
