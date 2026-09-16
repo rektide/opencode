@@ -166,9 +166,9 @@ export const Plugin = define({
         for (const source of current) {
           for (const skill of yield* load(desired, source)) skills.set(skill.id, skill)
         }
-        for (const [key] of watches) {
-          if (!desired.has(key)) yield* FiberMap.remove(watches, key)
-        }
+        yield* Effect.forEach(Array.from(watches, ([key]) => key), (key) =>
+          desired.has(key) ? Effect.void : FiberMap.remove(watches, key),
+        )
         loaded.skills = Array.from(skills.values())
         if (file) {
           yield* Effect.logInfo("skills rescanned", {
