@@ -69,8 +69,17 @@ export interface Interface {
   readonly subscribe: (input: WatchInput, onReady?: Effect.Effect<void>) => Effect.Effect<Stream.Stream<Update>>
 }
 
+export const WatchmanOptions = Schema.Struct({
+  socket: Schema.String,
+  commandTimeoutMs: Schema.optional(
+    Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 600_000 })),
+  ),
+})
+export type WatchmanOptions = typeof WatchmanOptions.Type
+
 export const Options = Schema.Struct({
   enabled: Schema.optional(Schema.Boolean),
+  watchman: Schema.optional(WatchmanOptions),
 })
 export type Options = typeof Options.Type
 
@@ -253,7 +262,24 @@ export const nativeLayer = Layer.succeed(
 export const nativeNode = makeGlobalNode({ service: Native, layer: nativeLayer, deps: [] })
 
 export function configured(options?: Options) {
-  return makeGlobalNode({ service: Service, layer: layer(options), deps: [nativeNode] })
+  if (!options?.watchman) return makeGlobalNode({ service: Service, layer: layer(options), deps: [nativeNode] })
+  const watchman = options.watchman
+  const selected = makeGlobalNode({
+    service: Native,
+    layer: Layer.unwrap(
+      Effect.gen(function* () {
+        if (!path.isAbsolute(watchman.socket) || watchman.socket.includes("\0"))
+          return yield* Effect.die("Watchman socket must be an absolute NUL-free path")
+        const { WatchmanDirectory } = yield* Effect.promise(() => import("./watcher/watchman/directory.js"))
+        return WatchmanDirectory.layer({
+          socket: watchman.socket,
+          commandTimeoutMs: watchman.commandTimeoutMs ?? SUBSCRIBE_TIMEOUT_MS,
+        })
+      }),
+    ),
+    deps: [nativeNode],
+  })
+  return makeGlobalNode({ service: Service, layer: layer(options), deps: [selected] })
 }
 
 export const node = configured()

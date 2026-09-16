@@ -179,3 +179,5 @@ export const open = (
     }),
     (session) => session.close(),
   )
+
+export type Open = typeof open
