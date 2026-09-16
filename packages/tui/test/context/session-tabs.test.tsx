@@ -12,6 +12,7 @@ import { RouteProvider, useRoute } from "../../src/context/route"
 import { TuiAppProvider } from "../../src/context/runtime"
 import { SessionTabsProvider, useSessionTabs } from "../../src/context/session-tabs"
 import { NEW_SESSION_TAB_TITLE } from "../../src/context/session-tabs-model"
+import { createPluginContext } from "../../src/plugin/api"
 import { StorageProvider, useStorage } from "../../src/context/storage"
 import { createApi, createEventStream, createFetch, directory, json } from "../fixture/tui-client"
 import { TestTuiContexts } from "../fixture/tui-environment"
@@ -227,6 +228,32 @@ function admitted(sessionID: string, inboxID: string): OpenCodeEvent {
       item: { type: "user", payload: { text: inboxID }, delivery: "steer" },
     },
   }
+}
+
+// The plugin tabs adapter under test: createPluginContext only reads the host
+// services its built surface touches eagerly, so the session-tabs harness plus
+// inert stubs for the remaining contexts exercise the real adapter.
+function pluginTabsApi(setup: Awaited<ReturnType<typeof renderSessionTabs>>) {
+  return createPluginContext({
+    host: {
+      app: { version: "test", channel: "test" },
+      client: {},
+      data: setup.data,
+      keymap: { dispatch: () => {}, mode: () => "base" },
+      shortcuts: { list: () => [] },
+      keymapState: { commands: () => [], pending: () => [], active: () => [] },
+      sessionTabs: setup.tabs,
+    } as unknown as Parameters<typeof createPluginContext>[0]["host"],
+    id: "test",
+    options: {},
+    owned: [],
+    registry: {
+      has: () => false,
+      set: () => {},
+      remove: () => {},
+      active: () => false,
+    },
+  }).ui.tabs
 }
 
 test("loads persisted tab metadata concurrently on connect", async () => {
@@ -560,6 +587,96 @@ test("ignores subagent unread state on the root tab", async () => {
     })
     await wait(() => setup.views.includes("root"))
     expect(setup.views).toEqual(["root"])
+  } finally {
+    await setup.destroy()
+  }
+})
+
+test("plugin tabs moveBy shifts the current tab in both directions", async () => {
+  const setup = await renderSessionTabs("first", { persisted: ["first", "second", "third"] })
+
+  try {
+    await wait(() => setup.tabs.current() === "first" && setup.tabs.tabs().length === 3)
+    const tabs = pluginTabsApi(setup)
+
+    expect(tabs.moveBy(1)).toBe(true)
+    await wait(() => setup.tabs.tabs().map((tab) => tab.sessionID).join(",") === "second,first,third")
+
+    expect(tabs.moveBy(-1)).toBe(true)
+    await wait(() => setup.tabs.tabs().map((tab) => tab.sessionID).join(",") === "first,second,third")
+  } finally {
+    await setup.destroy()
+  }
+})
+
+test("plugin tabs moveBy clamps at the strip edges without wrapping", async () => {
+  const setup = await renderSessionTabs("first", { persisted: ["first", "second", "third"] })
+
+  try {
+    await wait(() => setup.tabs.current() === "first" && setup.tabs.tabs().length === 3)
+    const tabs = pluginTabsApi(setup)
+
+    expect(tabs.moveBy(-1)).toBe(true)
+    await wait(() => setup.tabs.tabs().length === 3)
+    expect(setup.tabs.tabs().map((tab) => tab.sessionID)).toEqual(["first", "second", "third"])
+
+    setup.tabs.select("third")
+    await wait(() => setup.tabs.current() === "third")
+    expect(tabs.moveBy(1)).toBe(true)
+    await wait(() => setup.tabs.tabs().length === 3)
+    expect(setup.tabs.tabs().map((tab) => tab.sessionID)).toEqual(["first", "second", "third"])
+  } finally {
+    await setup.destroy()
+  }
+})
+
+test("plugin tabs moveBy moves an explicit tab and rejects unknown sessions", async () => {
+  const setup = await renderSessionTabs("first", { persisted: ["first", "second", "third"] })
+
+  try {
+    await wait(() => setup.tabs.current() === "first" && setup.tabs.tabs().length === 3)
+    const tabs = pluginTabsApi(setup)
+
+    expect(tabs.moveBy("third", -1)).toBe(true)
+    await wait(() => setup.tabs.tabs().map((tab) => tab.sessionID).join(",") === "first,third,second")
+
+    expect(tabs.moveBy("unknown", 1)).toBe(false)
+    await wait(() => setup.tabs.tabs().length === 3)
+    expect(setup.tabs.tabs().map((tab) => tab.sessionID)).toEqual(["first", "third", "second"])
+  } finally {
+    await setup.destroy()
+  }
+})
+
+test("plugin tabs moveBy and cycle return false when tabs are disabled", async () => {
+  const setup = await renderSessionTabs("first", { persisted: ["first", "second"] })
+
+  try {
+    await wait(() => setup.tabs.current() === "first" && setup.tabs.tabs().length === 2)
+    const tabs = pluginTabsApi(setup)
+
+    await setup.setTabsEnabled(false)
+    expect(tabs.moveBy(1)).toBe(false)
+    expect(tabs.moveBy("second", -1)).toBe(false)
+    expect(tabs.cycle(1)).toBe(false)
+    expect(setup.tabs.current()).toBe("first")
+  } finally {
+    await setup.destroy()
+  }
+})
+
+test("plugin tabs cycle wraps across the strip ends", async () => {
+  const setup = await renderSessionTabs("first", { persisted: ["first", "second", "third"] })
+
+  try {
+    await wait(() => setup.tabs.current() === "first" && setup.tabs.tabs().length === 3)
+    const tabs = pluginTabsApi(setup)
+
+    expect(tabs.cycle(-1)).toBe(true)
+    await wait(() => setup.tabs.current() === "third")
+
+    expect(tabs.cycle(1)).toBe(true)
+    await wait(() => setup.tabs.current() === "first")
   } finally {
     await setup.destroy()
   }

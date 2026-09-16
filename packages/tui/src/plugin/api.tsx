@@ -241,6 +241,23 @@ export function createPluginContext(input: {
           host.sessionTabs.move(target, index)
           return true
         },
+        moveBy(sessionID?: string | 1 | -1, direction?: 1 | -1) {
+          if (!host.sessionTabs.enabled()) return false
+          // Overloaded at the type level: moveBy(direction) shifts the active tab,
+          // moveBy(sessionID, direction) an explicit one.
+          const target =
+            typeof sessionID === "string" ? host.data.session.root(sessionID) : host.sessionTabs.current()
+          const step = typeof sessionID === "number" ? sessionID : direction
+          if (!step) return false
+          if (!target || !host.sessionTabs.tabs().some((tab) => tab.sessionID === target)) return false
+          const index = host.sessionTabs.tabs().findIndex((tab) => tab.sessionID === target)
+          host.sessionTabs.move(target, index + step)
+          return true
+        },
+        cycle(direction) {
+          if (!host.sessionTabs.enabled()) return false
+          return host.sessionTabs.cycle(direction) !== undefined
+        },
         close(sessionID) {
           if (!host.sessionTabs.enabled()) return false
           const target = sessionID ?? host.sessionTabs.current()
