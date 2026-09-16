@@ -336,3 +336,34 @@ live("observes real file updates and deletes", () =>
     yield* Effect.promise(() => subscription?.unsubscribe() ?? Promise.resolve())
   }),
 )
+
+const restartLive =
+  process.env.OPENCODE_TEST_WATCHMAN_SOCK && process.env.OPENCODE_TEST_WATCHMAN_RESTART_MARKER ? it.live : it.live.skip
+
+restartLive("recovers after a private daemon restart", () =>
+  Effect.gen(function* () {
+    const directory = yield* tmpdirScoped()
+    const updates = yield* Queue.unbounded<Watcher.Update>()
+    const invalidations = yield* Queue.unbounded<void>()
+    const native = yield* WatchmanDirectory.make(
+      Watcher.Native.of({ subscribe: () => Effect.succeed(undefined) }),
+      { socket: process.env.OPENCODE_TEST_WATCHMAN_SOCK!, commandTimeoutMs: 2_000 },
+    )
+    const subscription = yield* native.subscribe({
+      type: "directory",
+      target: directory.path,
+      ignore: [],
+      names: [],
+      publish: (update) => Queue.offerUnsafe(updates, update),
+      invalidate: () => Queue.offerUnsafe(invalidations, undefined),
+    })
+    yield* Queue.take(invalidations).pipe(Effect.timeout("10 seconds"))
+    yield* Effect.promise(() => fs.writeFile(process.env.OPENCODE_TEST_WATCHMAN_RESTART_MARKER!, directory.path))
+    yield* Queue.take(invalidations).pipe(Effect.timeout("20 seconds"))
+
+    const file = path.join(directory.path, "after-restart.txt")
+    yield* Effect.promise(() => fs.writeFile(file, "ready"))
+    expect(yield* Queue.take(updates).pipe(Effect.timeout("10 seconds"))).toEqual({ path: file, type: "update" })
+    yield* Effect.promise(() => subscription?.unsubscribe() ?? Promise.resolve())
+  }),
+)
