@@ -14,6 +14,17 @@ stale_after: 2026-10-05
 
 Newest first. One line per event; details live in the linked records.
 
+## 2026-09-16
+
+- **Round 6 implemented and verified:** lean stock-Watchman adapter, owned JSON
+  Session, generation-fenced fresh-clock controller, logical mapping, retained
+  Skill watches, owner invalidation, Server/CLI options, private-daemon update/
+  delete/restart recovery, parallel review fixes, full affected-package suites,
+  and distribution builds. See
+  [`v2-readd6-implementation0.gpt56solxh.md`](v2-readd6-implementation0.gpt56solxh.md).
+- **Watchwoman remains separate:** deployed read feedback is not filtered in
+  the client; parity work continues in the Watchwoman repository.
+
 ## 2026-09-05
 
 - **Promotion pass** (coordinator-directed): `v2-readd4`{,`-dirty`,`-prompt0`}
