@@ -18,10 +18,7 @@ export const capabilities = [
   "field-type",
 ] as const
 
-export type Options = {
-  readonly socket: string
-  readonly commandTimeoutMs: number
-}
+export type Options = WatchmanSession.Options
 
 class Failure extends Schema.TaggedError<Failure>()("WatchmanControllerFailure", {
   reason: Schema.Literals(["target", "availability", "rejection", "protocol"]),

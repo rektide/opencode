@@ -267,7 +267,7 @@ export const nativeNode = makeGlobalNode({ service: Native, layer: nativeLayer, 
 
 export function configured(options?: Options) {
   if (!options?.watchman) return makeGlobalNode({ service: Service, layer: layer(options), deps: [nativeNode] })
-  const watchman = Schema.decodeUnknownSync(WatchmanOptions)(options.watchman)
+  const watchman = options.watchman
   const selected = makeGlobalNode({
     service: Native,
     layer: Layer.unwrap(

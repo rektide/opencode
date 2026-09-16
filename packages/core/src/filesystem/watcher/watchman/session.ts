@@ -6,6 +6,7 @@ import { WatchmanProtocol } from "./protocol.js"
 
 const MAX_FRAME_BYTES = 16 * 1024 * 1024
 const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))
+const decodeUtf8 = Option.liftThrowable((bytes: Uint8Array) => new TextDecoder("utf-8", { fatal: true }).decode(bytes))
 
 export class Failure extends Schema.TaggedError<Failure>()("WatchmanSessionFailure", {
   reason: Schema.Literals(["connect", "closed", "timeout", "protocol", "interrupted"]),
@@ -86,10 +87,8 @@ export const open = (
 
       const frame = (bytes: Buffer) => {
         if (draining) return
-        let text: string
-        try {
-          text = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
-        } catch {
+        const text = Option.getOrUndefined(decodeUtf8(bytes))
+        if (text === undefined) {
           finish(new Failure({ reason: "protocol", message: "Watchman sent invalid UTF-8" }))
           return
         }
