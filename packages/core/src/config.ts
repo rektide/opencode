@@ -38,6 +38,11 @@ export function latest<K extends keyof Info>(entries: readonly Entry[], key: K):
  */
 export type Change = Watcher.Update | { readonly type: "invalidation"; readonly path: string }
 
+export function matchesChange(change: Change, matches: (path: string) => Effect.Effect<boolean>) {
+  if (change.type === "invalidation") return Effect.succeed(true)
+  return matches(change.path)
+}
+
 export interface Interface {
   /** Returns location config documents and discovery sources from lowest to highest priority. */
   readonly entries: () => Effect.Effect<Entry[]>

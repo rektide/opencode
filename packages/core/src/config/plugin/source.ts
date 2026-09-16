@@ -86,9 +86,9 @@ export const layer = Layer.effect(
             // Invalidation bypasses source filtering: reacquisition makes every
             // source suspect even though no exact path event arrived.
             Stream.filterEffect((change) =>
-              change.type === "invalidation"
-                ? Effect.succeed(true)
-                : Effect.map(config.entries(), (entries) => isPluginSource(entries, change.path)),
+              Config.matchesChange(change, (path) =>
+                Effect.map(config.entries(), (entries) => isPluginSource(entries, path)),
+              ),
             ),
             Stream.map(() => undefined),
           ),

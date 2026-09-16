@@ -56,9 +56,7 @@ export const Plugin = define({
       // Invalidation bypasses source filtering: reacquisition makes every
       // source suspect even though no exact path event arrived.
       Stream.filterEffect((change) =>
-        change.type === "invalidation"
-          ? Effect.succeed(true)
-          : Effect.map(config.entries(), (entries) => isCommandSource(entries, change.path)),
+        Config.matchesChange(change, (path) => Effect.map(config.entries(), (entries) => isCommandSource(entries, path))),
       ),
       Stream.runForEach(notify),
       Effect.forkScoped({ startImmediately: true }),
