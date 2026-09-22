@@ -4,20 +4,21 @@ import fs from "fs/promises"
 import path from "path"
 import { eq, sql } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
-import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
-import { LayerNode } from "@opencode-ai/util/effect/layer-node"
-import { AbsolutePath } from "@opencode-ai/core/schema"
-import { Database } from "@opencode-ai/core/database/database"
-import { Bus } from "@opencode-ai/core/bus"
-import { Project } from "@opencode-ai/core/project"
-import { ProjectTable } from "@opencode-ai/core/project/sql"
-import { Worktree } from "@opencode-ai/core/worktree"
-import { WorktreeTable } from "@opencode-ai/core/worktree/sql"
-import { JjWorktreeTable } from "@opencode-ai/core/worktree/jj.sql"
-import { Location } from "@opencode-ai/core/location"
-import { Global } from "@opencode-ai/util/global"
-import { FSUtil } from "@opencode-ai/util/fs-util"
-import { Git } from "@opencode-ai/core/git"
+import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
+import { LayerNode } from "@opencode/util/effect/layer-node"
+import { AbsolutePath } from "@opencode/core/schema"
+import { Database } from "@opencode/core/database/database"
+import { Bus } from "@opencode/core/bus"
+import { Project } from "@opencode/core/project"
+import { ProjectTable } from "@opencode/core/project/sql"
+import { Worktree } from "@opencode/core/worktree"
+import { WorktreeStrategies } from "@opencode/core/worktree/strategies"
+import { WorktreeTable } from "@opencode/core/worktree/sql"
+import { JjWorktreeTable } from "@opencode/core/worktree/jj.sql"
+import { Location } from "@opencode/core/location"
+import { Global } from "@opencode/util/global"
+import { FSUtil } from "@opencode/util/fs-util"
+import { Git } from "@opencode/core/git"
 import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
 
@@ -49,7 +50,7 @@ function worktreeLayer(
   directory: AbsolutePath,
 ) {
   return AppNodeBuilder.build(
-    LayerNode.group([Worktree.node, Git.node, FSUtil.node, Location.node, Global.node]),
+    LayerNode.group([Worktree.node, WorktreeStrategies.node, Git.node, FSUtil.node, Location.node, Global.node]),
     [
       Database.node.replace(Layer.succeed(Database.Service, database)),
       Bus.node.replace(Layer.succeed(Bus.Service, bus)),
@@ -67,6 +68,20 @@ function worktreeLayer(
     ],
   ).pipe(Layer.fresh)
 }
+
+const fixtureWorktree = Effect.fnUntraced(function* () {
+  const input = yield* Fixture
+  const service = yield* Worktree.Service
+  const strategies = yield* WorktreeStrategies.Service
+  return {
+    list: () => service.list({ projectID: input.projectID }),
+    create: (options: Omit<Worktree.CreateInput, "projectID"> = {}) =>
+      service.create({ projectID: input.projectID, ...options }, strategies),
+    remove: (options: Omit<Worktree.RemoveInput, "projectID">) =>
+      service.remove({ projectID: input.projectID, ...options }, strategies),
+    refresh: () => service.refresh({ projectID: input.projectID }, strategies),
+  }
+})
 
 function makeFixture() {
   return Effect.gen(function* () {
@@ -113,7 +128,7 @@ describe("Worktree (jj)", () => {
   itJj.live("creates from an immutable base by default and preserves owned metadata through discovery", () =>
     Effect.gen(function* () {
       const input = yield* Fixture
-      const worktrees = yield* Worktree.Service
+      const worktrees = yield* fixtureWorktree()
       const parent = abs(`${input.root.path}-jj-created`)
       yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(parent, { recursive: true, force: true })))
       const base = (yield* Effect.promise(() => $`jj log --no-graph -r @- -T commit_id`.cwd(input.root.path).text())).trim()
@@ -132,7 +147,7 @@ describe("Worktree (jj)", () => {
   itJj.live("requires force to remove work created after the recorded base", () =>
     Effect.gen(function* () {
       const input = yield* Fixture
-      const worktrees = yield* Worktree.Service
+      const worktrees = yield* fixtureWorktree()
       const parent = abs(`${input.root.path}-jj-valuable`)
       yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(parent, { recursive: true, force: true })))
       const created = yield* worktrees.create({ directory: parent, name: "copy" })
@@ -152,7 +167,7 @@ describe("Worktree (jj)", () => {
   itJj.live("rejects a base that resolves to multiple commits", () =>
     Effect.gen(function* () {
       const input = yield* Fixture
-      const worktrees = yield* Worktree.Service
+      const worktrees = yield* fixtureWorktree()
       const parent = abs(`${input.root.path}-jj-ambiguous`)
       yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(parent, { recursive: true, force: true })))
 
@@ -166,22 +181,23 @@ describe("Worktree (jj)", () => {
   itJj.live("discovers the full workspace fleet and backfills metadata for persist-registered rows", () =>
     Effect.gen(function* () {
       const input = yield* Fixture
-      const worktrees = yield* Worktree.Service
+      const worktrees = yield* fixtureWorktree()
       const target = abs(`${input.root.path}-jj-external`)
       yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(target, { recursive: true, force: true })))
       yield* Effect.promise(() => $`jj workspace add --name external-copy -r @- ${target}`.cwd(input.root.path).quiet())
 
-      const result = yield* worktrees.refresh()
+      yield* worktrees.refresh()
+      const result = yield* worktrees.list()
       const discovered = abs(yield* Effect.promise(() => fs.realpath(target)))
 
-      expect(result.updated).toContain(discovered)
+      expect(result).toContainEqual({ directory: discovered, strategy: "jj_workspace" })
       expect(yield* metadata(input.sourceDirectory)).toMatchObject({ type: "jj_workspace", workspace: "default" })
       expect(yield* metadata(discovered)).toMatchObject({ type: "jj_workspace", workspace: "external-copy" })
       yield* worktrees.remove({ directory: discovered, force: true })
     }),
   )
 
-  itJj.live("keeps the canonical workspace unowned when refreshing from a secondary workspace", () =>
+  itJj.live("keeps the canonical workspace unowned when a secondary workspace is observed", () =>
     Effect.gen(function* () {
       const input = yield* Fixture
       const target = abs(`${input.root.path}-jj-secondary`)
@@ -189,10 +205,7 @@ describe("Worktree (jj)", () => {
       yield* Effect.promise(() => $`jj workspace add --name secondary -r @- ${target}`.cwd(input.root.path).quiet())
       const directory = abs(yield* Effect.promise(() => fs.realpath(target)))
       yield* input.db.insert(WorktreeTable).values({ project_id: input.projectID, directory }).run().pipe(Effect.orDie)
-      const database = yield* Database.Service
-      const bus = yield* Bus.Service
-      const context = yield* Layer.build(worktreeLayer(input, database, bus, directory))
-      const worktrees = Context.get(context, Worktree.Service)
+      const worktrees = yield* fixtureWorktree()
 
       yield* worktrees.refresh()
 
@@ -223,10 +236,7 @@ describe("Worktree (jj)", () => {
       })
       const directory = abs(yield* Effect.promise(() => fs.realpath(target)))
       yield* input.db.insert(WorktreeTable).values({ project_id: input.projectID, directory }).run().pipe(Effect.orDie)
-      const database = yield* Database.Service
-      const bus = yield* Bus.Service
-      const context = yield* Layer.build(worktreeLayer(input, database, bus, directory))
-      const worktrees = Context.get(context, Worktree.Service)
+      const worktrees = yield* fixtureWorktree()
 
       yield* worktrees.refresh()
 
@@ -244,7 +254,7 @@ describe("Worktree (jj)", () => {
   itJj.live("discovers legacy metadata into owned storage on demand", () =>
     Effect.gen(function* () {
       const input = yield* Fixture
-      const worktrees = yield* Worktree.Service
+      const worktrees = yield* fixtureWorktree()
       const target = abs(`${input.root.path}-jj-legacy`)
       yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(target, { recursive: true, force: true })))
       const base = (yield* Effect.promise(() => $`jj log --no-graph -r @- -T commit_id`.cwd(input.root.path).text())).trim()
