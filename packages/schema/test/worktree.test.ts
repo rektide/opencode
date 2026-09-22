@@ -21,8 +21,10 @@ describe("Worktree.CreateInput", () => {
   })
 
   test("preserves an explicit Jujutsu base and omits an absent base", () => {
-    expect(Schema.encodeSync(Worktree.CreateInput)({ base: "@-" })).toEqual({ base: "@-" })
-    expect(Schema.encodeSync(Worktree.CreateInput)({ base: undefined })).toEqual({})
+    const input = Schema.decodeUnknownSync(Worktree.CreateInput)({ projectID: "project", base: "@-" })
+    const absent = Schema.decodeUnknownSync(Worktree.CreateInput)({ projectID: "project", base: undefined })
+    expect(Schema.encodeSync(Worktree.CreateInput)(input)).toEqual({ projectID: "project", base: "@-" })
+    expect(Schema.encodeSync(Worktree.CreateInput)(absent)).toEqual({ projectID: "project" })
   })
 })
 
@@ -50,17 +52,17 @@ test("strategy failures can request force confirmation without Core or Git depen
 })
 
 test("discovery entries preserve Jujutsu metadata without encoding absent fields", () => {
-  const entry = {
+  const entry = Schema.decodeUnknownSync(Worktree.ListEntry)({
     directory: "/repo/copy",
-    type: "worktree" as const,
+    type: "worktree",
     metadata: {
-      type: "jj_workspace" as const,
+      type: "jj_workspace",
       workspace: "copy",
       base: "abc",
       changeID: undefined,
       commitID: undefined,
     },
-  }
+  })
   expect(Schema.encodeSync(Worktree.ListEntry)(entry)).toEqual({
     directory: "/repo/copy",
     type: "worktree",
