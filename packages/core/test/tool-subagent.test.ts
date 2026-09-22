@@ -29,6 +29,7 @@ import { SessionInbox } from "@opencode/core/session/inbox"
 import { SessionMessage } from "@opencode/core/session/message"
 import { SessionRunnerModel } from "@opencode/core/session/runner/model"
 import { SessionStore } from "@opencode/core/session/store"
+import { SubagentCompletion } from "@opencode/core/session/subagent-completion"
 import { Plugin } from "@opencode/core/plugin"
 import { PluginSupervisor } from "@opencode/core/plugin/supervisor"
 import { Permission } from "@opencode/core/permission"
@@ -191,6 +192,69 @@ const withSubagent = (location: Location.Ref) =>
   })
 
 describe("SubagentTool", () => {
+  it.live("includes child metadata for every terminal completion state", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const sessions = yield* Session.Service
+          const jobs = yield* Job.Service
+          const parent = yield* sessions.create({
+            location: Location.Ref.make({ directory: AbsolutePath.make(dir.path) }),
+            title: "Completion recipient",
+          })
+          const child = yield* sessions.create({ parentID: parent.id, title: "Background review" })
+          const recovery = {
+            kind: "subagent" as const,
+            parentSessionID: parent.id,
+            childSessionID: child.id,
+            agent: "reviewer",
+            description: "background review",
+          }
+
+          yield* SubagentCompletion.deliver(sessions, jobs, {
+            status: "completed",
+            output: "Review complete",
+            recovery,
+            resume: false,
+          })
+          yield* SubagentCompletion.deliver(sessions, jobs, {
+            status: "error",
+            error: "Review failed",
+            recovery,
+            resume: false,
+          })
+          yield* SubagentCompletion.deliver(sessions, jobs, {
+            status: "cancelled",
+            recovery,
+            resume: false,
+          })
+
+          expect(
+            (yield* sessions.inbox(parent.id)).flatMap((item) =>
+              item.type === "synthetic" ? [{ text: item.payload.text, metadata: item.payload.metadata }] : [],
+            ),
+          ).toEqual([
+            {
+              text: `<subagent sessionID="${child.id}" state="completed" description="background review">\nReview complete\n</subagent>`,
+              metadata: { source: "subagent", childID: child.id, agent: "reviewer", state: "completed" },
+            },
+            {
+              text: `<subagent sessionID="${child.id}" state="error" description="background review">\nReview failed\n</subagent>`,
+              metadata: { source: "subagent", childID: child.id, agent: "reviewer", state: "error" },
+            },
+            {
+              text: `<subagent sessionID="${child.id}" state="cancelled" description="background review">\nSubagent cancelled\n</subagent>`,
+              metadata: { source: "subagent", childID: child.id, agent: "reviewer", state: "cancelled" },
+            },
+          ])
+        }),
+      ),
+    ),
+  )
+
   completionIt.live("admits one durable completion across live delivery and restart replay", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
