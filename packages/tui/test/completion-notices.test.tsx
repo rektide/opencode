@@ -127,7 +127,13 @@ test.each([40, 120])("shell completion notices do not navigate at width %s", asy
   }
 })
 
-test.each([40, 120])("subagent completion notices navigate to the child session at width %s", async (width) => {
+test.each([
+  ["completed", 40, "finished", 117_000],
+  ["completed", 120, "finished", 117_000],
+  ["error", 80, "failed", 117_000],
+  ["cancelled", 80, "cancelled", 117_000],
+  ["completed", 80, "finished", undefined],
+])("subagent %s notice navigates at width %d as %s", async (completionState, width, status, contextTokens) => {
   await using state = await tmpdir()
   const setup = await createTestRenderer({ width, height: 20, useThread: false, kittyKeyboard: true })
   setup.renderer.start()
@@ -148,7 +154,13 @@ test.each([40, 120])("subagent completion notices navigate to the child session 
       type: "synthetic",
       text: "Subagent result",
       description: "Diagnose subagent search auth",
-      metadata: { source: "subagent", childID: child.id, agent: "general", state: "completed" },
+      metadata: {
+        source: "subagent",
+        childID: child.id,
+        agent: "general",
+        state: completionState,
+        ...(contextTokens === undefined ? {} : { contextTokens }),
+      },
       time: { created: 1 },
     },
   ]
@@ -180,11 +192,15 @@ test.each([40, 120])("subagent completion notices navigate to the child session 
     }).pipe(Effect.provide(Global.layerWith({ state: state.path })), Effect.provide(FileSystem.layerNoop({}))),
   )
   try {
-    await setup.waitForFrame((frame) => frame.includes("General finished"))
+    const label = `General ${status}`
+    await setup.waitForFrame((frame) => frame.includes(label))
     await setup.waitForVisualIdle()
+    const frame = setup.captureCharFrame()
+    if (contextTokens === undefined) expect(frame).not.toContain(" ctx)")
+    else expect(frame).toContain("(117k ctx)")
     const lines = setup.captureCharFrame().split("\n")
-    const y = lines.findIndex((line) => line.includes("General finished"))
-    const x = lines[y].indexOf("General finished")
+    const y = lines.findIndex((line) => line.includes(label))
+    const x = lines[y].indexOf(label)
     await setup.mockMouse.click(x + 1, y)
     await setup.waitForFrame((frame) => frame.includes("Investigate authentication"))
   } finally {
