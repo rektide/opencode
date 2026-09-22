@@ -193,3 +193,93 @@ test.each([40, 120])("subagent completion notices navigate to the child session 
     await server.stop()
   }
 })
+
+test.each([
+  ["failed", "Subagent failed during review"],
+  ["cancelled", "Subagent cancelled by user"],
+])("%s foreground subagent keeps error expansion and opens the child", async (_, error) => {
+  await using state = await tmpdir()
+  const setup = await createTestRenderer({ width: 80, height: 20, useThread: false, kittyKeyboard: true })
+  setup.renderer.start()
+  const parent = {
+    id: "ses_failed_parent",
+    title: "Parent session",
+    projectID: "project",
+    location: { directory },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 0, updated: 0 },
+  }
+  const child = { ...parent, id: "ses_failed_child", title: "Inspect failure", parentID: parent.id }
+  const messages = [
+    { id: "user-0", type: "user", text: "Run a foreground subagent", time: { created: 0 } },
+    {
+      id: "assistant-0",
+      type: "assistant",
+      agent: "build",
+      model: { providerID: "test", id: "test" },
+      content: [
+        {
+          type: "tool",
+          id: "subagent-0",
+          name: "subagent",
+          state: {
+            status: "error",
+            input: { agent: "general", description: "Inspect failure", prompt: "Investigate" },
+            error: { type: "tool.execution", message: error },
+            metadata: { sessionID: child.id, status: "running" },
+          },
+          time: { created: 1, completed: 2 },
+        },
+      ],
+      time: { created: 1, completed: 2 },
+    },
+  ]
+  const childMessages = [{ id: "child-user", type: "user", text: "Child failure transcript", time: { created: 0 } }]
+  const calls = createFetch((url) => {
+    if (url.pathname === "/api/session") return json({ data: [parent, child], cursor: {} })
+    if (url.pathname === `/api/session/${parent.id}`) return json({ data: parent })
+    if (url.pathname === `/api/session/${child.id}`) return json({ data: child })
+    if (url.pathname === `/api/session/${parent.id}/message`) return json({ data: messages.toReversed(), cursor: {} })
+    if (url.pathname === `/api/session/${child.id}/message`)
+      return json({ data: childMessages.toReversed(), cursor: {} })
+    if (url.pathname.endsWith("/inbox") || url.pathname.endsWith("/permission")) return json({ data: [] })
+    return undefined
+  }, createEventStream())
+  const server = Bun.serve({ port: 0, idleTimeout: 0, fetch: (request) => calls.fetch(request) })
+  const { run } = await import("../src/app")
+  const task = Effect.runPromise(
+    run({
+      app: { name: "test", version: "test", channel: "test" },
+      server: { endpoint: { url: server.url.toString() } },
+      config: {
+        get: async () => ({ animations: false, tabs: { mode: "off" } }),
+        update: async () => ({}),
+      },
+      packages: { prepare: async () => ({ directory: "" }) },
+      args: { sessionID: parent.id },
+      terminalHandoff: async () => ({ renderer: setup.renderer, mode: "dark", complete: () => {} }),
+      log: () => {},
+    }).pipe(Effect.provide(Global.layerWith({ state: state.path })), Effect.provide(FileSystem.layerNoop({}))),
+  )
+  try {
+    await setup.waitForFrame((frame) => frame.includes("General Subagent — Inspect failure"))
+    await setup.waitForVisualIdle()
+    const row = setup.captureCharFrame().split("\n")
+    const rowY = row.findIndex((line) => line.includes("General Subagent — Inspect failure"))
+    const rowX = row[rowY].indexOf("General Subagent — Inspect failure")
+    await setup.mockMouse.click(rowX + 1, rowY)
+    await setup.waitForFrame((frame) => frame.includes(error) && frame.includes("Open child"))
+    expect(setup.captureCharFrame()).not.toContain("Child failure transcript")
+
+    const expanded = setup.captureCharFrame().split("\n")
+    const openY = expanded.findIndex((line) => line.includes("Open child"))
+    const openX = expanded[openY].indexOf("Open child")
+    await setup.mockMouse.click(openX + 1, openY)
+    await setup.waitForFrame((frame) => frame.includes("Child failure transcript"))
+  } finally {
+    setup.renderer.destroy()
+    await task
+    await server.stop()
+  }
+})

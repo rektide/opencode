@@ -2691,6 +2691,7 @@ function InlineTool(props: {
   complete: unknown
   pending: string
   failure?: string
+  failureAction?: JSX.Element
   spinner?: boolean
   running?: boolean
   status?: JSX.Element
@@ -2736,6 +2737,7 @@ function InlineTool(props: {
       denied={Boolean(denied())}
       error={error()}
       errorExpanded={errorExpanded()}
+      errorAction={props.failureAction}
       complete={props.complete}
       pending={props.pending}
       failure={props.failure}
@@ -3172,6 +3174,9 @@ function WebSearch(props: ToolProps) {
 function Subagent(props: ToolProps) {
   const { navigate } = useRoute()
   const data = useData()
+  const theme = useTheme()
+  const renderer = useRenderer()
+  const [openHovered, setOpenHovered] = createSignal(false)
   const sessionID = createMemo(() => stringValue(props.metadata.sessionID) ?? stringValue(props.metadata.sessionId))
   const description = createMemo(() => stringValue(props.input.description))
   const continuation = createMemo(() => Boolean(stringValue(props.input.sessionID)))
@@ -3189,6 +3194,25 @@ function Subagent(props: ToolProps) {
       complete={description()}
       pending="Delegating…"
       part={props.part}
+      failureAction={
+        <Show when={sessionID()}>
+          <box
+            paddingTop={1}
+            onMouseOver={() => setOpenHovered(true)}
+            onMouseOut={() => setOpenHovered(false)}
+            onMouseUp={(event: MouseEvent) => {
+              event.stopPropagation()
+              if (renderer.getSelection()?.getSelectedText()) return
+              const id = sessionID()
+              if (id) navigate({ type: "session", sessionID: id })
+            }}
+          >
+            <text fg={openHovered() ? theme.text.action.secondary.hovered : theme.text.action.secondary.base}>
+              ↳ Open child
+            </text>
+          </box>
+        </Show>
+      }
       onClick={() => {
         const id = sessionID()
         if (id) navigate({ type: "session", sessionID: id })
