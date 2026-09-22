@@ -22,7 +22,7 @@ describe("Worktree.CreateInput", () => {
 
   test("preserves an explicit Jujutsu base and omits an absent base", () => {
     const input = Schema.decodeUnknownSync(Worktree.CreateInput)({ projectID: "project", base: "@-" })
-    const absent = Schema.decodeUnknownSync(Worktree.CreateInput)({ projectID: "project", base: undefined })
+    const absent = Schema.decodeUnknownSync(Worktree.CreateInput)({ projectID: "project" })
     expect(Schema.encodeSync(Worktree.CreateInput)(input)).toEqual({ projectID: "project", base: "@-" })
     expect(Schema.encodeSync(Worktree.CreateInput)(absent)).toEqual({ projectID: "project" })
   })
@@ -59,8 +59,6 @@ test("discovery entries preserve Jujutsu metadata without encoding absent fields
       type: "jj_workspace",
       workspace: "copy",
       base: "abc",
-      changeID: undefined,
-      commitID: undefined,
     },
   })
   expect(Schema.encodeSync(Worktree.ListEntry)(entry)).toEqual({
