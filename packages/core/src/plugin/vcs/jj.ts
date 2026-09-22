@@ -1,8 +1,8 @@
 export * as VcsJjPlugin from "./jj.js"
 
-import { define } from "@opencode-ai/plugin/effect/plugin"
+import { define } from "@opencode/plugin/effect/plugin"
 import { Effect } from "effect"
-import { AppProcess } from "@opencode-ai/util/process"
+import { AppProcess } from "@opencode/util/process"
 import { Location } from "../../location.js"
 import { VcsJj } from "../../vcs/jj.js"
 
