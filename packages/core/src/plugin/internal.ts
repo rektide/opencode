@@ -99,6 +99,7 @@ import { SkillPlugin } from "./skill.js"
 import { VcsHgPlugin } from "./vcs/hg.js"
 import { ToolInputRepairPlugin } from "./tool-input-repair.js"
 import { OptimizePlugin } from "./optimize.js"
+import { VcsJjPlugin } from "./vcs/jj.js"
 import { VcsGitPlugin } from "./vcs/git.js"
 import { WarmingPlugin } from "./warming.js"
 import { WellKnownPlugin } from "../wellknown/plugin.js"
@@ -222,6 +223,7 @@ const pre = [
   CommandPlugin.Plugin,
   SkillPlugin.Plugin,
   VcsHgPlugin.Plugin,
+  VcsJjPlugin.Plugin,
   ModelsDevPlugin,
   NativeCompactionPlugin.Plugin,
   ...ProviderPlugins,
