@@ -2030,13 +2030,23 @@ function SessionNoticeMessageV2(props: { message: SessionMessageInfo }) {
     return ""
   }
   const description = () => (source() === "shell" ? text().replace(/\s+/g, " ").trim() : text())
+  const context = () => {
+    if (source() !== "subagent") return ""
+    const value = metadata()?.contextTokens
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return ""
+    return ` (${Locale.number(value).replace(/\.0([KM])$/, "$1").toLowerCase()} ctx)`
+  }
   const status = () => {
     if (state() === "completed") return "finished"
     if (state() === "error") return "failed"
     return state() ?? "finished"
   }
   const heading = () => `${state() === "completed" ? "↳" : "!"} ${actor()} ${status()}`
-  const suffix = () => Locale.truncateWidth(` · ${description()}`, Math.max(0, ctx.width - 3 - stringWidth(heading())))
+  const suffix = () => {
+    const usage = context()
+    const width = Math.max(0, ctx.width - 3 - stringWidth(heading()) - stringWidth(usage))
+    return `${Locale.truncateWidth(` · ${description()}`, width)}${usage}`
+  }
   const color = () => {
     if (state() === "error") return theme.text.feedback.error.base
     if (state() === "cancelled") return theme.text.feedback.warning.base
