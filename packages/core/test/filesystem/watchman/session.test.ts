@@ -4,7 +4,7 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { Effect } from "effect"
-import { Session } from "@opencode-ai/core/filesystem/watchman/session"
+import { Session } from "@opencode/core/filesystem/watchman/session"
 
 /** A scripted watchman-compatible peer speaking newline-delimited JSON. */
 function peer(socketPath: string) {

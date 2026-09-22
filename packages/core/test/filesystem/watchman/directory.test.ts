@@ -4,7 +4,7 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { Effect, Scope } from "effect"
-import { WatchmanDirectory } from "@opencode-ai/core/filesystem/watchman/directory"
+import { WatchmanDirectory } from "@opencode/core/filesystem/watchman/directory"
 
 /**
  * A scripted daemon: replies to the attach sequence, records subscriptions,

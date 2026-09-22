@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { Mapping } from "@opencode-ai/core/filesystem/watchman/mapping"
+import { Mapping } from "@opencode/core/filesystem/watchman/mapping"
 
 describe("watchman mapping", () => {
   const L = "/logical/root"
