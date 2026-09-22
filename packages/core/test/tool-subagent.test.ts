@@ -51,7 +51,7 @@ const overrideModel = Model.Ref.make({
   providerID: Provider.ID.make("test"),
   variant: Model.VariantID.make("fast"),
 })
-const tokens = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+const tokens = { input: 100_000, output: 12_000, reasoning: 1_000, cache: { read: 3_000, write: 1_000 } }
 
 const outputSessionID = (value: unknown) =>
   Schema.decodeUnknownSync(Schema.Struct({ sessionID: Session.ID }))(value).sessionID
@@ -828,7 +828,9 @@ describe("SubagentTool", () => {
           const admission = Array.from(yield* Fiber.join(admitted))[0]
           expect(admission?.data.item.type).toBe("synthetic")
           if (admission?.data.item.type !== "synthetic") return yield* Effect.die("Expected synthetic inbox item")
-          expect(admission?.data.item.payload.text).toContain(`<subagent sessionID="${childID}" state="completed"`)
+          expect(admission?.data.item.payload.text).toBe(
+            `<subagent sessionID="${childID}" state="completed" description="background review">\n${childText}\n</subagent>`,
+          )
           expect(admission?.data.item.payload).toMatchObject({
             description: "background review",
             metadata: {
@@ -836,6 +838,7 @@ describe("SubagentTool", () => {
               childID,
               agent: "reviewer",
               state: "completed",
+              contextTokens: 117_000,
             },
           })
           const database = yield* Database.Service
