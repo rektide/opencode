@@ -182,6 +182,7 @@ export function InlineToolRow(props: {
   denied?: boolean
   error?: string
   errorExpanded?: boolean
+  errorAction?: JSX.Element
   complete: unknown
   pending: string
   failure?: string
@@ -244,8 +245,9 @@ export function InlineToolRow(props: {
         </Match>
       </Switch>
       <Show when={props.failed && props.errorExpanded}>
-        <box paddingLeft={INLINE_TOOL_ICON_WIDTH}>
+        <box paddingLeft={INLINE_TOOL_ICON_WIDTH} flexDirection="column">
           <text fg={props.errorColor}>{props.error}</text>
+          {props.errorAction}
         </box>
       </Show>
     </box>
