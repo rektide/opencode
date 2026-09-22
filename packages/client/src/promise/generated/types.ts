@@ -405,6 +405,17 @@ export type WorktreeInfo = { directory: string }
 
 export type VcsBranch = { current?: string; default?: string }
 
+export type VcsWorkingCopy = {
+  label?: string
+  workspace?: string
+  changeID?: string
+  commitID?: string
+  bookmarks: Array<string>
+  description?: string
+  conflicted: boolean
+  empty: boolean
+}
+
 export type VcsBase = { name: string; ref: string; source: "reflog" | "default" }
 
 export type VcsFileStatus = {
@@ -1659,7 +1670,7 @@ export type ReferenceSource = ReferenceLocalSource | ReferenceGitSource
 
 export type WorktreeList = Array<WorktreeDirectory>
 
-export type VcsInfo = { provider?: string; branch: VcsBranch }
+export type VcsInfo = { provider?: string; branch: VcsBranch; workingCopy?: VcsWorkingCopy }
 
 export type SessionInboxMove = {
   id: string
@@ -6190,6 +6201,7 @@ export type WorktreeCreateInput = {
     readonly projectID: string
     readonly from?: string
     readonly branch?: string
+    readonly base?: string
     readonly directory?: string
     readonly name?: string
   }["projectID"]
@@ -6197,6 +6209,7 @@ export type WorktreeCreateInput = {
     readonly projectID: string
     readonly from?: string
     readonly branch?: string
+    readonly base?: string
     readonly directory?: string
     readonly name?: string
   }["from"]
@@ -6204,13 +6217,23 @@ export type WorktreeCreateInput = {
     readonly projectID: string
     readonly from?: string
     readonly branch?: string
+    readonly base?: string
     readonly directory?: string
     readonly name?: string
   }["branch"]
+  readonly base?: {
+    readonly projectID: string
+    readonly from?: string
+    readonly branch?: string
+    readonly base?: string
+    readonly directory?: string
+    readonly name?: string
+  }["base"]
   readonly directory?: {
     readonly projectID: string
     readonly from?: string
     readonly branch?: string
+    readonly base?: string
     readonly directory?: string
     readonly name?: string
   }["directory"]
@@ -6218,6 +6241,7 @@ export type WorktreeCreateInput = {
     readonly projectID: string
     readonly from?: string
     readonly branch?: string
+    readonly base?: string
     readonly directory?: string
     readonly name?: string
   }["name"]

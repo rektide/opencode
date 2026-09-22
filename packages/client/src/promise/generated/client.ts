@@ -1958,6 +1958,7 @@ export function make(options: ClientOptions) {
               projectID: input["projectID"],
               from: input["from"],
               branch: input["branch"],
+              base: input["base"],
               directory: input["directory"],
               name: input["name"],
             },
