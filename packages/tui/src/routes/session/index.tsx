@@ -3160,7 +3160,7 @@ function WebSearch(props: ToolProps) {
                 provider: value(),
                 running: props.part.state.status === "running",
               }}
-              enabled={ctx.config.animations ?? true}
+              enabled={ctx.config.animations !== false}
             />
           </>
         )}
