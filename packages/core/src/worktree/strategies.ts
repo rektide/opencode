@@ -6,18 +6,24 @@ import { makeLocationNode } from "@opencode/util/effect/app-node"
 import { Global } from "@opencode/util/global"
 import { Worktree } from "@opencode/schema/worktree"
 import { AbsolutePath } from "../schema.js"
+import { AppProcess } from "@opencode/util/process"
+import { Database } from "../database/database.js"
 import { Git } from "../git.js"
 import { Location } from "../location.js"
+import { ProjectSchema } from "../project/schema.js"
 import { State } from "../state.js"
 import { WorktreeGit } from "./git.js"
+import { WorktreeJj } from "./jj.js"
 import { FSUtil } from "@opencode/util/fs-util"
 
 export interface Strategy {
   readonly id: Worktree.StrategyID
+  readonly vcs?: ProjectSchema.Vcs["type"]
   readonly create: (input: {
     sourceDirectory: AbsolutePath
     directory: AbsolutePath
     branch?: string
+    base?: string
   }) => Effect.Effect<Worktree.Info, unknown>
   readonly remove: (input: { directory: AbsolutePath; force: boolean }) => Effect.Effect<void, unknown>
   readonly list: (directory: AbsolutePath) => Effect.Effect<readonly Worktree.ListEntry[], unknown>
@@ -45,12 +51,14 @@ const layer = Layer.effect(
     const location = yield* Location.Service
     const global = yield* Global.Service
     const git = yield* WorktreeGit.make
+    const jj = yield* WorktreeJj.make
+    const strategies = [git, jj]
     const state = State.create({
       name: "worktree",
       initial: () => ({
         directory: AbsolutePath.make(path.join(global.data, "worktree", location.project.id.slice(0, 6))),
-        strategies: new Map<Worktree.StrategyID, Strategy>([[git.id, git]]),
-        selected: git.id,
+        strategies: new Map<Worktree.StrategyID, Strategy>(strategies.map((strategy) => [strategy.id, strategy])),
+        selected: strategies.find((strategy) => strategy.vcs === location.vcs?.type)?.id ?? git.id,
       }),
       editor: (value): Editor => ({
         configure: (settings) => {
@@ -70,5 +78,5 @@ const layer = Layer.effect(
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [Location.node, Global.node, Git.node, FSUtil.node],
+  deps: [Location.node, Global.node, Git.node, FSUtil.node, Database.node, AppProcess.node],
 })
