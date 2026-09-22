@@ -6169,7 +6169,6 @@ export type WorktreeCreateInput = {
     readonly projectID: string
     readonly from?: string
     readonly branch?: string
-    readonly base?: string
     readonly directory?: string
     readonly name?: string
   }["projectID"]
@@ -6177,7 +6176,6 @@ export type WorktreeCreateInput = {
     readonly projectID: string
     readonly from?: string
     readonly branch?: string
-    readonly base?: string
     readonly directory?: string
     readonly name?: string
   }["from"]
@@ -6185,23 +6183,13 @@ export type WorktreeCreateInput = {
     readonly projectID: string
     readonly from?: string
     readonly branch?: string
-    readonly base?: string
     readonly directory?: string
     readonly name?: string
   }["branch"]
-  readonly base?: {
-    readonly strategy?: string
-    readonly from?: string
-    readonly branch?: string
-    readonly base?: string
-    readonly directory?: string
-    readonly name?: string
-  }["base"]
   readonly directory?: {
     readonly projectID: string
     readonly from?: string
     readonly branch?: string
-    readonly base?: string
     readonly directory?: string
     readonly name?: string
   }["directory"]
@@ -6209,7 +6197,6 @@ export type WorktreeCreateInput = {
     readonly projectID: string
     readonly from?: string
     readonly branch?: string
-    readonly base?: string
     readonly directory?: string
     readonly name?: string
   }["name"]
