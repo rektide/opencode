@@ -115,12 +115,13 @@ export function createNewSessionWorkspaceController(input: {
       (item) => item.strategy !== undefined && !sameDirectory(project.worktree, item.directory),
     ).length
   })
-  const visible = createMemo(() =>
-    resolveNewSessionGit({
+  const visible = createMemo(() => {
+    const vcs = data.location.vcs.info({ directory: sdk().directory })
+    return resolveNewSessionGit({
       projectVcs: currentProject()?.vcs,
-      branch: data.location.vcs.info({ directory: sdk().directory })?.branch.current,
-    }),
-  )
+      branch: vcs?.branch.current ?? vcs?.workingCopy?.label,
+    })
+  })
   const selected = createMemo(() => {
     const project = currentProject()
     const worktree = input.selectedWorktree()
@@ -177,7 +178,10 @@ export function createNewSessionWorkspaceController(input: {
       worktree: value(),
       directory: sdk().directory,
       createBranch: input.selectedBranch(),
-      worktreeBranch: (worktree) => data.location.vcs.info({ directory: worktree })?.branch.current,
+      worktreeBranch: (worktree) => {
+        const vcs = data.location.vcs.info({ directory: worktree })
+        return vcs?.branch.current ?? vcs?.workingCopy?.label
+      },
     }),
   )
   const remember = (worktree = value()) => {
