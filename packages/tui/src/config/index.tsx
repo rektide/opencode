@@ -187,6 +187,10 @@ export const Info = Schema.Struct({
       permissions: Schema.optional(Schema.Literals(["prompt", "autoaccept"])).annotate({
         description: "Prompt for permission requests or accept them automatically",
       }),
+      interactive_children: Schema.optional(Schema.Boolean).annotate({
+        description:
+          "Give child sessions (subagents) an interactive prompt composer; false restores the stock masked child view",
+      }),
     }),
   ).annotate({ description: "Session transcript presentation settings" }),
   tabs: Schema.optional(

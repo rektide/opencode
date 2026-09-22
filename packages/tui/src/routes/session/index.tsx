@@ -220,6 +220,8 @@ export function Session(props: {
   const markdownMode = createMemo(() => config.session?.markdown ?? "rendered")
   const diffWrapMode = createMemo(() => config.diffs?.wrap ?? "word")
   const groupExploration = createMemo(() => config.session?.grouping !== "none")
+  const interactiveChildren = createMemo(() => config.session?.interactive_children ?? true)
+  const childComposerMasked = createMemo(() => !interactiveChildren() && !!session()?.parentID)
 
   Keymap.createLayer(() => ({
     priority: 10,
@@ -1167,7 +1169,7 @@ export function Session(props: {
       id: "session.child.first",
       group: "Session",
       run: () => {
-        if (composer.open) setComposer("open", false)
+        if (composer.open || childComposerMasked()) setComposer("open", false)
         else setComposer({ open: true, tab: "subagents" })
         dialog.clear()
       },
@@ -1226,7 +1228,7 @@ export function Session(props: {
 
   Keymap.createLayer(() => ({
     priority: 2,
-    enabled: () => !composer.open && !!session()?.parentID,
+    enabled: () => interactiveChildren() && !composer.open && !!session()?.parentID,
     bindings: ["session.parent"],
   }))
 
@@ -1358,8 +1360,8 @@ export function Session(props: {
               <Slot path="session.composer.top" input={{ sessionID: route.sessionID }} />
               <Composer
                 sessionID={route.sessionID}
-                open={composer.open}
-                defaultTab={composer.tab}
+                open={composer.open || (childComposerMasked() && forms().length === 0)}
+                defaultTab={composer.tab ?? (childComposerMasked() ? "subagents" : undefined)}
                 onClose={() => {
                   const parent = session()?.parentID
                   if (parent) {
@@ -1371,7 +1373,7 @@ export function Session(props: {
                 visibleTerminalID={props.visibleTerminalID}
               />
               <Switch>
-                <Match when={composer.open}>{null}</Match>
+                <Match when={composer.open || (childComposerMasked() && forms().length === 0)}>{null}</Match>
                 <Match when={promptedPermissions().length > 0}>
                   <Show when={promptedPermissions()[0]?.id} keyed>
                     {(_) => {
