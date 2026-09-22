@@ -133,8 +133,9 @@ If you are working on a project that's related to OpenCode and is using "opencod
 ## Local patch: interactive child sessions
 
 This workspace carries the `sub-interactive` TUI patch on base commit
-`312651f68ed2` (`feat(tui): configure session permission handling (#48545)`).
-The source of truth is the **TUI child-session interaction** entry in
+`dcfe1ec7bd49` (`feat(app): add /btw side question panel (#49750)`), freshened
+2026-09-22 from the original `312651f68ed2` line. The source of truth is the
+**TUI child-session interaction** entry in
 [`/home/rektide/a/doc/opencode/patches.md`](file:///home/rektide/a/doc/opencode/patches.md),
 with lifecycle background in
 [`/home/rektide/a/doc/opencode/subagents.md`](file:///home/rektide/a/doc/opencode/subagents.md).
@@ -148,24 +149,37 @@ current `route.sessionID`; a response produced after the original subagent Job
 has settled remains in the child transcript and is not automatically returned
 to the parent.
 
-The global disarm has no configuration gate and introduces no new keybinding:
+**Decision reversed 2026-09-22 (operator direction — feature flags on promoted
+lines).** The 2026-09-11 decision was "disarm is global — no
+`session.interactive_children` config, no keybind gate". That is reversed: the
+feature now carries exactly that config key as a self-disable flag, so
+promotion into `working` is reversible at runtime without recomposing. The
+flag is a TUI config boolean read in `routes/session/index.tsx`:
 
-| Guard | Requested pin | Location on the base | Final line |
-| --- | ---: | ---: | ---: |
-| Picker toggle no longer force-closes on children | 1197 | 1166 | [`packages/tui/src/routes/session/index.tsx:1166`](packages/tui/src/routes/session/index.tsx#L1166) |
-| Composer is no longer force-opened on children | 1381 | 1350 | [`packages/tui/src/routes/session/index.tsx:1356`](packages/tui/src/routes/session/index.tsx#L1356) |
-| Composer no longer forces the `subagents` default tab | 1382 | 1351 | [`packages/tui/src/routes/session/index.tsx:1357`](packages/tui/src/routes/session/index.tsx#L1357) |
-| The render switch suppresses the prompt only while the picker is open | 1394 | 1363 | [`packages/tui/src/routes/session/index.tsx:1369`](packages/tui/src/routes/session/index.tsx#L1369) |
+- `session.interactive_children` — default **`true`** (unset = feature active:
+  composer visible on child sessions). Set `false` in the TUI config file to
+  restore **exact upstream behavior**: composer guards re-armed (composer
+  force-opened on the `subagents` tab, prompt suppressed, picker toggle
+  force-closes on children) and the child-only priority-2 `session.parent`
+  keymap layer never enables. The flag hot-reloads with the rest of the TUI
+  config.
 
-All four guards had drifted 31 lines earlier than the requested pins on the
-specified base. The final render lines are six lines later than those relocated
-positions because the patch also preserves parent navigation at
-[`packages/tui/src/routes/session/index.tsx:1223-1227`](packages/tui/src/routes/session/index.tsx#L1223-L1227).
-When the picker is closed on a child, this child-only base-mode layer gives the
-existing `session.parent` command priority over the focused prompt's history
-binding. Thus `up` still navigates to the parent. When the picker is open,
-Composer activates `composer` mode as before; closing its subagents tab still
-uses the existing `onClose` path to navigate to the parent.
+The disarm sites are gated on that flag (line pins are on the current base):
+
+| Guard (feature-active behavior) | Final line |
+| --- | ---: |
+| Picker toggle no longer force-closes on children | [`packages/tui/src/routes/session/index.tsx:1175`](packages/tui/src/routes/session/index.tsx#L1175) |
+| Composer is no longer force-opened on children | [`packages/tui/src/routes/session/index.tsx:1366`](packages/tui/src/routes/session/index.tsx#L1366) |
+| Composer no longer forces the `subagents` default tab | [`packages/tui/src/routes/session/index.tsx:1367`](packages/tui/src/routes/session/index.tsx#L1367) |
+| The render switch suppresses the prompt only while the picker is open | [`packages/tui/src/routes/session/index.tsx:1379`](packages/tui/src/routes/session/index.tsx#L1379) |
+| Child-only priority-2 keymap layer for `session.parent` | [`packages/tui/src/routes/session/index.tsx:1234`](packages/tui/src/routes/session/index.tsx#L1234) |
+
+When the picker is closed on a child (flag active), this child-only base-mode
+layer gives the existing `session.parent` command priority over the focused
+prompt's history binding. Thus `up` still navigates to the parent. When the
+picker is open, Composer activates `composer` mode as before; closing its
+subagents tab still uses the existing `onClose` path to navigate to the
+parent.
 
 ### Deliberate v1 constraint — **may revisit**
 
@@ -201,6 +215,12 @@ against the elected background server and live Sessions.
   `packages/tui/src/routes/session`, and no existing test directly covers these
   child-view guards; tests importing that module exercise exported display
   helpers instead.
+- [x] Run the flag suite `bun test test/cli/tui/child-composer-flag.test.tsx`
+  (2 passed: default keeps the child composer interactive with `up`
+  navigating to the parent; `session.interactive_children: false` restores
+  stock masking). 2026-09-22 full set: child-composer-flag 2, composer-keymap 6,
+  input-scope 5, keymap trio (keymap + keymap-scope + keybind) 9, typecheck
+  clean.
 - [ ] Open a running child and submit a prompt; verify it steers the active run.
 - [ ] Open a completed child and submit a prompt; verify it continues in the
   child transcript without an implicit return to the parent.
@@ -210,3 +230,7 @@ against the elected background server and live Sessions.
 - [ ] With the picker closed on a child, press `up` and verify navigation to the
   parent. Reopen the subagents picker and verify its close action also navigates
   to the parent.
+- [ ] Set `session.interactive_children: false` in the TUI config and verify a
+  child session looks exactly stock: subagents picker force-opened, no prompt
+  input, `down` does not open the picker on a child. Toggle the file back to
+  confirm hot-reload re-activates the composer without a restart.
