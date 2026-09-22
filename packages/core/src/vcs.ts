@@ -172,9 +172,12 @@ const layer = Layer.effect(
         if (vcs?.type === "jj") {
           const provider = selected()
           if (provider)
-            current.info = yield* protect(provider, "info", provider.info(scope).pipe(Effect.flatMap(decodeInfo)), {
-              branch: {},
-            })
+            current.info = {
+              ...(yield* protect(provider, "info", provider.info(scope).pipe(Effect.flatMap(decodeInfo)), {
+                branch: {},
+              })),
+              provider: provider.id,
+            }
         }
         return current.info
       }),

@@ -3,14 +3,14 @@ import { describe, expect } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
 import { Effect, Layer } from "effect"
-import { LayerNode } from "@opencode-ai/util/effect/layer-node"
-import { Bus } from "@opencode-ai/core/bus"
-import { Location } from "@opencode-ai/core/location"
-import { AbsolutePath } from "@opencode-ai/core/schema"
-import { Vcs } from "@opencode-ai/core/vcs"
-import { VcsJjPlugin } from "@opencode-ai/core/plugin/vcs/jj"
-import { AppProcess } from "@opencode-ai/util/process"
-import { FSUtil } from "@opencode-ai/util/fs-util"
+import { LayerNode } from "@opencode/util/effect/layer-node"
+import { Bus } from "@opencode/core/bus"
+import { Location } from "@opencode/core/location"
+import { AbsolutePath } from "@opencode/core/schema"
+import { Vcs } from "@opencode/core/vcs"
+import { VcsJjPlugin } from "@opencode/core/plugin/vcs/jj"
+import { AppProcess } from "@opencode/util/process"
+import { FSUtil } from "@opencode/util/fs-util"
 import { location } from "./fixture/location"
 import { tmpdir } from "./fixture/tmpdir"
 import { host } from "./plugin/host"
@@ -77,6 +77,7 @@ describeJj("Vcs Jujutsu", () => {
         const vcs = yield* Vcs.Service
 
         const info = yield* vcs.info()
+        expect(info.provider).toBe("jj")
         expect(info.workingCopy?.label).toBe("main+1")
         expect(info.workingCopy?.bookmarks).toEqual([])
       }),

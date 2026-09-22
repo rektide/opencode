@@ -3,9 +3,9 @@ export * as VcsJj from "./jj.js"
 import path from "path"
 import { Effect } from "effect"
 import { ChildProcess } from "effect/unstable/process"
-import { FileDiff } from "@opencode-ai/schema/file-diff"
-import { FileStatus, Info, Mode } from "@opencode-ai/schema/vcs"
-import { AppProcess } from "@opencode-ai/util/process"
+import { FileDiff } from "@opencode/schema/file-diff"
+import { FileStatus, Info, Mode } from "@opencode/schema/vcs"
+import { AppProcess } from "@opencode/util/process"
 import type { BranchOptions, DiffOptions } from "../vcs.js"
 import {
   chunksByFile,
