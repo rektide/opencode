@@ -83,7 +83,7 @@ describe("environment arguments", () => {
     expect(received).toEqual(["explicit"])
   })
 
-  test("only applies TUI defaults to the default TUI command", () => {
+  test("silently leaves TUI defaults unused on CLI subcommands", () => {
     const result = prepareArguments(
       commands,
       ["run", "--server", "explicit"],
@@ -95,9 +95,7 @@ describe("environment arguments", () => {
     )
 
     expect(result.args).toEqual(["run", "--server", "explicit", "--server", "fallback"])
-    expect(result.warnings).toEqual([
-      "OPENCODE_TUI_ARGS ignored for the run command; it only applies to the interactive TUI.",
-    ])
+    expect(result.warnings).toEqual([])
   })
 
   test("applies TUI defaults to the interactive mini command", () => {
