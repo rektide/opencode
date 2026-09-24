@@ -30,6 +30,7 @@ export function prepareArguments(
   const knownFlags = flagsInTree(commands, globalParams)
   const supportedFlags = flagsFor(route, globalParams)
 
+  // TUI-scoped defaults are inactive outside the root TUI and `mini` routes.
   if (environment.OPENCODE_TUI_ARGS && (route === commands || route.name === "mini")) {
     addSource("OPENCODE_TUI_ARGS", environment.OPENCODE_TUI_ARGS, supportedFlags, knownFlags, sources, warnings)
   }
