@@ -14193,6 +14193,10 @@
               "buffer": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "grace": {
+                "type": "integer",
+                "minimum": 0
               }
             },
             "additionalProperties": false

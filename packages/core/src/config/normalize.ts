@@ -371,6 +371,10 @@ function normalizeCompaction(
     : undefined
   const buffer = prefer(legacyBuffer, nativeBuffer, ["compaction", "buffer"], diagnostics)
   if (buffer !== undefined) result.buffer = buffer
+  const grace = own(input.compaction, "grace")
+    ? decodeEncoded(ConfigCompaction.Info.fields.grace, input.compaction.grace, ["compaction", "grace"], diagnostics)
+    : undefined
+  if (grace !== undefined) result.grace = grace
   if (Object.keys(result).length || !Object.keys(input.compaction).length) encoded.compaction = result
 }
 

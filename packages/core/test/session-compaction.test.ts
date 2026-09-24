@@ -271,6 +271,88 @@ it.effect("auto compaction estimates current content against the buffered prompt
   }),
 )
 
+it.effect("compaction grace defers the automatic threshold without changing ordinary behavior", () =>
+  Effect.gen(function* () {
+    const compaction = yield* SessionCompaction.Service
+    const session = Session.Info.make({
+      id: Session.ID.make("ses_grace"),
+      projectID: Project.ID.global,
+      cost: Money.USD.zero,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      time: { created: DateTime.makeUnsafe(0), updated: DateTime.makeUnsafe(0) },
+      location: Location.Ref.make({ directory: AbsolutePath.make("/tmp") }),
+    })
+    const input = (tokens: number, limit: { context: number; input?: number; output: number }) => {
+      const resolved = SessionRunnerModel.resolved(model, {
+        capabilities: { tools: true, input: ["text"], output: ["text"] },
+        cost: [],
+        limit,
+      })
+      const messages = [
+        Schema.decodeUnknownSync(SessionMessage.Assistant)({
+          id: SessionMessage.ID.make("msg_assistant"),
+          type: "assistant",
+          agent: Agent.defaultID,
+          model: { id: "test-model", providerID: "test-provider" },
+          content: [{ type: "text", text: "Done" }],
+          tokens: { input: tokens, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          time: { created: 0, completed: 0 },
+        }),
+      ]
+      return {
+        session,
+        resolved,
+        messages,
+        context: {
+          session,
+          model: resolved,
+          messages,
+          agent: { id: Agent.defaultID, info: Agent.Info.default(Agent.defaultID) },
+          initial: "",
+          tools: { definitions: [], execute: () => Effect.die("unused") },
+        },
+      }
+    }
+
+    // Context-bound: ordinary ceiling is 100_000 - max(10_000, 20_000) = 80_000.
+    const contextLimited = { context: 100_000, output: 10_000 }
+    // Input-bound: ordinary ceiling is 272_000 - 20_000 = 252_000.
+    const inputLimited = { context: 400_000, input: 272_000, output: 128_000 }
+
+    // The default grace of zero leaves the ordinary thresholds in place.
+    expect(compaction.required(input(79_999, contextLimited))).toBe(false)
+    expect(compaction.required(input(80_000, contextLimited))).toBe(true)
+    expect(compaction.required(input(251_999, inputLimited))).toBe(false)
+    expect(compaction.required(input(252_000, inputLimited))).toBe(true)
+
+    yield* compaction.transform((editor) => editor.configure({ grace: 20_000 }))
+
+    // Grace defers the context-bound ceiling from 80_000 to 100_000.
+    expect(compaction.required(input(99_999, contextLimited))).toBe(false)
+    expect(compaction.required(input(100_000, contextLimited))).toBe(true)
+    // Grace defers the input-bound ceiling from 252_000 to 272_000.
+    expect(compaction.required(input(271_999, inputLimited))).toBe(false)
+    expect(compaction.required(input(272_000, inputLimited))).toBe(true)
+
+    // Grace never rescues a model without a usable context limit.
+    expect(compaction.required(input(200_000, { context: 0, output: 10_000 }))).toBe(false)
+
+    yield* compaction.transform((editor) => editor.configure({ grace: 1_000_000 }))
+    expect(compaction.required(input(1_079_999, contextLimited))).toBe(false)
+    expect(compaction.required(input(1_080_000, contextLimited))).toBe(true)
+
+    // An explicit zero grace restores the ordinary ceiling.
+    yield* compaction.transform((editor) => editor.configure({ grace: 0 }))
+    expect(compaction.required(input(79_999, contextLimited))).toBe(false)
+    expect(compaction.required(input(80_000, contextLimited))).toBe(true)
+
+    // Grace is irrelevant while automatic compaction is disabled.
+    yield* compaction.transform((editor) => editor.configure({ auto: false, grace: 500_000 }))
+    expect(compaction.required(input(2_000_000, contextLimited))).toBe(false)
+  }),
+)
+
+
 /** Seeds the global project plus one session row, returning the projected session. */
 const insertSession = (id: Session.ID, overrides?: Partial<typeof SessionTable.$inferInsert>) =>
   Effect.gen(function* () {

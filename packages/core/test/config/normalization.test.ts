@@ -387,6 +387,16 @@ describe("ConfigNormalize", () => {
     ])
   })
 
+  test("decodes compaction grace and rejects negative values", () => {
+    const result = normalized({ compaction: { grace: 300_000 } })
+    expect(result.encoded.compaction).toEqual({ grace: 300_000 })
+    expect(result.diagnostics).toEqual([])
+
+    const rejected = normalized({ compaction: { grace: -1 } })
+    expect(rejected.encoded.compaction).toBeUndefined()
+    expect(rejected.diagnostics.map((item) => [item.kind, item.path])).toEqual([["invalid", ["compaction", "grace"]]])
+  })
+
   test("distinguishes empty, mixed, and wholly malformed enabled provider lists", () => {
     expect(normalized({ enabled_providers: [] }).encoded.experimental).toEqual({
       policies: [{ action: "provider.use", resource: "*", effect: "deny" }],

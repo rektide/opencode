@@ -83,6 +83,8 @@ const SUMMARY_HEADINGS = SUMMARY_TEMPLATE.split("\n").filter((line) => line.star
 export type Settings = {
   auto: boolean
   buffer: number
+  /** Extra estimated tokens allowed past the ordinary prompt ceiling before automatic compaction. */
+  grace: number
   tokens: number
 }
 
@@ -339,11 +341,12 @@ export const layer = Layer.effect(
 
     const state = State.create<Settings, Editor>({
       name: "session-compaction",
-      initial: () => ({ auto: true, buffer: DEFAULT_BUFFER, tokens: DEFAULT_KEEP_TOKENS }),
+      initial: () => ({ auto: true, buffer: DEFAULT_BUFFER, grace: 0, tokens: DEFAULT_KEEP_TOKENS }),
       editor: (editor) => ({
         configure: (settings) => {
           if (settings.auto !== undefined) editor.auto = settings.auto
           if (settings.buffer !== undefined) editor.buffer = settings.buffer
+          if (settings.grace !== undefined) editor.grace = settings.grace
           if (settings.tokens !== undefined) editor.tokens = settings.tokens
         },
       }),
@@ -559,7 +562,9 @@ export const layer = Layer.effect(
         limit.input === undefined ? Number.POSITIVE_INFINITY : limit.input - config.buffer,
         context - Math.max(output, config.buffer),
       )
-      return estimateTokens(input) >= promptCeiling
+      // Grace defers automatic compaction past the ordinary ceiling but cannot rescue an infinite one.
+      const ceiling = promptCeiling + (Number.isFinite(promptCeiling) ? config.grace : 0)
+      return estimateTokens(input) >= ceiling
     }
     const compactManual = Effect.fn("SessionCompaction.compactManual")(function* (input: ManualInput) {
       if (findTailStart(input.messages, state.get().tokens) === undefined)

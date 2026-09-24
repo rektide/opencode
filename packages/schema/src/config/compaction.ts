@@ -11,4 +11,6 @@ export class Info extends Schema.Class<Info>("Config.Compaction")({
   auto: Schema.Boolean.pipe(optional),
   keep: Keep.pipe(optional),
   buffer: NonNegativeInt.pipe(optional),
+  /** Extra estimated tokens allowed past the ordinary automatic-compaction threshold. */
+  grace: NonNegativeInt.pipe(optional),
 }) {}

@@ -136,6 +136,45 @@ describe("ConfigCompactionPlugin.Plugin", () => {
       yield* Effect.die(new Error("Timed out waiting for compaction config reload"))
     }),
   )
+
+  it.live("maps compaction grace into the automatic threshold and reloads changes", () =>
+    Effect.gen(function* () {
+      const compaction = yield* SessionCompaction.Service
+      const config = yield* Config.Test
+      const bus = yield* Bus.Service
+      yield* config.setEntries([
+        new Document({
+          type: "document",
+          info: new Info({ compaction: new ConfigCompaction.Info({ auto: true, buffer: 20_000 }) }),
+        }),
+        new Document({
+          type: "document",
+          info: new Info({ compaction: new ConfigCompaction.Info({ grace: 10_000 }) }),
+        }),
+      ])
+      yield* ConfigCompactionPlugin.Plugin.effect(host({ event: { subscribe: () => bus.subscribe(Event.Updated) } }))
+
+      // The 80_000 ordinary ceiling is deferred to 90_000 by the effective grace.
+      expect(compaction.required(input(89_999))).toBe(false)
+      expect(compaction.required(input(90_000))).toBe(true)
+
+      yield* config.setEntries([
+        new Document({
+          type: "document",
+          info: new Info({ compaction: new ConfigCompaction.Info({ auto: true, buffer: 20_000, grace: 0 }) }),
+        }),
+      ])
+      yield* bus.publish(Event.Updated, {})
+      yield* Effect.gen(function* () {
+        for (let attempt = 0; attempt < 200; attempt++) {
+          if (compaction.required(input(85_000))) return
+          yield* Effect.sleep("10 millis")
+        }
+        yield* Effect.die(new Error("Timed out waiting for compaction config reload"))
+      })
+      expect(compaction.required(input(79_999))).toBe(false)
+    }),
+  )
 })
 
 const session = Session.Info.make({
