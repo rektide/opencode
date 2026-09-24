@@ -30,12 +30,8 @@ export function prepareArguments(
   const knownFlags = flagsInTree(commands, globalParams)
   const supportedFlags = flagsFor(route, globalParams)
 
-  if (environment.OPENCODE_TUI_ARGS) {
-    if (route !== commands && route.name !== "mini") {
-      warnings.push(`OPENCODE_TUI_ARGS ignored for the ${route.name} command; it only applies to the interactive TUI.`)
-    } else {
-      addSource("OPENCODE_TUI_ARGS", environment.OPENCODE_TUI_ARGS, supportedFlags, knownFlags, sources, warnings)
-    }
+  if (environment.OPENCODE_TUI_ARGS && (route === commands || route.name === "mini")) {
+    addSource("OPENCODE_TUI_ARGS", environment.OPENCODE_TUI_ARGS, supportedFlags, knownFlags, sources, warnings)
   }
 
   if (environment.OPENCODE_ARGS) {
